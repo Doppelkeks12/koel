@@ -1,0 +1,23 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+export PNPM_HOME="$HOME/.local/share/pnpm"
+export PATH="$PNPM_HOME:$PATH"
+
+# Get Version
+VERSION=$(cat .version)
+echo "Version: $VERSION"
+
+# Setup
+composer install --prefer-dist --no-dev --optimize-autoloader
+php artisan koel:init --no-interaction
+
+# Create archiv
+rm -rf .git ./node_modules ./storage/search-indexes/*.index ./koel.db ./.env .ddev
+cd ../
+zip -r "/var/www/html/koel-doppelkeks12-${VERSION}.zip" html/
+tar -zcf "/var/www/html/koel-doppelkeks12-${VERSION}.tar.gz" html/
+
+echo "Archives created:"
+echo "/var/www/html/koel-doppelkeks12-${VERSION}.zip"
+echo "/var/www/html/koel-doppelkeks12-${VERSION}.tar.gz"
