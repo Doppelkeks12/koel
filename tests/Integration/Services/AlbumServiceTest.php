@@ -9,6 +9,8 @@ use App\Models\Song;
 use App\Services\AlbumService;
 use App\Services\ImageStorage;
 use App\Values\Album\AlbumUpdateData;
+use App\Values\ImageWritingConfig;
+use Mockery;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
@@ -126,6 +128,15 @@ class AlbumServiceTest extends TestCase
             ->expects('storeImage')
             ->with('dummy-src')
             ->andReturn('foo.webp');
+
+        $this->imageStorage
+            ->expects('storeImage')
+            ->with(
+                'dummy-src',
+                Mockery::on(static fn ($config) => $config instanceof ImageWritingConfig),
+                image_storage_path('foo_fullscreen.webp'),
+            )
+            ->andReturn('foo_fullscreen.webp');
 
         $this->service->storeAlbumCover($album, 'dummy-src');
 

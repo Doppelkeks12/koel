@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Laravel\Scout\Searchable;
 use OwenIt\Auditing\Auditable;
@@ -27,6 +28,8 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property ?boolean $favorite Whether the album is liked by the scoped user
  * @property ?int $year
  * @property ?string $thumbnail The album's thumbnail file name
+ * @property ?string $full_screen_cover The album's full_screen_cover file name
+ * @property ?string $full_screen_cover_name The file name of the album's full screen cover image
  * @property Artist $artist The album's artist
  * @property Carbon $created_at
  * @property Collection<array-key, Song> $songs
@@ -127,6 +130,36 @@ class Album extends Model implements AuditableContract, Embeddable, Favoriteable
             }
 
             return sprintf('%s_thumb.%s', Str::beforeLast($this->cover, '.'), Str::afterLast($this->cover, '.'));
+        })->shouldCache();
+    }
+
+    protected function fullScreenCoverName(): Attribute
+    {
+        return Attribute::get(function (): ?string {
+            if (!$this->cover) {
+                return null;
+            }
+
+            return sprintf(
+                '%s_fullscreen.%s',
+                Str::beforeLast($this->cover, '.'),
+                Str::afterLast($this->cover, '.')
+            );
+        })->shouldCache();
+    }
+
+    protected function fullScreenCover(): Attribute
+    {
+        return Attribute::get(function (): ?string {
+            if (!$this->full_screen_cover_name) {
+                return null;
+            }
+
+            if (File::exists(image_storage_path($this->full_screen_cover_name)) !== true) {
+                return null;
+            }
+
+            return $this->full_screen_cover_name;
         })->shouldCache();
     }
 

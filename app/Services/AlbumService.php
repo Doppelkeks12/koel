@@ -44,6 +44,10 @@ class AlbumService
 
         $album->update($data);
 
+        if (is_string($dto->cover)) {
+            rescue_if($dto->cover, fn () => $this->generateFullScreenCover($album, $dto->cover));
+        }
+
         return $album->refresh();
     }
 
@@ -52,6 +56,8 @@ class AlbumService
         $fileName = $this->imageStorage->storeImage($source);
         $album->cover = $fileName;
         $album->save();
+
+        $this->generateFullScreenCover($album, $source);
 
         return $fileName;
     }
@@ -105,5 +111,18 @@ class AlbumService
         }
 
         return $album->thumbnail;
+    }
+
+    private function generateFullScreenCover(Album $album, string $source): string
+    {
+        $this->imageStorage->storeImage(
+            $source,
+            ImageWritingConfig::make(
+                maxWidth: 1920
+            ),
+            image_storage_path($album->full_screen_cover_name)
+        );
+
+        return $album->full_screen_cover_name;
     }
 }
