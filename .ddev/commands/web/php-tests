@@ -1,0 +1,4 @@
+composer test
+composer cs
+composer cs:fix
+composer analyze

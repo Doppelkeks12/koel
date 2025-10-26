@@ -1,0 +1,6 @@
+#!/usr/bin/bash
+export PNPM_HOME="$HOME/.local/share/pnpm"
+export PATH="$PNPM_HOME:$PATH"
+pnpm build # Build a production version of the client application
+pnpm test
+pnpm lint

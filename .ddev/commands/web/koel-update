@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+export PNPM_HOME="$HOME/.local/share/pnpm"
+export PATH="$PNPM_HOME:$PATH"
+composer install
+php artisan koel:init
