@@ -15,8 +15,10 @@ php artisan koel:init --no-interaction
 # Create archiv
 rm -rf .git ./node_modules ./storage/search-indexes/*.index ./koel.db ./.env .ddev
 cd ../
-zip -r "/var/www/html/koel-doppelkeks12-${VERSION}.zip" html/
-tar -zcf "/var/www/html/koel-doppelkeks12-${VERSION}.tar.gz" html/
+zip -r "/var/www/koel-doppelkeks12-${VERSION}.zip" html/
+tar -zcf "/var/www/koel-doppelkeks12-${VERSION}.tar.gz" html/
+mv "/var/www/koel-doppelkeks12-${VERSION}.zip" "/var/www/html/"
+mv "/var/www/koel-doppelkeks12-${VERSION}.tar.gz" "/var/www/html/"
 
 echo "Archives created:"
 echo "/var/www/html/koel-doppelkeks12-${VERSION}.zip"
