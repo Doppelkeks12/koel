@@ -16,10 +16,9 @@
 
 <script lang="ts" setup>
 import { nextTick, ref, toRefs, watch } from 'vue'
-import { onClickOutside } from '@vueuse/core'
 import { logger } from '@/utils/logger'
 import { requireInjection } from '@/utils/helpers'
-import { ContextMenuKey } from '@/symbols'
+import { ContextMenuKey } from '@/config/symbols'
 
 const props = defineProps<{ extraClass?: string }>()
 const { extraClass } = toRefs(props)
@@ -129,8 +128,6 @@ watch(options, newOptions => {
     close()
   }
 })
-
-onClickOutside(el, close)
 </script>
 
 <style lang="postcss" scoped>

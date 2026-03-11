@@ -22,6 +22,7 @@ export const usePlayableListControls = (
       'RecentlyPlayed',
       'Playlist',
       'Search.Playables',
+      'OfflineSongs',
     ].includes(screen),
   }
 

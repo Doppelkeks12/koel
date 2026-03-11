@@ -28,10 +28,12 @@ describe('editPlaylistForm.vue', () => {
     const updateMock = h.mock(playlistStore, 'update')
     playlistFolderStore.state.folders = h.factory('playlist-folder', 3)
 
-    const { playlist } = renderComponent(h.factory('playlist', {
-      name: 'My playlist',
-      folder_id: playlistFolderStore.state.folders[0].id,
-    }))
+    const { playlist } = renderComponent(
+      h.factory('playlist', {
+        name: 'My playlist',
+        folder_id: playlistFolderStore.state.folders[0].id,
+      }),
+    )
 
     await h.type(screen.getByRole('textbox', { name: 'name' }), 'Your playlist')
     await h.type(screen.getByRole('textbox', { name: 'description' }), 'Updated description')
@@ -42,6 +44,7 @@ describe('editPlaylistForm.vue', () => {
         name: 'Your playlist',
         description: 'Updated description',
         folder_id: playlist.folder_id,
+        folder_name: null,
       })
     })
   })
@@ -49,10 +52,12 @@ describe('editPlaylistForm.vue', () => {
   it('removes the cover', async () => {
     const updateMock = h.mock(playlistStore, 'update')
 
-    const { playlist } = renderComponent(h.factory('playlist', {
-      name: 'My playlist',
-      cover: 'https://localhost:3000/img/storage/cover.webp',
-    }))
+    const { playlist } = renderComponent(
+      h.factory('playlist', {
+        name: 'My playlist',
+        cover: 'https://localhost:3000/img/storage/cover.webp',
+      }),
+    )
 
     await h.user.click(screen.getByRole('button', { name: 'Remove' }))
 
@@ -65,6 +70,7 @@ describe('editPlaylistForm.vue', () => {
         name: 'Your playlist',
         description: 'Updated description',
         folder_id: playlist.folder_id,
+        folder_name: null,
         cover: '',
       })
     })
@@ -73,10 +79,12 @@ describe('editPlaylistForm.vue', () => {
   it('removes and replaces the cover', async () => {
     const updateMock = h.mock(playlistStore, 'update')
 
-    const { playlist } = renderComponent(h.factory('playlist', {
-      name: 'My playlist',
-      cover: 'https://localhost:3000/img/storage/cover.webp',
-    }))
+    const { playlist } = renderComponent(
+      h.factory('playlist', {
+        name: 'My playlist',
+        cover: 'https://localhost:3000/img/storage/cover.webp',
+      }),
+    )
 
     await h.user.click(screen.getByRole('button', { name: 'Remove' }))
 
@@ -96,6 +104,7 @@ describe('editPlaylistForm.vue', () => {
         name: 'Your playlist',
         description: 'Updated description',
         folder_id: playlist.folder_id,
+        folder_name: null,
         cover: 'data:image/png;base64,Ynl0ZXM=',
       })
     })

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 import { createHarness } from '@/__tests__/TestHarness'
 import { playbackService } from '@/services/QueuePlaybackService'
-import { CurrentStreamableKey } from '@/symbols'
+import { CurrentStreamableKey } from '@/config/symbols'
 import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
 import { recentlyPlayedStore } from '@/stores/recentlyPlayedStore'
@@ -59,11 +59,13 @@ describe('footerPlayButton.vue', () => {
   })
 
   // @ts-ignore
-  it.each<[
-    string,
+  it.each<
+    [
+      string,
       typeof playableStore | typeof recentlyPlayedStore,
       MethodOf<typeof playableStore | typeof recentlyPlayedStore>,
-  ]>([
+    ]
+  >([
     ['/favorites', playableStore, 'fetchFavorites'],
     ['/recently-played', recentlyPlayedStore, 'fetch'],
   ])('initiates playback for %s', async (hash, store, fetchMethod) => {

@@ -8,7 +8,7 @@ import Component from './ProfileForm.vue'
 describe('profileForm.vue', () => {
   const h = createHarness()
 
-  const renderComponent = (user: User) => {
+  const renderComponent = (user: CurrentUser) => {
     return h.actingAsUser(user).render(Component)
   }
 
@@ -16,9 +16,11 @@ describe('profileForm.vue', () => {
     const updateMock = h.mock(authService, 'updateProfile')
     const alertMock = h.mock(MessageToasterStub.value, 'success')
 
-    renderComponent(h.factory('user', {
-      avatar: 'https://gravatar.com/foo',
-    }))
+    renderComponent(
+      h.factory('user', {
+        avatar: 'https://gravatar.com/foo',
+      }) as CurrentUser,
+    )
 
     await h.type(screen.getByTestId('currentPassword'), 'old-password')
     await h.type(screen.getByTestId('email'), 'koel@example.com')

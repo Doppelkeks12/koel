@@ -1,9 +1,6 @@
 <template>
   <div>
-    <h4
-      v-if="isSong(playable) && showDisc && playable.disc"
-      class="title text-k-fg !flex gap-2 p-2 uppercase pl-5"
-    >
+    <h4 v-if="isSong(playable) && showDisc && playable.disc" class="title text-k-fg !flex gap-2 p-2 uppercase pl-5">
       Disc {{ playable.disc }}
     </h4>
 
@@ -27,16 +24,21 @@
       <span class="title-artist flex flex-col gap-2 overflow-hidden">
         <span class="title text-k-fg !flex gap-2 items-center">
           <ExternalMark v-if="external" />
+          <OfflineMark v-if="cachedOffline" />
           <span class="flex-1">{{ playable.title }}</span>
         </span>
         <span class="artist">{{ artist }}</span>
       </span>
       <span v-if="shouldShowColumn('album')" class="album">{{ album }}</span>
       <template v-if="config.collaborative && isSong(playable) && playable.collaboration">
-        <span class="collaborator">
+        <span v-if="shouldShowColumn('playlist_collaborator')" class="collaborator">
           <UserAvatar :user="collaborator" width="24" />
         </span>
-        <span :title="String(playable.collaboration.added_at)" class="added-at">
+        <span
+          v-if="shouldShowColumn('playlist_added_at')"
+          :title="String(playable.collaboration.added_at)"
+          class="added-at"
+        >
           {{ playable.collaboration.fmt_added_at }}
         </span>
       </template>
@@ -59,16 +61,18 @@ import { getPlayableProp, requireInjection } from '@/utils/helpers'
 import { isSong } from '@/utils/typeGuards'
 import { secondsToHis } from '@/utils/formatters'
 import { usePlayableListColumnVisibility } from '@/composables/usePlayableListColumnVisibility'
-import { PlayableListConfigKey } from '@/symbols'
+import { useOfflinePlayback } from '@/composables/useOfflinePlayback'
+import { PlayableListConfigKey } from '@/config/symbols'
 import { playableStore } from '@/stores/playableStore'
 
 import SoundBars from '@/components/ui/SoundBars.vue'
 import PlayableThumbnail from '@/components/playable/PlayableThumbnail.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import ExternalMark from '@/components/ui/ExternalMark.vue'
+import OfflineMark from '@/components/ui/OfflineMark.vue'
 import FavoriteButton from '@/components/ui/FavoriteButton.vue'
 
-const props = withDefaults(defineProps<{ item: PlayableRow, showDisc?: boolean }>(), {
+const props = withDefaults(defineProps<{ item: PlayableRow; showDisc?: boolean }>(), {
   showDisc: false,
 })
 
@@ -83,14 +87,14 @@ const { item } = toRefs(props)
 const playable = computed<Playable>(() => item.value.playable)
 const playing = computed(() => ['Playing', 'Paused'].includes(playable.value.playback_state!))
 const external = computed(() => isSong(playable.value) && playable.value.is_external)
+const { isCached } = useOfflinePlayback()
+const cachedOffline = computed(() => isSong(playable.value) && isCached(playable.value))
 
 const fmtLength = secondsToHis(playable.value.length)
 const artist = computed(() => getPlayableProp(playable.value, 'artist_name', 'podcast_author'))
 const album = computed(() => getPlayableProp(playable.value, 'album_name', 'podcast_title'))
 
-const collaborator = computed<Pick<User, 'name' | 'avatar'>>(
-  () => (playable.value as Song).collaboration!.user,
-)
+const collaborator = computed<Pick<User, 'name' | 'avatar'>>(() => (playable.value as Song).collaboration!.user)
 
 const play = () => emit('play', playable.value)
 

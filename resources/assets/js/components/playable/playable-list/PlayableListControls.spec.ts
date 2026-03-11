@@ -3,7 +3,7 @@ import { merge, take } from 'lodash'
 import { ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 import { createHarness } from '@/__tests__/TestHarness'
-import { FilteredPlayablesKey, PlayablesKey, SelectedPlayablesKey } from '@/symbols'
+import { FilteredPlayablesKey, PlayablesKey, SelectedPlayablesKey } from '@/config/symbols'
 import Component from './PlayableListControls.vue'
 
 describe('playableListControls.vue', () => {
@@ -11,16 +11,19 @@ describe('playableListControls.vue', () => {
 
   const renderComponent = (selectedCount = 1, configOverrides: Partial<PlayableListControlsConfig> = {}) => {
     const songs = h.factory('song', 5)
-    const config: PlayableListControlsConfig = merge({
-      addTo: {
-        queue: true,
-        favorites: true,
+    const config: PlayableListControlsConfig = merge(
+      {
+        addTo: {
+          queue: true,
+          favorites: true,
+        },
+        clearQueue: true,
+        deletePlaylist: true,
+        refresh: true,
+        filter: true,
       },
-      clearQueue: true,
-      deletePlaylist: true,
-      refresh: true,
-      filter: true,
-    }, configOverrides)
+      configOverrides,
+    )
 
     return h.render(Component, {
       global: {

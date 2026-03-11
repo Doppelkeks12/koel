@@ -15,10 +15,12 @@ interface CreatePlaylistRequestData {
   description: Playlist['description']
   cover: string | null
   folder_id: PlaylistFolder['id'] | null
+  folder_name?: string | null
   rules?: SmartPlaylistRuleGroup[]
 }
 
 export type CreatePlaylistData = Pick<Playlist, 'name' | 'description' | 'folder_id' | 'cover'> & {
+  folder_name?: string | null
   songs?: Playable['id'][]
   rules?: SmartPlaylistRuleGroup[]
 }
@@ -27,6 +29,7 @@ export interface UpdatePlaylistData {
   name: Playlist['name']
   description: Playlist['description']
   folder_id?: PlaylistFolder['id'] | null
+  folder_name?: string | null
   cover?: string | null
   rules?: SmartPlaylistRuleGroup[]
 }
@@ -36,7 +39,7 @@ export const playlistStore = {
     playlists: [] as Playlist[],
   }),
 
-  init (playlists: Playlist[]) {
+  init(playlists: Playlist[]) {
     this.sort(reactive(playlists)).forEach(playlist => {
       if (!playlist.is_smart) {
         this.state.playlists.push(playlist)
@@ -70,20 +73,17 @@ export const playlistStore = {
     })
   },
 
-  byId (id: Playlist['id']) {
+  byId(id: Playlist['id']) {
     return this.state.playlists.find(playlist => playlist.id === id)
   },
 
-  byFolder (folder: PlaylistFolder) {
+  byFolder(folder: PlaylistFolder) {
     return this.state.playlists.filter(({ folder_id }) => folder_id === folder.id)
   },
 
-  async store (
-    data: Pick<Playlist, 'name' | 'description' | 'folder_id' | 'cover'> & { rules?: SmartPlaylistRuleGroup[] },
-    songs: Playable[] = [],
-  ) {
+  async store(data: CreatePlaylistData, songs: Playable[] = []) {
     const requestData: CreatePlaylistRequestData = {
-      ...pick(data, 'name', 'description', 'folder_id', 'cover'),
+      ...pick(data, 'name', 'description', 'folder_id', 'folder_name', 'cover'),
       songs: songs.map(song => song.id),
     }
 
@@ -104,12 +104,12 @@ export const playlistStore = {
     return playlist
   },
 
-  async delete (playlist: Playlist) {
+  async delete(playlist: Playlist) {
     await http.delete(`playlists/${playlist.id}`)
     this.state.playlists = differenceBy(this.state.playlists, [playlist], 'id')
   },
 
-  async addContent (playlist: Playlist, playables: Playable[]) {
+  async addContent(playlist: Playlist, playables: Playable[]) {
     if (playlist.is_smart) {
       return playlist
     }
@@ -135,7 +135,7 @@ export const playlistStore = {
     return playlist
   },
 
-  async update (playlist: Playlist, data: UpdatePlaylistData) {
+  async update(playlist: Playlist, data: UpdatePlaylistData) {
     await http.put(`playlists/${playlist.id}`, {
       ...data,
       rules: data.rules ? this.serializeSmartPlaylistRulesForStorage(data.rules) : null,
@@ -155,7 +155,7 @@ export const playlistStore = {
     value: [''],
   }),
 
-  createEmptySmartPlaylistRuleGroup (): SmartPlaylistRuleGroup {
+  createEmptySmartPlaylistRuleGroup(): SmartPlaylistRuleGroup {
     return {
       id: uuid(),
       rules: [this.createEmptySmartPlaylistRule()],

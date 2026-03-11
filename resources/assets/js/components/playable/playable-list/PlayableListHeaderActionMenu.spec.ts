@@ -11,8 +11,8 @@ describe('playableListHeaderActionMenu.vue', () => {
     h.render(Component)
 
     ;['Title', 'Album', 'Artist', 'Track & Disc', 'Time', 'Date Added'].forEach(text => screen.getByText(text))
-    ;['Podcast', 'Album or Podcast', 'Author', 'Artist or Author'].forEach(
-      text => expect(screen.queryByText(text)).toBeNull(),
+    ;['Podcast', 'Album or Podcast', 'Author', 'Artist or Author'].forEach(text =>
+      expect(screen.queryByText(text)).toBeNull(),
     )
   })
 
@@ -30,8 +30,8 @@ describe('playableListHeaderActionMenu.vue', () => {
     })
 
     ;['Title', 'Podcast', 'Author', 'Time', 'Date Added'].forEach(text => screen.getByText(text))
-    ;['Album', 'Album or Podcast', 'Artist', 'Artist or Author'].forEach(
-      text => expect(screen.queryByText(text)).toBeNull(),
+    ;['Album', 'Album or Podcast', 'Artist', 'Artist or Author'].forEach(text =>
+      expect(screen.queryByText(text)).toBeNull(),
     )
   })
 
@@ -44,6 +44,46 @@ describe('playableListHeaderActionMenu.vue', () => {
 
     ;['Title', 'Album or Podcast', 'Artist or Author', 'Date Added'].forEach(text => screen.getByText(text))
     ;['Album', 'Artist', 'Podcast', 'Author'].forEach(text => expect(screen.queryByText(text)).toBeNull())
+  })
+
+  it('contains collaborative items when collaborative', () => {
+    h.render(Component, {
+      props: {
+        collaborative: true,
+      },
+    })
+
+    ;['User', 'Contributed'].forEach(text => screen.getByText(text))
+  })
+
+  it('does not contain collaborative items when not collaborative', () => {
+    h.render(Component)
+
+    ;['User', 'Contributed'].forEach(text => expect(screen.queryByText(text)).toBeNull())
+  })
+
+  it('sorts by collaborative columns', async () => {
+    const { emitted } = h.render(Component, {
+      props: {
+        collaborative: true,
+      },
+    })
+
+    await h.user.click(screen.getByText('User'))
+    expect(emitted().sort[0]).toEqual(['collaboration.user.name'])
+
+    await h.user.click(screen.getByText('Contributed'))
+    expect(emitted().sort[1]).toEqual(['collaboration.added_at'])
+  })
+
+  it('has toggleable checkboxes for collaborative columns', async () => {
+    h.actingAsUser().render(Component, {
+      props: {
+        collaborative: true,
+      },
+    })
+
+    ;['User', 'Contributed'].forEach(text => screen.getByTitle(`Click to toggle the ${text} column`))
   })
 
   it('has custom order sort if so configured', () => {
@@ -74,9 +114,14 @@ describe('playableListHeaderActionMenu.vue', () => {
 
     await h.user.click(screen.getByTitle('Click to toggle the Album column'))
 
-    expect(useLocalStorage().get('playable-list-columns')).toEqual(
-      <PlayableListColumnName[]>['track', 'title', 'artist', 'duration'],
-    )
+    expect(useLocalStorage().get('playable-list-columns')).toEqual(<PlayableListColumnName[]>[
+      'track',
+      'title',
+      'artist',
+      'duration',
+      'playlist_collaborator',
+      'playlist_added_at',
+    ])
   })
 
   it('gets the column visibility from local storage', async () => {
@@ -86,16 +131,20 @@ describe('playableListHeaderActionMenu.vue', () => {
     useLocalStorage().set('playable-list-columns', ['track'])
     h.render(Component)
 
-    ;[{
-      title: 'Track & Disc',
-      checked: true,
-    }, {
-      title: 'Album',
-      checked: false,
-    }, {
-      title: 'Time',
-      checked: true,
-    }].forEach(({ title, checked }) => {
+    ;[
+      {
+        title: 'Track & Disc',
+        checked: true,
+      },
+      {
+        title: 'Album',
+        checked: false,
+      },
+      {
+        title: 'Time',
+        checked: true,
+      },
+    ].forEach(({ title, checked }) => {
       const el: HTMLInputElement = screen.getByTitle(`Click to toggle the ${title} column`)
       expect(el.checked).toBe(checked)
     })

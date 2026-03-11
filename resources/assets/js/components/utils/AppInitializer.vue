@@ -9,10 +9,7 @@ import { useErrorHandler } from '@/composables/useErrorHandler'
 import { useOverlay } from '@/composables/useOverlay'
 import { commonStore } from '@/stores/commonStore'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
-import { socketListener } from '@/services/socketListener'
-import { socketService } from '@/services/socketService'
 import { uploadService } from '@/services/uploadService'
-import { broadcastSubscriber } from '@/services/broadcastSubscriber'
 
 const emits = defineEmits<{
   (e: 'success'): void
@@ -26,8 +23,12 @@ const { currentUser } = useAuthorization()
  * Request for notification permission if it's not provided and the user is OK with notifications.
  */
 const requestNotificationPermission = async () => {
-  if (preferences.show_now_playing_notification && window.Notification && window.Notification.permission !== 'granted') {
-    preferences.show_now_playing_notification = await window.Notification.requestPermission() === 'denied'
+  if (
+    preferences.show_now_playing_notification &&
+    window.Notification &&
+    window.Notification.permission !== 'granted'
+  ) {
+    preferences.show_now_playing_notification = (await window.Notification.requestPermission()) === 'denied'
   }
 }
 
@@ -46,8 +47,15 @@ onMounted(async () => {
       }
     })
 
+    const { broadcastSubscriber } = await import('@/services/broadcastSubscriber')
     broadcastSubscriber.init(currentUser.value.id)
-    await socketService.init() && socketListener.listen()
+
+    const { socketService } = await import('@/services/socketService')
+
+    if (await socketService.init()) {
+      const { socketListener } = await import('@/services/socketListener')
+      socketListener.listen()
+    }
 
     emits('success')
   } catch (error: unknown) {

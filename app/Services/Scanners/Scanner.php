@@ -2,40 +2,14 @@
 
 namespace App\Services\Scanners;
 
-use App\Repositories\SongRepository;
-use App\Services\SongService;
-use App\Values\Scanning\ScanConfiguration;
-use App\Values\Scanning\ScanResult;
 use Symfony\Component\Finder\Finder;
-use Throwable;
 
 abstract class Scanner
 {
     public function __construct(
-        protected SongService $songService,
-        protected SongRepository $songRepository,
-        protected FileScanner $fileScanner,
-        protected Finder $finder
-    ) {
-    }
-
-    protected function handleIndividualFile(string $path, ScanConfiguration $config): ScanResult
-    {
-        try {
-            $info = $this->fileScanner->scan($path);
-            $song = $this->songService->createOrUpdateSongFromScan($info, $config);
-
-            if ($song->wasRecentlyCreated) {
-                return ScanResult::success($info->path);
-            }
-
-            return !$song->isFileModified($info) && !$config->force
-                ? ScanResult::skipped($info->path)
-                : ScanResult::success($info->path);
-        } catch (Throwable $e) {
-            return ScanResult::error($path, $e->getMessage());
-        }
-    }
+        protected readonly IndividualFileHandler $fileHandler,
+        protected readonly Finder $finder,
+    ) {}
 
     /**
      * Gather all applicable files in a given directory.
@@ -62,6 +36,7 @@ abstract class Scanner
         }
 
         if (config('koel.scan.memory_limit')) {
+            // @mago-ignore lint:no-ini-set
             ini_set('memory_limit', config('koel.scan.memory_limit') . 'M');
         }
     }

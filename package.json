@@ -20,7 +20,6 @@
     "@fortawesome/free-solid-svg-icons": "^6.7.2",
     "@fortawesome/vue-fontawesome": "^3.0.8",
     "@laravel/echo-vue": "^2.1.6",
-    "axios": "^1.10.0",
     "butterchurn": "^2.6.7",
     "butterchurn-presets": "^2.4.7",
     "color": "^5.0.2",
@@ -29,10 +28,12 @@
     "events": "^3.3.0",
     "fuse.js": "^7.1.0",
     "ismobilejs": "^0.4.1",
-    "js-md5": "^0.8.3",
+    "ky": "^1.14.3",
     "local-storage": "^2.0.0",
-    "lodash": "^4.17.21",
+    "lodash": "^4.17.23",
+    "lodash-es": "^4.17.23",
     "lucide-vue-next": "^0.452.0",
+    "md5": "^2.3.0",
     "nouislider": "^14.7.0",
     "nprogress": "^0.2.0",
     "plyr": "1.5.20",
@@ -43,12 +44,11 @@
     "style-observer": "^0.1.2",
     "three": "^0.146.0",
     "tiny-typed-emitter": "^2.1.0",
-    "vue": "^3.5.17",
+    "vue": "^3.5.29",
     "vue-advanced-cropper": "^2.8.9",
     "youtube-player": "^3.1.2"
   },
   "devDependencies": {
-    "@antfu/eslint-config": "^3.16.0",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@faker-js/faker": "^9.8.0",
@@ -57,25 +57,28 @@
     "@testing-library/vue": "^6.6.1",
     "@types/local-storage": "^1.4.0",
     "@types/lodash": "^4.17.19",
+    "@types/lodash-es": "^4.17.12",
+    "@types/md5": "^2.3.6",
     "@types/nprogress": "^0.2.3",
     "@types/pusher-js": "^4.2.2",
     "@types/three": "^0.144.0",
     "@types/youtube-player": "^5.5.11",
-    "@vitejs/plugin-vue": "^5.2.4",
+    "@vitejs/plugin-vue": "^6.0.4",
     "@vueuse/components": "^13.4.0",
     "@vueuse/core": "^13.4.0",
     "@vueuse/integrations": "^13.4.0",
     "autoprefixer": "^10.4.21",
     "cypress": "^9.7.0",
-    "eslint": "^9.30.0",
-    "eslint-plugin-format": "^0.1.3",
     "factoria": "^4.0.1",
+    "fake-indexeddb": "^6.2.5",
     "husky": "^9.1.7",
     "jest-serializer-vue": "^2.0.2",
     "jsdom": "^26.1.0",
     "laravel-echo": "^2.1.6",
-    "laravel-vite-plugin": "^1.3.0",
+    "laravel-vite-plugin": "^2.1.0",
     "lint-staged": "^10.5.4",
+    "oxfmt": "^0.36.0",
+    "oxlint": "^1.51.0",
     "postcss": "^8.5.6",
     "postcss-mixins": "^10.0.1",
     "postcss-nested": "^6.2.0",
@@ -83,18 +86,23 @@
     "rollup-plugin-visualizer": "^6.0.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
-    "vite": "^5.4.19",
+    "vite": "^7.3.1",
     "vitepress": "^1.6.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.18",
+    "vue-tsc": "^3.2.5"
   },
   "scripts": {
-    "lint": "eslint ./resources/assets",
-    "lint:fix": "eslint ./resources/assets --fix",
+    "format": "oxfmt --check ./resources/assets",
+    "format:fix": "oxfmt --write ./resources/assets",
+    "lint": "oxlint ./resources/assets",
+    "lint:fix": "oxlint --fix ./resources/assets",
+    "typecheck": "vue-tsc --noEmit -p resources/assets/tsconfig.typecheck.json",
     "test": "vitest",
     "test:unit": "vitest",
     "test:e2e": "kill-port 8080 && start-test dev http-get://localhost:8080/api/ping 'cypress open'",
     "test:e2e:ci": "kill-port 8080 && start-test 'php artisan serve --port=8080 --quiet' http-get://localhost:8080/api/ping 'cypress run --browser chromium'",
-    "build": "vite build",
+    "build:sw": "vite build --config vite.config.sw.js",
+    "build": "vite build && pnpm run build:sw",
     "dev": "node -e \"console.warn('Command \\\"pnpm dev\\\" has been removed. Use \\\"composer dev\\\" instead.')\"",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
@@ -106,11 +114,19 @@
       "composer cs"
     ],
     "resources/assets/**/*.{js,ts,css,pcss,vue}": [
-      "eslint --fix"
+      "oxfmt --write",
+      "oxlint --fix"
     ],
+    "resources/assets/**/*.{ts,vue}": "bash -c 'vue-tsc --noEmit -p resources/assets/tsconfig.typecheck.json'",
     "cypress/**/*.ts": [
-      "eslint --fix"
+      "oxfmt --write",
+      "oxlint --fix"
     ]
   },
-  "type": "module"
+  "type": "module",
+  "pnpm": {
+    "overrides": {
+      "form-data@<2.5.4": ">=2.5.4"
+    }
+  }
 }

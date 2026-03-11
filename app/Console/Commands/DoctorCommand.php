@@ -11,7 +11,6 @@ use App\Http\Integrations\Lastfm\Requests\GetArtistInfoRequest;
 use App\Http\Integrations\Spotify\SpotifyClient;
 use App\Http\Integrations\YouTube\Requests\SearchVideosRequest;
 use App\Http\Integrations\YouTube\YouTubeConnector;
-use App\Models\Artist;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Models\User;
@@ -33,6 +32,7 @@ use Throwable;
 use TiBeN\CrontabManager\CrontabAdapter;
 use TiBeN\CrontabManager\CrontabRepository;
 
+// @mago-ignore lint:too-many-methods,cyclomatic-complexity,kan-defect
 class DoctorCommand extends Command
 {
     protected $signature = 'koel:doctor';
@@ -166,11 +166,8 @@ class DoctorCommand extends Command
             /** @var LastfmConnector $connector */
             $connector = app(LastfmConnector::class);
 
-            /** @var Artist $artist */
-            $artist = Artist::factory()->make(['name' => 'Pink Floyd']);
-
             try {
-                $dto = $connector->send(new GetArtistInfoRequest($artist))->dto();
+                $dto = $connector->send(new GetArtistInfoRequest('Pink Floyd'))->dto();
 
                 if (!$dto) {
                     throw new Exception('No data returned.');
@@ -189,11 +186,8 @@ class DoctorCommand extends Command
             /** @var YouTubeConnector $connector */
             $connector = app(YouTubeConnector::class);
 
-            /** @var Song $artist */
-            $song = Song::factory()->forArtist(['name' => 'Pink Floyd'])->make(['title' => 'Comfortably Numb']); // @phpstan-ignore-line
-
             try {
-                $object = $connector->send(new SearchVideosRequest($song))->object();
+                $object = $connector->send(new SearchVideosRequest('Pink Floyd Comfortably Numb'))->object();
 
                 if (object_get($object, 'error')) {
                     throw new Exception(object_get($object, 'error.message'));
@@ -214,13 +208,7 @@ class DoctorCommand extends Command
             Cache::forget(SpotifyClient::ACCESS_TOKEN_CACHE_KEY);
 
             try {
-                /** @var Artist $artist */
-                $artist = Artist::factory()->make([
-                    'id' => 999,
-                    'name' => 'Pink Floyd',
-                ]);
-
-                $image = $service->tryGetArtistImage($artist);
+                $image = $service->tryGetArtistImage('Pink Floyd');
 
                 if (!$image) {
                     throw new Exception('No result returned.');

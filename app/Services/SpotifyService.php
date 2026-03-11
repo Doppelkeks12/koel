@@ -9,29 +9,28 @@ use Illuminate\Support\Arr;
 
 class SpotifyService
 {
-    public function __construct(private readonly SpotifyClient $client)
-    {
-    }
+    public function __construct(
+        private readonly SpotifyClient $client,
+    ) {}
 
     public static function enabled(): bool
     {
         return config('koel.services.spotify.client_id') && config('koel.services.spotify.client_secret');
     }
 
-    public function tryGetArtistImage(Artist $artist): ?string
+    public function tryGetArtistImage(Artist|string $artist): ?string
     {
         if (!static::enabled()) {
             return null;
         }
 
-        if ($artist->is_various || $artist->is_unknown) {
+        if ($artist instanceof Artist && ($artist->is_various || $artist->is_unknown)) {
             return null;
         }
 
-        return Arr::get(
-            $this->client->search($artist->name, 'artist', ['limit' => 1]),
-            'artists.items.0.images.0.url'
-        );
+        return Arr::get($this->client->search($artist instanceof Artist ? $artist->name : $artist, 'artist', [
+            'limit' => 1,
+        ]), 'artists.items.0.images.0.url');
     }
 
     public function tryGetAlbumCover(Album $album): ?string
@@ -44,9 +43,8 @@ class SpotifyService
             return null;
         }
 
-        return Arr::get(
-            $this->client->search("$album->name artist:{$album->artist->name}", 'album', ['limit' => 1]),
-            'albums.items.0.images.0.url'
-        );
+        return Arr::get($this->client->search("$album->name artist:{$album->artist->name}", 'album', [
+            'limit' => 1,
+        ]), 'albums.items.0.images.0.url');
     }
 }

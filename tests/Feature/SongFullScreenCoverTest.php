@@ -25,10 +25,9 @@ final class SongFullScreenCoverTest extends TestCase
         /** @var Song $song */
         $song = Song::factory()->for($album)->create();
 
-        $this->getAs("api/songs/{$song->id}")
-            ->assertJson([
-                'full_screen_cover' => image_storage_url('foo_fullscreen.jpg'),
-            ]);
+        $this->getAs("api/songs/{$song->id}")->assertJson([
+            'full_screen_cover' => image_storage_url('foo_fullscreen.jpg'),
+        ]);
     }
 
     #[Test]
@@ -42,9 +41,8 @@ final class SongFullScreenCoverTest extends TestCase
         /** @var Song $song */
         $song = Song::factory()->for($album)->create();
 
-        $this->getAs("api/songs/{$song->id}")
-            ->assertJson([
-                'full_screen_cover' => null,
-            ]);
+        $this->getAs("api/songs/{$song->id}")->assertJson([
+            'full_screen_cover' => null,
+        ]);
     }
 }

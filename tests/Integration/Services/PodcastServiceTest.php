@@ -2,6 +2,7 @@
 
 namespace Tests\Integration\Services;
 
+use App\Events\UserUnsubscribedFromPodcast;
 use App\Exceptions\UserAlreadySubscribedToPodcastException;
 use App\Models\Podcast;
 use App\Models\PodcastUserPivot;
@@ -11,6 +12,7 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientInterface;
@@ -90,7 +92,7 @@ class PodcastServiceTest extends TestCase
         ]);
 
         $user = create_user();
-        $user->subscribeToPodcast($podcast);
+        $this->service->subscribeUserToPodcast($user, $podcast);
 
         $this->service->addPodcast('https://example.com/feed.xml', $user);
     }
@@ -114,7 +116,7 @@ class PodcastServiceTest extends TestCase
         self::assertCount(0, $podcast->episodes);
 
         $user = create_user();
-        $user->subscribeToPodcast($podcast);
+        $this->service->subscribeUserToPodcast($user, $podcast);
 
         $this->service->addPodcast('https://example.com/feed.xml', $user);
 
@@ -125,14 +127,23 @@ class PodcastServiceTest extends TestCase
     #[Test]
     public function unsubscribeUserFromPodcast(): void
     {
+        Event::fake(UserUnsubscribedFromPodcast::class);
+
         /** @var Podcast $podcast */
         $podcast = Podcast::factory()->create();
         $user = create_user();
-        $user->subscribeToPodcast($podcast);
+        $this->service->subscribeUserToPodcast($user, $podcast);
 
         $this->service->unsubscribeUserFromPodcast($user, $podcast);
 
         self::assertFalse($user->subscribedToPodcast($podcast));
+
+        Event::assertDispatched(UserUnsubscribedFromPodcast::class, static function (UserUnsubscribedFromPodcast $event) use (
+            $user,
+            $podcast,
+        ) {
+            return $event->user->is($user) && $event->podcast->is($podcast);
+        });
     }
 
     #[Test]
@@ -168,7 +179,7 @@ class PodcastServiceTest extends TestCase
         /** @var Song $episode */
         $episode = Song::factory()->asEpisode()->create();
         $user = create_user();
-        $user->subscribeToPodcast($episode->podcast);
+        $this->service->subscribeUserToPodcast($user, $episode->podcast);
 
         $this->service->updateEpisodeProgress($user, $episode->refresh(), 123);
 
@@ -189,10 +200,10 @@ class PodcastServiceTest extends TestCase
         $handlerStack = HandlerStack::create($mock);
         $client = new Client(['handler' => $handlerStack]);
 
-        self::assertSame(
+        self::assertSame('https://example.com/episode.mp3', $this->service->getStreamableUrl(
             'https://example.com/episode.mp3',
-            $this->service->getStreamableUrl('https://example.com/episode.mp3', $client)
-        );
+            $client,
+        ));
     }
 
     #[Test]
@@ -218,9 +229,18 @@ class PodcastServiceTest extends TestCase
         $handlerStack = HandlerStack::create($mock);
         $client = new Client(['handler' => $handlerStack]);
 
-        self::assertSame(
-            'https://assets.example.com/episode.mp3',
-            $this->service->getStreamableUrl('https://example.com/episode.mp3', $client)
-        );
+        self::assertSame('https://assets.example.com/episode.mp3', $this->service->getStreamableUrl(
+            'https://example.com/episode.mp3',
+            $client,
+        ));
+    }
+
+    #[Test]
+    public function deletePodcast(): void
+    {
+        /** @var Podcast $podcast */
+        $podcast = Podcast::factory()->create();
+        $this->service->deletePodcast($podcast);
+        self::assertModelMissing($podcast);
     }
 }

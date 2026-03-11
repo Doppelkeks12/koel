@@ -6,6 +6,7 @@ import { updateFloatingUi } from '@/utils/floatingUi'
 type ElementWithTooltip = HTMLElement & {
   $tooltip?: HTMLDivElement
   $cleanup?: Closure
+  $tooltipListenersAttached?: boolean
 }
 
 const getOrCreateTooltip = (el: ElementWithTooltip): HTMLElement => {
@@ -34,10 +35,8 @@ const init = (el: ElementWithTooltip, binding: DirectiveBinding) => {
   const $tooltip = getOrCreateTooltip(el)
 
   // make sure the actual title is removed from the element, but keep a backup for the updated() hook calls
-  $tooltip.querySelector<HTMLDivElement>('.tooltip-content')!.textContent = binding.value
-    || el.title
-    || el.getAttribute('data-title')
-    || el.textContent
+  $tooltip.querySelector<HTMLDivElement>('.tooltip-content')!.textContent =
+    binding.value || el.title || el.getAttribute('data-title') || el.textContent
 
   if (el.title && !el.getAttribute('data-title')) {
     el.setAttribute('data-title', el.title)
@@ -54,15 +53,24 @@ const init = (el: ElementWithTooltip, binding: DirectiveBinding) => {
     }
   })
 
-  const update = async () => await updateFloatingUi(el, $tooltip, {
-    placement,
-    middleware: [
-      arrow({ element: $arrow }),
-      offset(8),
-    ],
-  }, $arrow)
+  const update = async () =>
+    await updateFloatingUi(
+      el,
+      $tooltip,
+      {
+        placement,
+        middleware: [arrow({ element: $arrow }), offset(8)],
+      },
+      $arrow,
+    )
 
   el.$cleanup = el.$cleanup || autoUpdate(el, $tooltip, update)
+
+  if (el.$tooltipListenersAttached) {
+    return
+  }
+
+  el.$tooltipListenersAttached = true
 
   const showTooltip = async () => {
     $tooltip.classList.add('show')
@@ -72,9 +80,16 @@ const init = (el: ElementWithTooltip, binding: DirectiveBinding) => {
   const hideTooltip = () => $tooltip.classList.remove('show')
 
   el.addEventListener('mouseenter', showTooltip)
-  el.addEventListener('focus', showTooltip)
   el.addEventListener('mouseleave', hideTooltip)
   el.addEventListener('blur', hideTooltip)
+  el.addEventListener('mousedown', hideTooltip)
+
+  el.addEventListener('focus', () => {
+    // Only show tooltip for keyboard focus (Tab), not mouse click focus
+    if (el.matches(':focus-visible')) {
+      showTooltip()
+    }
+  })
 }
 
 export const tooltip: Directive = {

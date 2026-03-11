@@ -11,15 +11,16 @@ final readonly class PlaylistUpdateData implements Arrayable
         public string $name,
         public string $description,
         public ?string $folderId,
+        public ?string $folderName,
         public ?string $cover,
         public ?SmartPlaylistRuleGroupCollection $ruleGroups,
-    ) {
-    }
+    ) {}
 
     public static function make(
         string $name,
         string $description = '',
         ?string $folderId = null,
+        ?string $folderName = null,
         ?string $cover = null,
         ?SmartPlaylistRuleGroupCollection $ruleGroups = null,
     ): self {
@@ -27,6 +28,7 @@ final readonly class PlaylistUpdateData implements Arrayable
             name: $name,
             description: $description,
             folderId: $folderId,
+            folderName: $folderName,
             cover: $cover,
             ruleGroups: $ruleGroups,
         );

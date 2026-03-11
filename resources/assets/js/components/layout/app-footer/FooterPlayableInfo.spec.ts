@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ref } from 'vue'
 import { createHarness } from '@/__tests__/TestHarness'
-import { CurrentStreamableKey } from '@/symbols'
+import { CurrentStreamableKey } from '@/config/symbols'
 import Component from './FooterPlayableInfo.vue'
 
 describe('footerPlayableInfo.vue', () => {
@@ -18,12 +18,16 @@ describe('footerPlayableInfo.vue', () => {
       artist_name: 'Led Zeppelin',
     })
 
-    expect(h.render(Component, {
-      global: {
-        provide: {
-          [<symbol>CurrentStreamableKey]: ref(song),
-        },
-      },
-    }).html()).toMatchSnapshot()
+    expect(
+      h
+        .render(Component, {
+          global: {
+            provide: {
+              [<symbol>CurrentStreamableKey]: ref(song),
+            },
+          },
+        })
+        .html(),
+    ).toMatchSnapshot()
   })
 })

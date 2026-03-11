@@ -1,7 +1,6 @@
-import axios from 'axios'
 import { without } from 'lodash'
 import { reactive } from 'vue'
-import { http } from '@/services/http'
+import { postWithProgress } from '@/services/http'
 import { albumStore } from '@/stores/albumStore'
 import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
@@ -13,12 +12,7 @@ export interface UploadResult {
   album: Album
 }
 
-export type UploadStatus =
-  | 'Ready'
-  | 'Uploading'
-  | 'Uploaded'
-  | 'Canceled'
-  | 'Errored'
+export type UploadStatus = 'Ready' | 'Uploading' | 'Uploaded' | 'Canceled' | 'Errored'
 
 export interface UploadFile {
   id: string
@@ -36,17 +30,17 @@ export const uploadService = {
 
   simultaneousUploads: 5,
 
-  queue (file: UploadFile | UploadFile[]) {
+  queue(file: UploadFile | UploadFile[]) {
     this.state.files = this.state.files.concat(file)
     this.proceed()
   },
 
-  remove (file: UploadFile) {
+  remove(file: UploadFile) {
     this.state.files = without(this.state.files, file)
     this.proceed()
   },
 
-  proceed () {
+  proceed() {
     const remainingSlots = this.simultaneousUploads - this.getUploadingFiles().length
 
     if (remainingSlots <= 0) {
@@ -59,19 +53,19 @@ export const uploadService = {
     }
   },
 
-  getUploadingFiles () {
+  getUploadingFiles() {
     return this.state.files.filter(({ status }) => status === 'Uploading')
   },
 
-  getUploadCandidate () {
+  getUploadCandidate() {
     return this.state.files.find(({ status }) => status === 'Ready')
   },
 
-  shouldWarnUponWindowUnload () {
+  shouldWarnUponWindowUnload() {
     return this.state.files.length > 0
   },
 
-  async upload (file: UploadFile) {
+  async upload(file: UploadFile) {
     if (file.status === 'Uploading') {
       return
     }
@@ -82,25 +76,26 @@ export const uploadService = {
     file.status = 'Uploading'
 
     try {
-      const result = await http.post<UploadResult | null>('upload', formData, (progressEvent: ProgressEvent) => {
-        file.progress = progressEvent.loaded * 100 / progressEvent.total
+      const result = await postWithProgress<UploadResult | null>('upload', formData, (e: ProgressEvent) => {
+        file.progress = (e.loaded * 100) / e.total
       })
 
-      file.status = 'Uploaded'
-
-      if (result) {
+      if (result?.song && result?.album) {
+        file.status = 'Uploaded'
         this.handleUploadResult(result)
+        window.setTimeout(() => this.remove(file), 1000)
+      } else {
+        file.status = 'Errored'
+        file.message = 'Upload failed: Server returned an unexpected response.'
       }
 
-      this.proceed() // upload the next file
-
-      window.setTimeout(() => this.remove(file), 1000)
+      this.proceed()
     } catch (error: unknown) {
       logger.error(error)
       file.status = 'Errored'
 
-      if (axios.isAxiosError(error) && error.response?.data?.message) {
-        file.message = `Upload failed: ${error.response.data.message}`
+      if (error instanceof Error && 'responseData' in error && (error as any).responseData?.message) {
+        file.message = `Upload failed: ${(error as any).responseData.message}`
       } else {
         file.message = 'Upload failed: Unknown error.'
       }
@@ -116,13 +111,13 @@ export const uploadService = {
     eventBus.emit('SONG_UPLOADED', result.song)
   },
 
-  retry (file: UploadFile) {
+  retry(file: UploadFile) {
     // simply reset the status and wait for the next process
     this.resetFile(file)
     this.proceed()
   },
 
-  retryAll () {
+  retryAll() {
     this.state.files.forEach(this.resetFile)
     this.proceed()
   },
@@ -132,7 +127,7 @@ export const uploadService = {
     file.progress = 0
   },
 
-  removeFailed () {
+  removeFailed() {
     this.state.files = this.state.files.filter(({ status }) => status !== 'Errored')
   },
 }

@@ -1,14 +1,13 @@
 import vueSnapshotSerializer from 'jest-serializer-vue'
 import { expect, vi } from 'vitest'
-import Axios from 'axios'
 
 declare global {
   interface Window {
     BASE_URL: string
     MAILER_CONFIGURED: boolean
-    SSO_PROVIDERS: string[]
+    SSO_PROVIDERS: SSOProvider[]
     BRANDING: Branding
-    createLemonSqueezy: () => void
+    createLemonSqueezy?: () => Closure
     RUNNING_UNIT_TESTS?: boolean
   }
 
@@ -21,11 +20,15 @@ declare global {
 
 expect.addSnapshotSerializer(vueSnapshotSerializer)
 
-globalThis.ResizeObserver = globalThis.ResizeObserver || vi.fn().mockImplementation(() => ({
-  disconnect: vi.fn(),
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-}))
+globalThis.ResizeObserver =
+  globalThis.ResizeObserver ||
+  vi.fn().mockImplementation(function () {
+    return {
+      disconnect: vi.fn(),
+      observe: vi.fn(),
+      unobserve: vi.fn(),
+    }
+  })
 
 globalThis.LemonSqueezy = {
   Url: {
@@ -37,15 +40,15 @@ HTMLMediaElement.prototype.load = vi.fn()
 HTMLMediaElement.prototype.play = vi.fn()
 HTMLMediaElement.prototype.pause = vi.fn()
 
-HTMLDialogElement.prototype.show = vi.fn(function mock () {
+HTMLDialogElement.prototype.show = vi.fn(function mock(this: HTMLDialogElement) {
   this.open = true
 })
 
-HTMLDialogElement.prototype.showModal = vi.fn(function mock () {
+HTMLDialogElement.prototype.showModal = vi.fn(function mock(this: HTMLDialogElement) {
   this.open = true
 })
 
-HTMLDialogElement.prototype.close = vi.fn(function mock () {
+HTMLDialogElement.prototype.close = vi.fn(function mock(this: HTMLDialogElement) {
   this.open = false
 })
 
@@ -70,14 +73,12 @@ Object.defineProperty(window, 'matchMedia', {
   })),
 })
 
-Axios.defaults.adapter = vi.fn()
-
 // Mock iframe's navigation API
 const iframeContentWindowMap = new WeakMap<HTMLIFrameElement, any>()
 
 Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
   configurable: true,
-  get (this: HTMLIFrameElement) {
+  get(this: HTMLIFrameElement) {
     if (!iframeContentWindowMap.has(this)) {
       const stub = {
         location: {
@@ -96,12 +97,10 @@ Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
   },
 })
 
-const mockIntersectionObserver = vi.fn()
-
-mockIntersectionObserver.mockReturnValue({
-  observe: () => null,
-  unobserve: () => null,
-  disconnect: () => null,
+window.IntersectionObserver = vi.fn().mockImplementation(function () {
+  return {
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  }
 })
-
-window.IntersectionObserver = mockIntersectionObserver

@@ -88,15 +88,20 @@ describe('playlistStore', () => {
     const postMock = h.mock(http, 'post').mockResolvedValue(playlist)
     h.mock(playlistStore, 'serializeSmartPlaylistRulesForStorage', null)
 
-    await playlistStore.store({
-      name: 'New Playlist',
-      folder_id: folder.id,
-      description: 'Foo',
-    }, songs)
+    await playlistStore.store(
+      {
+        name: 'New Playlist',
+        folder_id: folder.id,
+        description: 'Foo',
+        cover: null,
+      },
+      songs,
+    )
 
     expect(postMock).toHaveBeenCalledWith('playlists', {
       name: 'New Playlist',
       description: 'Foo',
+      cover: null,
       songs: songs.map(song => song.id),
       folder_id: folder.id,
     })

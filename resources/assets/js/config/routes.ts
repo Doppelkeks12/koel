@@ -50,6 +50,11 @@ export const routes = [
     screen: 'RecentlyPlayed',
   },
   {
+    name: 'offline-songs',
+    path: '/offline-songs',
+    screen: 'OfflineSongs',
+  },
+  {
     name: 'search',
     path: '/search',
     screen: 'Search.Excerpt',
@@ -228,4 +233,4 @@ export const routes = [
   },
 ] as const satisfies Route[]
 
-export type RouteName = typeof routes[number]['name']
+export type RouteName = (typeof routes)[number]['name']

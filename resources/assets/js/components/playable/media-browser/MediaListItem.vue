@@ -12,12 +12,7 @@
           <FileMusicIcon class="hidden sm:block" :size="16" />
 
           <!-- on a mobile device, show a Play button for a better UX -->
-          <button
-            v-if="item.playback_state !== 'Playing'"
-            class="sm:hidden py-px"
-            title="Play"
-            @click.prevent.stop="emit('play-song')"
-          >
+          <button class="sm:hidden py-px" title="Play" @click.prevent.stop="emit('play-song')">
             <PlayCircleIcon :size="16" />
           </button>
         </template>
@@ -55,11 +50,9 @@ const emit = defineEmits<{
 
 const { item } = toRefs(props)
 
-const playing = computed(
-  () => isSong(item.value) && ['Playing', 'Paused'].includes(item.value.playback_state!),
-)
+const playing = computed(() => isSong(item.value) && ['Playing', 'Paused'].includes(item.value.playback_state!))
 
-const label = computed(() => isSong(item.value) ? item.value.basename : item.value.name)
+const label = computed(() => (isSong(item.value) ? item.value.basename : item.value.name))
 
 const pausePlayback = () => playback().pause()
 </script>

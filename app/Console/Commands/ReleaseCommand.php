@@ -17,16 +17,19 @@ use function Laravel\Prompts\warning;
 
 class ReleaseCommand extends Command
 {
-    protected $signature
-        = 'koel:release {version? : The version to release, or "patch", "minor", "major" for auto-increment}';
+    protected $signature = 'koel:release {version? : The version to release, or "patch", "minor", "major" for auto-increment}';
     protected $description = 'Tag and release a new version of Koel';
 
     private Version $currentVersion;
 
+    private string $mainBranch = 'master';
+    private string $releaseBranch = 'release';
+
     public function handle(): int
     {
-        self::ensureMainBranch();
+        $this->ensureMainBranch();
         self::ensureCleanWorkingDirectory();
+        self::runOkOrThrow('git fetch');
 
         $this->getCurrentVersion();
 
@@ -66,11 +69,11 @@ class ReleaseCommand extends Command
             "tag $version",
             'tag latest -f',
             'push origin --tags -f',
-            'checkout release',
+            "checkout $this->releaseBranch",
             'pull',
-            'merge master',
+            "merge $this->releaseBranch $this->mainBranch",
             'push',
-            'checkout master',
+            "checkout $this->mainBranch",
         ];
 
         foreach ($gitCommands as $command) {
@@ -99,20 +102,14 @@ class ReleaseCommand extends Command
 
         $options['custom'] = 'Custom';
 
-        $selected = select(
-            label: 'What are we releasing?',
-            options: $options,
-            default: $patchVersion,
-        );
+        $selected = select(label: 'What are we releasing?', options: $options, default: $patchVersion);
 
         if ($selected === 'custom') {
             $selected = text(
                 label: 'Enter the version you want to release',
                 placeholder: $patchVersion,
                 required: true,
-                validate: static fn (string $value) => self::tryParseVersion($value)
-                    ? null
-                    : 'Invalid version format',
+                validate: static fn (string $value) => self::tryParseVersion($value) ? null : 'Invalid version format',
             );
         }
 
@@ -135,12 +132,12 @@ class ReleaseCommand extends Command
         note('Current version: ' . $this->currentVersion->prefix());
     }
 
-    private static function ensureMainBranch(): void
+    private function ensureMainBranch(): void
     {
         $branch = trim(Process::run('git branch --show-current')->output());
 
-        if ($branch !== 'master') {
-            error("You must be on the master branch to release a new version (Current branch: '$branch.')");
+        if ($branch !== $this->mainBranch) {
+            error("You must be on the $this->mainBranch branch to release a new version (Current branch: '$branch.')");
 
             exit(self::FAILURE);
         }

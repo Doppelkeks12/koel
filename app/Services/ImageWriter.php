@@ -65,9 +65,7 @@ class ImageWriter
     {
         $origin = $img->origin();
 
-        $originalExtension = $origin->fileExtension()
-            ? FileExtension::tryCreate($origin->fileExtension())
-            : null;
+        $originalExtension = $origin->fileExtension() ? FileExtension::tryCreate($origin->fileExtension()) : null;
 
         if ($originalExtension === null) {
             $originalExtension = FileExtension::tryCreate($origin->mediaType());
@@ -78,7 +76,7 @@ class ImageWriter
         $originalImagePath = image_storage_path(sprintf(
             '%s_org.%s',
             Str::beforeLast(basename($destination), '.'),
-            $fileExtension
+            $fileExtension,
         ));
 
         if (File::exists($originalImagePath) !== true) {

@@ -15,9 +15,9 @@ final class GetArtistInfoRequest extends Request
 
     protected Method $method = Method::GET;
 
-    public function __construct(private readonly Artist $artist)
-    {
-    }
+    public function __construct(
+        private readonly Artist|string $artist,
+    ) {}
 
     public function resolveEndpoint(): string
     {
@@ -29,7 +29,7 @@ final class GetArtistInfoRequest extends Request
     {
         return [
             'method' => 'artist.getInfo',
-            'artist' => $this->artist->name,
+            'artist' => $this->artist instanceof Artist ? $this->artist->name : $this->artist,
             'autocorrect' => 1,
             'format' => 'json',
         ];
@@ -43,12 +43,9 @@ final class GetArtistInfoRequest extends Request
             return null;
         }
 
-        return ArtistInformation::make(
-            url: object_get($artist, 'url'),
-            bio: [
-                'summary' => self::formatLastFmText(object_get($artist, 'bio.summary')),
-                'full' => self::formatLastFmText(object_get($artist, 'bio.content')),
-            ],
-        );
+        return ArtistInformation::make(url: object_get($artist, 'url'), bio: [
+            'summary' => self::formatLastFmText(object_get($artist, 'bio.summary')),
+            'full' => self::formatLastFmText(object_get($artist, 'bio.content')),
+        ]);
     }
 }

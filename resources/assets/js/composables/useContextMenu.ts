@@ -3,19 +3,21 @@ import ContextMenu from '@/components/ui/context-menu/ContextMenu.vue'
 import Separator from '@/components/ui/context-menu/ContextMenuSeparator.vue'
 import MenuItem from '@/components/ui/context-menu/ContextMenuItem.vue'
 
-import { ContextMenuKey } from '@/symbols'
+import { ContextMenuKey } from '@/config/symbols'
 import { requireInjection } from '@/utils/helpers'
 import type { ContextMenus } from '@/config/contextMenus'
 
-type Position = {
-  top: number
-  left: number
-} | MouseEvent
+type Position =
+  | {
+      top: number
+      left: number
+    }
+  | MouseEvent
 
 export const useContextMenu = () => {
   const contextMenuOptions = requireInjection(ContextMenuKey)
 
-  const openContextMenu = <K extends keyof ContextMenus = never> (
+  const openContextMenu = <K extends keyof ContextMenus = never>(
     menu: Component,
     position: Position,
     props?: K extends keyof ContextMenus

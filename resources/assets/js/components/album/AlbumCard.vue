@@ -34,9 +34,7 @@
     </template>
 
     <template #meta>
-      <a :title="`Shuffle all songs in the album ${album.name}`" role="button" @click.prevent="shuffle">
-        Shuffle
-      </a>
+      <a :title="`Shuffle all songs in the album ${album.name}`" role="button" @click.prevent="shuffle"> Shuffle </a>
       <a
         v-if="allowDownload"
         :title="`Download all songs in the album ${album.name}`"
@@ -55,7 +53,7 @@ import { albumStore } from '@/stores/albumStore'
 import { artistStore } from '@/stores/artistStore'
 import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
-import { downloadService } from '@/services/downloadService'
+import { useDownload } from '@/composables/useDownload'
 import { useDraggable } from '@/composables/useDragAndDrop'
 import { useRouter } from '@/composables/useRouter'
 import { playback } from '@/services/playbackManager'
@@ -66,14 +64,17 @@ import BaseCard from '@/components/ui/album-artist/AlbumOrArtistCard.vue'
 import ExternalMark from '@/components/ui/ExternalMark.vue'
 import FavoriteButton from '@/components/ui/FavoriteButton.vue'
 
-const props = withDefaults(defineProps<{
-  album: Album
-  layout?: CardLayout
-  showReleaseYear?: boolean
-}>(), {
-  layout: 'full',
-  showReleaseYear: false,
-})
+const props = withDefaults(
+  defineProps<{
+    album: Album
+    layout?: CardLayout
+    showReleaseYear?: boolean
+  }>(),
+  {
+    layout: 'full',
+    showReleaseYear: false,
+  },
+)
 
 const AlbumContextMenu = defineAsyncComponent(() => import('@/components/album/AlbumContextMenu.vue'))
 
@@ -96,10 +97,12 @@ const shuffle = async () => {
 
 const toggleFavorite = () => albumStore.toggleFavorite(album.value)
 
-const download = () => downloadService.fromAlbum(album.value)
+const { fromAlbum } = useDownload()
+const download = () => fromAlbum(album.value)
 const onDragStart = (event: DragEvent) => startDragging(event, album.value)
 
-const requestContextMenu = (event: MouseEvent) => openContextMenu<'ALBUM'>(AlbumContextMenu, event, {
-  album: album.value,
-})
+const requestContextMenu = (event: MouseEvent) =>
+  openContextMenu<'ALBUM'>(AlbumContextMenu, event, {
+    album: album.value,
+  })
 </script>

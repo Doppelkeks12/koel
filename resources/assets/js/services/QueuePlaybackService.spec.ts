@@ -1,8 +1,13 @@
 import { nextTick, reactive } from 'vue'
 import plyr from 'plyr'
-import lodash from 'lodash'
 import { describe, expect, it, vi } from 'vitest'
+import * as lodash from 'lodash'
 import { createHarness } from '@/__tests__/TestHarness'
+
+vi.mock('lodash', async importOriginal => {
+  const mod = await importOriginal<typeof lodash>()
+  return { ...mod, shuffle: vi.fn(mod.shuffle) }
+})
 import { http } from '@/services/http'
 import { socketService } from '@/services/socketService'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
@@ -89,7 +94,11 @@ describe('playbackService', () => {
     expect(scrobbleMock).toHaveBeenCalled()
   })
 
-  it.each<[RepeatMode, number, number]>([['REPEAT_ONE', 1, 0], ['NO_REPEAT', 0, 1], ['REPEAT_ALL', 0, 1]])(
+  it.each<[RepeatMode, number, number]>([
+    ['REPEAT_ONE', 1, 0],
+    ['NO_REPEAT', 0, 1],
+    ['REPEAT_ALL', 0, 1],
+  ])(
     'when playable ends, if repeat mode is %s then restart() is called %d times and playNext() is called %d times',
     (repeatMode, restartCalls, playNextCalls) => {
       setCurrentSong()
@@ -278,9 +287,11 @@ describe('playbackService', () => {
   })
 
   it('resumes playback', async () => {
-    const song = setCurrentSong(h.factory('song', {
-      playback_state: 'Paused',
-    }))
+    const song = setCurrentSong(
+      h.factory('song', {
+        playback_state: 'Paused',
+      }),
+    )
 
     const playMock = h.mock(window.HTMLMediaElement.prototype, 'play')
     const broadcastMock = h.mock(socketService, 'broadcast')
@@ -317,13 +328,12 @@ describe('playbackService', () => {
     const replaceQueueMock = h.mock(queueStore, 'replaceQueueWith')
     const playMock = h.mock(playbackService, 'play')
     const firstSongInQueue = songs[0]
-    const shuffleMock = h.mock(lodash, 'shuffle')
     h.setReadOnlyProperty(queueStore, 'first', firstSongInQueue)
 
     playbackService.queueAndPlay(songs)
     await nextTick()
 
-    expect(shuffleMock).not.toHaveBeenCalled()
+    expect(lodash.shuffle).not.toHaveBeenCalled()
     expect(replaceQueueMock).toHaveBeenCalledWith(songs)
     expect(playMock).toHaveBeenCalledWith(firstSongInQueue)
   })
@@ -335,12 +345,12 @@ describe('playbackService', () => {
     const playMock = h.mock(playbackService, 'play')
     const firstSongInQueue = songs[0]
     h.setReadOnlyProperty(queueStore, 'first', firstSongInQueue)
-    const shuffleMock = h.mock(lodash, 'shuffle', shuffledSongs)
+    vi.mocked(lodash.shuffle).mockReturnValue(shuffledSongs)
 
     playbackService.queueAndPlay(songs, true)
     await nextTick()
 
-    expect(shuffleMock).toHaveBeenCalledWith(songs)
+    expect(lodash.shuffle).toHaveBeenCalledWith(songs)
     expect(replaceQueueMock).toHaveBeenCalledWith(shuffledSongs)
     expect(playMock).toHaveBeenCalledWith(firstSongInQueue)
   })

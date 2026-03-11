@@ -28,8 +28,7 @@ class ScanInformation implements Arrayable
         public ?int $mTime,
         public ?string $mimeType,
         public ?int $fileSize,
-    ) {
-    }
+    ) {}
 
     public static function fromGetId3Info(array $info, string $path): self
     {
@@ -38,6 +37,7 @@ class ScanInformation implements Arrayable
             Arr::get($info, 'tags.id3v1', []),
             Arr::get($info, 'tags.id3v2', []),
             Arr::get($info, 'comments', []),
+            Arr::get($info, 'tags.vorbiscomment', []),
         );
 
         $comments = Arr::get($info, 'comments', []);
@@ -60,6 +60,7 @@ class ScanInformation implements Arrayable
             'unsynchronised_lyric',
             'unsychronised_lyric',
             'unsyncedlyrics',
+            'lyrics',
         ]));
 
         return new self(

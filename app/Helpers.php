@@ -117,12 +117,12 @@ function collect_sso_providers(): array
     return $providers;
 }
 
-function get_mtime(string|SplFileInfo $file): int
+function get_mtime(string|SplFileInfo $path): int
 {
-    $file = is_string($file) ? new SplFileInfo($file) : $file;
+    $path = is_string($path) ? $path : $path->getPathname();
 
     // Workaround for #344, where getMTime() fails for certain files with Unicode names on Windows.
-    return rescue(static fn () => $file->getMTime()) ?? time();
+    return rescue(static fn () => File::lastModified($path)) ?? time();
 }
 
 /**
@@ -156,8 +156,8 @@ function collect_accepted_audio_extensions(): array
         collect(array_values(config('koel.streaming.supported_mime_types')))
             ->flatten()
             ->unique()
-            ->map(static fn (string $ext) => Str::lower($ext))
-            ->toArray()
+            ->map(Str::lower(...))
+            ->toArray(),
     );
 }
 
@@ -170,7 +170,7 @@ function find_ffmpeg_path(): ?string
         return $path && is_executable($path) ? $path : null;
     }
 
-    // for Windows, we can check `where` command
+    // for Windows, we can check the `where` command
     $path = trim(shell_exec('where ffmpeg') ?: '');
 
     if ($path && is_executable($path)) {

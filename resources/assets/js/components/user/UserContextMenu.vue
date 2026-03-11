@@ -7,10 +7,7 @@
       <MenuItem v-if="user.is_prospect" @click="revokeInvite">Revoke Invitation</MenuItem>
       <MenuItem v-else @click="destroy">Delete</MenuItem>
     </template>
-    <MenuItem
-      v-if="allowEdit === false && allowDelete === false"
-      class="italic pointer-events-none"
-    >
+    <MenuItem v-if="allowEdit === false && allowDelete === false" class="italic pointer-events-none">
       No available actions
     </MenuItem>
   </ul>
@@ -18,10 +15,11 @@
 
 <script setup lang="ts">
 import { onMounted, ref, toRefs } from 'vue'
-import { eventBus } from '@/utils/eventBus'
+import { defineAsyncComponent } from '@/utils/helpers'
 import { userStore } from '@/stores/userStore'
 import { usePolicies } from '@/composables/usePolicies'
 import { useContextMenu } from '@/composables/useContextMenu'
+import { useModal } from '@/composables/useModal'
 import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useDialogBox } from '@/composables/useDialogBox'
 import { invitationService } from '@/services/invitationService'
@@ -35,22 +33,26 @@ const allowDelete = ref<boolean | null>(null)
 
 const { toastSuccess } = useMessageToaster()
 const { showConfirmDialog } = useDialogBox()
+const EditUserForm = defineAsyncComponent(() => import('@/components/user/EditUserForm.vue'))
+
 const { MenuItem, trigger } = useContextMenu()
+const { openModal } = useModal()
 const { currentUserCan } = usePolicies()
 
-const edit = () => trigger(() => eventBus.emit('MODAL_SHOW_EDIT_USER_FORM', user.value))
+const edit = () => trigger(() => openModal<'EDIT_USER_FORM'>(EditUserForm, { user: user.value }))
 
-const destroy = () => trigger(async () => {
-  if (!await showConfirmDialog(`Unperson ${user!.value.name}?`)) {
-    return
-  }
+const destroy = () =>
+  trigger(async () => {
+    if (!(await showConfirmDialog(`Unperson ${user!.value.name}?`))) {
+      return
+    }
 
-  await userStore.destroy(user.value)
-  toastSuccess(`User "${user.value.name}" deleted.`)
-})
+    await userStore.destroy(user.value)
+    toastSuccess(`User "${user.value.name}" deleted.`)
+  })
 
 const revokeInvite = async () => {
-  if (!await showConfirmDialog(`Revoke the invite for ${user.value.email}?`)) {
+  if (!(await showConfirmDialog(`Revoke the invite for ${user.value.email}?`))) {
     return
   }
 
@@ -65,7 +67,7 @@ const revokeInvite = async () => {
 }
 
 onMounted(async () => {
-  allowEdit.value = user.value.is_prospect ? false : (await currentUserCan.editUser(user.value))
+  allowEdit.value = user.value.is_prospect ? false : await currentUserCan.editUser(user.value)
   allowDelete.value = await currentUserCan.deleteUser(user.value)
 })
 </script>

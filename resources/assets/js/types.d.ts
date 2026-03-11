@@ -6,13 +6,13 @@ declare module '*.svg'
 declare type Closure<T = unknown | any> = (...args: Array<unknown | any>) => T
 
 declare module 'sketch-js' {
-  function create (config: Record<string, any>): any
+  function create(config: Record<string, any>): any
 }
 
 declare module 'youtube-player' {
   import type { YouTubePlayer } from 'youtube-player/dist/types'
 
-  function createYouTubePlayer (name: string, options: Record<string, any>): YouTubePlayer
+  function createYouTubePlayer(name: string, options: Record<string, any>): YouTubePlayer
 
   export default createYouTubePlayer
 }
@@ -38,17 +38,20 @@ declare module 'ismobilejs' {
 }
 
 declare module 'nouislider' {
-  function create (el: HTMLElement, config: {
-    connect: boolean[]
-    start: number
-    range: {
-      min: number
-      max: number
-    }
-    orientation: 'horizontal' | 'vertical'
-    direction: 'ltr' | 'rtl'
-    step?: number
-  }): void
+  function create(
+    el: HTMLElement,
+    config: {
+      connect: boolean[]
+      start: number
+      range: {
+        min: number
+        max: number
+      }
+      orientation: 'horizontal' | 'vertical'
+      direction: 'ltr' | 'rtl'
+      step?: number
+    },
+  ): void
 }
 
 interface Constructable<T> {
@@ -59,7 +62,7 @@ type MaybeArray<T> = T | T[]
 
 interface CompositeToken {
   'audio-token': string
-  'token': string
+  token: string
 }
 
 type SSOProvider = 'Google' | 'Reverse Proxy'
@@ -153,6 +156,7 @@ interface Album {
   year: number | null
   is_external: boolean
   favorite: boolean
+  full_screen_cover: string
 }
 
 interface IStreamable {
@@ -186,6 +190,7 @@ interface Song extends BasePlayable {
   artist_name: Artist['name']
   album_artist_id: Artist['id']
   album_artist_name: Artist['name']
+  full_screen_cover: Album['full_screen_cover']
   genre: string
   track: number | null
   disc: number
@@ -251,14 +256,35 @@ interface SmartPlaylistRuleGroup {
 }
 
 interface SmartPlaylistModel {
-  name: 'title' | 'length' | 'created_at' | 'updated_at' | 'album.name' | 'artist.name' | 'interactions.play_count' | 'interactions.last_played_at' | 'genre' | 'year'
+  name:
+    | 'title'
+    | 'length'
+    | 'created_at'
+    | 'updated_at'
+    | 'album.name'
+    | 'artist.name'
+    | 'interactions.play_count'
+    | 'interactions.last_played_at'
+    | 'genre'
+    | 'year'
   type: 'text' | 'number' | 'date'
   label: string
   unit?: 'seconds' | 'days'
 }
 
 interface SmartPlaylistOperator {
-  operator: 'is' | 'isNot' | 'contains' | 'notContain' | 'isBetween' | 'isGreaterThan' | 'isLessThan' | 'beginsWith' | 'endsWith' | 'inLast' | 'notInLast'
+  operator:
+    | 'is'
+    | 'isNot'
+    | 'contains'
+    | 'notContain'
+    | 'isBetween'
+    | 'isGreaterThan'
+    | 'isLessThan'
+    | 'beginsWith'
+    | 'endsWith'
+    | 'inLast'
+    | 'notInLast'
   label: string
   type?: SmartPlaylistModel['type'] // to override
   unit?: SmartPlaylistModel['unit'] // to override
@@ -474,6 +500,7 @@ declare type ScreenName =
   | 'Home'
   | 'Invitation.Accept'
   | 'MediaBrowser'
+  | 'OfflineSongs'
   | 'Password.Reset'
   | 'Playlist'
   | 'Playlist.Collaborate'
@@ -506,7 +533,8 @@ interface PlayableListControlsConfig {
   filter: boolean
 }
 
-type ThemeableProperty = '--color-fg'
+type ThemeableProperty =
+  | '--color-fg'
   | '--color-bg'
   | '--color-highlight'
   | '--bg-image'
@@ -541,13 +569,31 @@ interface PlayableListConfig {
 
 interface PlayableListContext {
   entity?: Playlist | Album | Artist | Genre
-  type?: Extract<ScreenName, 'Home' | 'Songs' | 'Album' | 'Artist' | 'Playlist' | 'Favorites' | 'RecentlyPlayed' | 'Queue' | 'Genre' | 'Search.Playables'>
+  type?: Extract<
+    ScreenName,
+    | 'Home'
+    | 'Songs'
+    | 'Album'
+    | 'Artist'
+    | 'Playlist'
+    | 'Favorites'
+    | 'RecentlyPlayed'
+    | 'Queue'
+    | 'Genre'
+    | 'Search.Playables'
+    | 'OfflineSongs'
+  >
 }
 
 type PlayableListSortField =
-  keyof Pick<Song, 'track' | 'disc' | 'title' | 'album_name' | 'length' | 'artist_name' | 'genre' | 'year' | 'created_at'>
+  | keyof Pick<
+      Song,
+      'track' | 'disc' | 'title' | 'album_name' | 'length' | 'artist_name' | 'genre' | 'year' | 'created_at'
+    >
   | keyof Pick<Episode, 'podcast_author' | 'podcast_title'>
   | 'position'
+  | 'collaboration.user.name'
+  | 'collaboration.added_at'
 
 type AlbumListSortField = keyof Pick<Album, 'name' | 'year' | 'artist_name' | 'created_at'>
 type ArtistListSortField = keyof Pick<Artist, 'name' | 'created_at'>
@@ -555,7 +601,7 @@ type GenreListSortField = keyof Pick<Genre, 'name' | 'song_count'>
 type PodcastListSortField = keyof Pick<Podcast, 'title' | 'last_played_at' | 'subscribed_at' | 'author'>
 type RadioStationListSortField = keyof Pick<RadioStation, 'name' | 'created_at'>
 type SortField =
-  PodcastListSortField
+  | PodcastListSortField
   | AlbumListSortField
   | ArtistListSortField
   | RadioStationListSortField
@@ -569,7 +615,7 @@ interface BasicListSorterDropDownItem<T extends SortField> {
 type SortOrder = 'asc' | 'desc'
 type Placement = 'before' | 'after'
 
-type MethodOf<T> = { [K in keyof T]: T[K] extends Closure ? K : never; }[keyof T]
+type MethodOf<T> = { [K in keyof T]: T[K] extends Closure ? K : never }[keyof T]
 
 interface PaginatorResource<T> {
   data: T[]
@@ -611,7 +657,7 @@ interface Visualizer {
 }
 
 type PlayableListColumnName =
-  'title'
+  | 'title'
   | 'album'
   | 'artist'
   | 'track'
@@ -620,6 +666,8 @@ type PlayableListColumnName =
   | 'play_count'
   | 'year'
   | 'genre'
+  | 'playlist_collaborator'
+  | 'playlist_added_at'
 
 interface Folder {
   type: 'folders'
@@ -662,4 +710,9 @@ interface EmbedOptions {
   theme: Theme['id']
   layout: EmbedLayout['id']
   preview: boolean
+}
+
+interface LrcLine {
+  time: number
+  text: string
 }

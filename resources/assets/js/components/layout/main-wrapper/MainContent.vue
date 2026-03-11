@@ -1,8 +1,5 @@
 <template>
-  <section
-    id="mainContent"
-    class="flex-1 relative overflow-hidden"
-  >
+  <section id="mainContent" class="flex-1 relative overflow-hidden">
     <!--
       Most of the views are render-expensive and have their own UI states (viewport/scroll position), e.g. the playable
       lists), so we use v-show.
@@ -19,6 +16,7 @@
     <PlaylistScreen v-if="screenLoaded('Playlist')" v-show="screen === 'Playlist'" />
     <FavoritesScreen v-if="screenLoaded('Favorites')" v-show="screen === 'Favorites'" />
     <RecentlyPlayedScreen v-if="screenLoaded('RecentlyPlayed')" v-show="screen === 'RecentlyPlayed'" />
+    <OfflineSongsScreen v-if="screenLoaded('OfflineSongs')" v-show="screen === 'OfflineSongs'" />
     <UploadScreen v-if="screenLoaded('Upload')" v-show="screen === 'Upload'" />
     <SearchExcerptsScreen v-if="screenLoaded('Search.Excerpt')" v-show="screen === 'Search.Excerpt'" />
     <GenreScreen v-if="screenLoaded('Genre')" v-show="screen === 'Genre'" />
@@ -48,7 +46,7 @@ import { defineAsyncComponent, requireInjection } from '@/utils/helpers'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import { useRouter } from '@/composables/useRouter'
 import { useThirdPartyServices } from '@/composables/useThirdPartyServices'
-import { CurrentStreamableKey } from '@/symbols'
+import { CurrentStreamableKey } from '@/config/symbols'
 import { commonStore } from '@/stores/commonStore'
 
 const AcceptPlaylistCollaborationInvite = defineAsyncComponent(
@@ -72,11 +70,15 @@ const PlaylistScreen = defineAsyncComponent(() => import('@/components/screens/P
 const PodcastListScreen = defineAsyncComponent(() => import('@/components/screens/PodcastListScreen.vue'))
 const PodcastScreen = defineAsyncComponent(() => import('@/components/screens/PodcastScreen.vue'))
 const ProfileScreen = defineAsyncComponent(() => import('@/components/screens/ProfileScreen.vue'))
-const QueueScreen = defineAsyncComponent(() => import('@/components/screens/QueueScreen.vue'))
+// QueueScreen and OfflineSongsScreen must NOT be lazy-loaded, so they work offline.
+import QueueScreen from '@/components/screens/QueueScreen.vue'
+import OfflineSongsScreen from '@/components/screens/OfflineSongsScreen.vue'
 const RadioStationListScreen = defineAsyncComponent(() => import('@/components/screens/RadioStationListScreen.vue'))
 const RecentlyPlayedScreen = defineAsyncComponent(() => import('@/components/screens/RecentlyPlayedScreen.vue'))
 const SearchExcerptsScreen = defineAsyncComponent(() => import('@/components/screens/search/SearchExcerptsScreen.vue'))
-const SearchSongResultsScreen = defineAsyncComponent(() => import('@/components/screens/search/SearchPlayableResultsScreen.vue'))
+const SearchSongResultsScreen = defineAsyncComponent(
+  () => import('@/components/screens/search/SearchPlayableResultsScreen.vue'),
+)
 const SettingsScreen = defineAsyncComponent(() => import('@/components/screens/SettingsScreen.vue'))
 const UploadScreen = defineAsyncComponent(() => import('@/components/screens/UploadScreen.vue'))
 const UserListScreen = defineAsyncComponent(() => import('@/components/screens/UserListScreen.vue'))

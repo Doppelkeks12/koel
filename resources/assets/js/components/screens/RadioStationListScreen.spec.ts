@@ -1,14 +1,27 @@
 import { screen, waitFor } from '@testing-library/vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createHarness } from '@/__tests__/TestHarness'
+import { assertOpenModal } from '@/__tests__/assertions'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import { radioStationStore } from '@/stores/radioStationStore'
-import { eventBus } from '@/utils/eventBus'
+import AddRadioStationForm from '@/components/radio/AddRadioStationForm.vue'
+
+const openModalMock = vi.fn()
+
+vi.mock('@/composables/useModal', () => ({
+  useModal: () => ({
+    openModal: openModalMock,
+  }),
+}))
+
 import Component from './RadioStationListScreen.vue'
 
 describe('radioStationListScreen.vue', () => {
   const h = createHarness({
-    beforeEach: () => h.mock(radioStationStore, 'fetchAll'),
+    beforeEach: () => {
+      openModalMock.mockClear()
+      h.mock(radioStationStore, 'fetchAll')
+    },
   })
 
   const renderComponent = async (stations?: RadioStation[]) => {
@@ -55,35 +68,33 @@ describe('radioStationListScreen.vue', () => {
     await waitFor(() => expect(screen.getByTestId('radio-station-grid').classList.contains(`as-list`)).toBe(true))
 
     await h.user.click(screen.getByRole('radio', { name: 'View as thumbnails' }))
-    await waitFor(() => expect(
-      screen.getByTestId('radio-station-grid').classList.contains(`as-thumbnails`),
-    ).toBe(true),
-    )
+    await waitFor(() => expect(screen.getByTestId('radio-station-grid').classList.contains(`as-thumbnails`)).toBe(true))
   })
 
   it('requests the Add Radio Station form', async () => {
-    const emitMock = h.mock(eventBus, 'emit')
     await renderComponent()
     await h.tick()
 
     const addButton = screen.getByRole('button', { name: 'Add a new station' })
     await h.user.click(addButton)
 
-    expect(emitMock).toHaveBeenCalledWith('MODAL_SHOW_ADD_RADIO_STATION_FORM')
+    await assertOpenModal(openModalMock, AddRadioStationForm)
   })
 
-  it('does not show the Add button in demo mode', async () => await h.withDemoMode(async () => {
-    await renderComponent()
-    await h.tick()
+  it('does not show the Add button in demo mode', async () =>
+    await h.withDemoMode(async () => {
+      await renderComponent()
+      await h.tick()
 
-    expect(screen.queryByRole('button', { name: 'Add a new station' })).toBeNull()
-  }))
+      expect(screen.queryByRole('button', { name: 'Add a new station' })).toBeNull()
+    }))
 
-  it('shows the Add button in demo mode for admins', async () => await h.withDemoMode(async () => {
-    h.actingAsAdmin()
-    await renderComponent()
-    await h.tick()
+  it('shows the Add button in demo mode for admins', async () =>
+    await h.withDemoMode(async () => {
+      h.actingAsAdmin()
+      await renderComponent()
+      await h.tick()
 
-    screen.getByRole('button', { name: 'Add a new station' })
-  }))
+      screen.getByRole('button', { name: 'Add a new station' })
+    }))
 })

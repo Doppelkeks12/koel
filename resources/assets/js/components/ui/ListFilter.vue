@@ -1,9 +1,6 @@
 <template>
   <OnClickOutside @trigger="maybeHideInput">
-    <form
-      class="flex border rounded-md border-k-fg-10 focus-within:border-k-highlight"
-      @submit.prevent
-    >
+    <form class="flex border rounded-md border-k-fg-10 focus-within:border-k-highlight" @submit.prevent>
       <button v-koel-tooltip class="px-3.5 py-2" title="Filter" type="button" @click.prevent="showInput">
         <Icon :icon="faFilter" fixed-width />
       </button>
@@ -26,7 +23,7 @@ import { OnClickOutside } from '@vueuse/components'
 import { faFilter } from '@fortawesome/free-solid-svg-icons'
 import { computed, nextTick, ref } from 'vue'
 import { requireInjection } from '@/utils/helpers'
-import { FilterKeywordsKey } from '@/symbols'
+import { FilterKeywordsKey } from '@/config/symbols'
 
 import TextInput from '@/components/ui/form/TextInput.vue'
 

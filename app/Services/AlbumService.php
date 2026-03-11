@@ -18,8 +18,7 @@ class AlbumService
         private readonly AlbumRepository $albumRepository,
         private readonly ImageStorage $imageStorage,
         private readonly Finder $finder,
-    ) {
-    }
+    ) {}
 
     public function updateAlbum(Album $album, AlbumUpdateData $dto): Album
     {
@@ -66,17 +65,15 @@ class AlbumService
     {
         // As directory scanning can be expensive, we cache and reuse the result.
         Cache::remember(cache_key($directory, 'cover'), now()->addDay(), function () use ($album, $directory): ?string {
-            $matches = array_keys(
-                iterator_to_array(
-                    $this->finder::create()
-                        ->depth(0)
-                        ->ignoreUnreadableDirs()
-                        ->files()
-                        ->followLinks()
-                        ->name('/(cov|fold)er\.(jpe?g|gif|png|webp|avif)$/i')
-                        ->in($directory)
-                )
-            );
+            $matches = array_keys(iterator_to_array(
+                $this->finder::create()
+                    ->depth(0)
+                    ->ignoreUnreadableDirs()
+                    ->files()
+                    ->followLinks()
+                    ->name('/(cov|fold)er\.(jpe?g|gif|png|webp|avif)$/i')
+                    ->in($directory),
+            ));
 
             $cover = $matches[0] ?? null;
 
@@ -92,10 +89,7 @@ class AlbumService
     {
         $this->imageStorage->storeImage(
             source: image_storage_path($album->cover),
-            config: ImageWritingConfig::make(
-                maxWidth: 48,
-                blur: 10,
-            ),
+            config: ImageWritingConfig::make(maxWidth: 48, blur: 10),
             path: image_storage_path($album->thumbnail),
         );
 
@@ -117,10 +111,8 @@ class AlbumService
     {
         $this->imageStorage->storeImage(
             $source,
-            ImageWritingConfig::make(
-                maxWidth: 1920
-            ),
-            image_storage_path($album->full_screen_cover_name)
+            ImageWritingConfig::make(maxWidth: 1920),
+            image_storage_path($album->full_screen_cover_name),
         );
 
         return $album->full_screen_cover_name;

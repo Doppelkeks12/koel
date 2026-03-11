@@ -29,6 +29,7 @@ const generate = (partOfCompilation = false): Song => {
     created_at: faker.date.past().toISOString(),
     playback_state: 'Stopped',
     is_external: false,
+    full_screen_cover: faker.image.url(),
   }
 }
 

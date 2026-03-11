@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 import { createHarness } from '@/__tests__/TestHarness'
+import { assertOpenModal } from '@/__tests__/assertions'
 import factory from '@/__tests__/factory'
 import { arrayify } from '@/utils/helpers'
 import { eventBus } from '@/utils/eventBus'
@@ -11,11 +13,49 @@ import { queueStore } from '@/stores/queueStore'
 import { playableStore } from '@/stores/playableStore'
 import { DialogBoxStub, MessageToasterStub } from '@/__tests__/stubs'
 import Router from '@/router'
+import EditSongForm from '@/components/playable/EditSongForm.vue'
+import CreateEmbedForm from '@/components/embed/CreateEmbedForm.vue'
+import CreatePlaylistForm from '@/components/playlist/CreatePlaylistForm.vue'
+
+const openModalMock = vi.fn()
+
+vi.mock('@/composables/useModal', () => ({
+  useModal: () => ({
+    openModal: openModalMock,
+  }),
+}))
+
+const makeAvailableOfflineMock = vi.fn()
+const removeOfflineCacheMock = vi.fn()
+const isCachedMock = vi.fn().mockReturnValue(false)
+
+vi.mock('@/composables/useOfflinePlayback', () => ({
+  useOfflinePlayback: () => ({
+    swReady: ref(true),
+    makeAvailableOffline: makeAvailableOfflineMock,
+    removeOfflineCache: removeOfflineCacheMock,
+    isCached: isCachedMock,
+  }),
+}))
+
 import Component from './PlayableContextMenu.vue'
+
+// Mock service worker controller so offline menu items show up
+Object.defineProperty(navigator, 'serviceWorker', {
+  value: { controller: { postMessage: vi.fn() }, addEventListener: vi.fn() },
+  writable: true,
+  configurable: true,
+})
 
 describe('playableContextMenu.vue', () => {
   const h = createHarness({
-    beforeEach: () => queueStore.state.playables = [],
+    beforeEach: () => {
+      queueStore.state.playables = []
+      openModalMock.mockClear()
+      makeAvailableOfflineMock.mockClear()
+      removeOfflineCacheMock.mockClear()
+      isCachedMock.mockReturnValue(false)
+    },
   })
 
   const renderComponent = async (playables?: MaybeArray<Playable>) => {
@@ -261,11 +301,9 @@ describe('playableContextMenu.vue', () => {
     h.actingAsAdmin()
     const { playables } = await renderComponent()
 
-    // mock after render to ensure that the component is mounted properly
-    const emitMock = h.mock(eventBus, 'emit')
     await h.user.click(screen.getByText('Edit…'))
 
-    expect(emitMock).toHaveBeenCalledWith('MODAL_SHOW_EDIT_SONG_FORM', playables)
+    await assertOpenModal(openModalMock, EditSongForm, { songs: playables as Song[], initialTab: 'details' })
   })
 
   it('does not allow edit songs if current user is not admin', async () => {
@@ -322,12 +360,9 @@ describe('playableContextMenu.vue', () => {
     h.actingAsUser()
     const { playables } = await renderComponent()
 
-    // mock after render to ensure that the component is mounted properly
-    const emitMock = h.mock(eventBus, 'emit')
-
     await h.user.click(screen.getByText('New Playlist…'))
 
-    expect(emitMock).toHaveBeenCalledWith('MODAL_SHOW_CREATE_PLAYLIST_FORM', null, playables)
+    await assertOpenModal(openModalMock, CreatePlaylistForm, { folder: null, playables })
   })
 
   it('does not have the options to mark song as private or public in Community edition', async () => {
@@ -336,39 +371,41 @@ describe('playableContextMenu.vue', () => {
     expect(screen.queryByText('Unmark as Private')).toBeNull()
   })
 
-  it('makes songs private', async () => await h.withPlusEdition(async () => {
-    const user = h.factory.states('current')('user') as CurrentUser
-    const songs = h.factory('song', 5, {
-      is_public: true,
-      owner_id: user.id,
-    })
+  it('makes songs private', async () =>
+    await h.withPlusEdition(async () => {
+      const user = h.factory.states('current')('user') as CurrentUser
+      const songs = h.factory('song', 5, {
+        is_public: true,
+        owner_id: user.id,
+      })
 
-    h.actingAsUser(user)
+      h.actingAsUser(user)
 
-    await renderComponent(songs)
-    const privatizeMock = h.mock(playableStore, 'privatizeSongs').mockResolvedValue(songs.map(song => song.id))
+      await renderComponent(songs)
+      const privatizeMock = h.mock(playableStore, 'privatizeSongs').mockResolvedValue(songs.map(song => song.id))
 
-    await h.user.click(screen.getByText('Mark as Private'))
+      await h.user.click(screen.getByText('Mark as Private'))
 
-    expect(privatizeMock).toHaveBeenCalledWith(songs)
-  }))
+      expect(privatizeMock).toHaveBeenCalledWith(songs)
+    }))
 
-  it('makes songs public', async () => await h.withPlusEdition(async () => {
-    const user = h.factory.states('current')('user') as CurrentUser
-    const songs = h.factory('song', 5, {
-      is_public: false,
-      owner_id: user.id,
-    })
+  it('makes songs public', async () =>
+    await h.withPlusEdition(async () => {
+      const user = h.factory.states('current')('user') as CurrentUser
+      const songs = h.factory('song', 5, {
+        is_public: false,
+        owner_id: user.id,
+      })
 
-    h.actingAsUser(user)
+      h.actingAsUser(user)
 
-    await renderComponent(songs)
-    const publicizeMock = h.mock(playableStore, 'publicizeSongs').mockResolvedValue(songs.map(song => song.id))
+      await renderComponent(songs)
+      const publicizeMock = h.mock(playableStore, 'publicizeSongs').mockResolvedValue(songs.map(song => song.id))
 
-    await h.user.click(screen.getByText('Unmark as Private'))
+      await h.user.click(screen.getByText('Unmark as Private'))
 
-    expect(publicizeMock).toHaveBeenCalledWith(songs)
-  }))
+      expect(publicizeMock).toHaveBeenCalledWith(songs)
+    }))
 
   it('does not have an option to make songs public or private if current user is not owner', async () => {
     await h.withPlusEdition(async () => {
@@ -391,13 +428,17 @@ describe('playableContextMenu.vue', () => {
   it('has both options to make public and private if songs have mixed visibilities', async () => {
     await h.withPlusEdition(async () => {
       const owner = h.factory.states('current')('user') as CurrentUser
-      const songs = h.factory('song', 2, {
-        is_public: false,
-        owner_id: owner.id,
-      }).concat(...h.factory('song', 3, {
-        is_public: true,
-        owner_id: owner.id,
-      }))
+      const songs = h
+        .factory('song', 2, {
+          is_public: false,
+          owner_id: owner.id,
+        })
+        .concat(
+          ...h.factory('song', 3, {
+            is_public: true,
+            owner_id: owner.id,
+          }),
+        )
 
       h.actingAsUser(owner)
       await renderComponent(songs)
@@ -423,9 +464,34 @@ describe('playableContextMenu.vue', () => {
 
   it('requests the embed form', async () => {
     const { playables } = await renderComponent(h.factory('song'))
-    const emitMock = h.mock(eventBus, 'emit')
     await h.user.click(screen.getByText('Embed…'))
 
-    expect(emitMock).toHaveBeenCalledWith('MODAL_SHOW_CREATE_EMBED_FORM', playables[0])
+    await assertOpenModal(openModalMock, CreateEmbedForm, { embeddable: playables[0] })
+  })
+
+  it('makes songs available offline', async () => {
+    const { playables } = await renderComponent()
+
+    await h.user.click(screen.getByText('Make Available Offline'))
+
+    for (const playable of playables) {
+      expect(makeAvailableOfflineMock).toHaveBeenCalledWith(playable)
+    }
+  })
+
+  it('does not show offline option for episodes', async () => {
+    await renderComponent(h.factory('episode'))
+    expect(screen.queryByText('Make Available Offline')).toBeNull()
+  })
+
+  it('removes offline versions when all songs are cached', async () => {
+    isCachedMock.mockReturnValue(true)
+    const { playables } = await renderComponent()
+
+    await h.user.click(screen.getByText('Remove Offline Versions'))
+
+    for (const playable of playables) {
+      expect(removeOfflineCacheMock).toHaveBeenCalledWith(playable)
+    }
   })
 })

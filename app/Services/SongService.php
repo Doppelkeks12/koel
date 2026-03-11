@@ -11,7 +11,6 @@ use App\Jobs\ExtractSongFolderStructureJob;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Song;
-use App\Models\Transcode;
 use App\Models\User;
 use App\Repositories\SongRepository;
 use App\Repositories\TranscodeRepository;
@@ -28,6 +27,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 
+// @mago-ignore lint:cyclomatic-complexity
 class SongService
 {
     public function __construct(
@@ -35,8 +35,7 @@ class SongService
         private readonly TranscodeRepository $transcodeRepository,
         private readonly AlbumService $albumService,
         private readonly CacheStrategy $cache,
-    ) {
-    }
+    ) {}
 
     public function updateSongs(array $ids, SongUpdateData $data): SongUpdateResult
     {
@@ -58,8 +57,16 @@ class SongService
             $affectedAlbums = collect();
             $affectedArtists = collect();
 
-            Song::query()->with('artist.user', 'album.artist', 'album.artist.user')->findMany($ids)->each(
-                function (Song $song) use ($data, $result, $noTrackUpdate, $affectedAlbums, $affectedArtists): void {
+            Song::query()
+                ->with('artist.user', 'album.artist', 'album.artist.user')
+                ->findMany($ids)
+                ->each(function (Song $song) use (
+                    $data,
+                    $result,
+                    $noTrackUpdate,
+                    $affectedAlbums,
+                    $affectedArtists,
+                ): void {
                     if ($noTrackUpdate) {
                         $data->track = $song->track;
                     }
@@ -81,8 +88,7 @@ class SongService
                     if ($noTrackUpdate) {
                         $data->track = null;
                     }
-                },
-            );
+                });
 
             $affectedAlbums->each(static function (Album $album) use ($result): void {
                 if ($album->refresh()->songs()->count() === 0) {
@@ -92,7 +98,7 @@ class SongService
             });
 
             $affectedArtists->each(static function (Artist $artist) use ($result): void {
-                if ($artist->refresh()->songs()->count() === 0) {
+                if ($artist->songs()->count() === 0 && $artist->albums()->count() === 0) {
                     $result->addRemovedArtist($artist);
                     $artist->delete();
                 }
@@ -102,6 +108,7 @@ class SongService
         });
     }
 
+    // @mago-ignore lint:halstead
     private function updateSong(Song $song, SongUpdateData $data): Song
     {
         // For non-nullable fields, if the provided data is empty, use the existing value
@@ -111,7 +118,7 @@ class SongService
 
         // For nullable fields, use the existing value only if the provided data is explicitly null
         // (i.e., when multiple songs are being updated and the user did not provide a value).
-        // This allows us to clear those fields (when user provides an empty string).
+        // This allows us to clear those fields (when the user provides an empty string).
         $data->albumArtistName ??= $song->album_artist->name;
         $data->lyrics ??= $song->lyrics;
         $data->track ??= $song->track;
@@ -156,7 +163,8 @@ class SongService
         /**
          * @var Collection<array-key, Song> $collaborativeSongs
          */
-        $collaborativeSongs = $songs->toQuery()
+        $collaborativeSongs = $songs
+            ->toQuery()
             ->join('playlist_song', 'songs.id', '=', 'playlist_song.song_id')
             ->join('playlist_user', 'playlist_song.playlist_id', '=', 'playlist_user.playlist_id')
             ->select('songs.id')
@@ -180,12 +188,9 @@ class SongService
 
         // Since song (and cascadingly, transcode) records will be deleted, we query them first and, if there are any,
         // dispatch a job to delete their associated files.
-        $songFiles = Song::query()
-            ->findMany($ids)
-            ->map(static fn (Song $song) => SongFileInfo::fromSong($song)); // @phpstan-ignore-line
+        $songFiles = Song::query()->findMany($ids)->map(SongFileInfo::fromSong(...)); // @phpstan-ignore-line
 
-        $transcodeFiles = $this->transcodeRepository->findBySongIds($ids)
-            ->map(static fn (Transcode $transcode) => TranscodeFileInfo::fromTranscode($transcode)); // @phpstan-ignore-line
+        $transcodeFiles = $this->transcodeRepository->findBySongIds($ids)->map(TranscodeFileInfo::fromTranscode(...)); // @phpstan-ignore-line
 
         if (Song::destroy($ids) === 0) {
             return;
@@ -201,13 +206,15 @@ class SongService
         event(new LibraryChanged());
     }
 
-    public function createOrUpdateSongFromScan(ScanInformation $info, ScanConfiguration $config): Song
-    {
-        /** @var ?Song $song */
-        $song = Song::query()->where('path', $info->path)->first();
+    public function createOrUpdateSongFromScan(
+        ScanInformation $info,
+        ScanConfiguration $config,
+        ?Song $song = null,
+    ): ?Song {
+        $song ??= $this->songRepository->findOneByPath($info->path);
 
         $isFileNew = !$song;
-        $isFileModified = $song && $song->isFileModified($info);
+        $isFileModified = $song && $song->isFileModified($info->mTime);
         $isFileNewOrModified = $isFileNew || $isFileModified;
 
         if (!$isFileNewOrModified && !$config->force) {
@@ -281,7 +288,7 @@ class SongService
 
         return $this->cache->remember(
             key: cache_key(__METHOD__, $user->id, $name),
-            callback: static fn () => Artist::getOrCreate($user, $name)
+            callback: static fn () => Artist::getOrCreate($user, $name),
         );
     }
 
@@ -291,7 +298,7 @@ class SongService
 
         return $this->cache->remember(
             key: cache_key(__METHOD__, $artist->id, $name),
-            callback: static fn () => Album::getOrCreate($artist, $name)
+            callback: static fn () => Album::getOrCreate($artist, $name),
         );
     }
 }

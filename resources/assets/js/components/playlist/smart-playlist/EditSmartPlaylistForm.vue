@@ -35,19 +35,11 @@
             <div class="grid grid-cols-2 gap-4">
               <FormRow>
                 <template #label>Name *</template>
-                <TextInput
-                  v-model="data.name"
-                  v-koel-focus name="name"
-                  placeholder="Playlist name"
-                  required
-                />
+                <TextInput v-model="data.name" v-koel-focus name="name" placeholder="Playlist name" required />
               </FormRow>
               <FormRow>
                 <template #label>Folder</template>
-                <SelectBox v-model="data.folder_id">
-                  <option :value="null" />
-                  <option v-for="folder in folders" :key="folder.id" :value="folder.id">{{ folder.name }}</option>
-                </SelectBox>
+                <FolderSelect v-model:folder-id="data.folder_id" v-model:folder-name="data.folder_name" />
               </FormRow>
               <FormRow class="col-span-2">
                 <template #label>Description</template>
@@ -65,7 +57,7 @@
           >
             <div v-koel-overflow-fade class="group-container space-y-5 overflow-auto max-h-[480px]">
               <RuleGroup
-                v-for="(group, index) in mutablePlaylist.rules"
+                v-for="(group, index) in collectedRuleGroups"
                 :key="group.id"
                 :group="group"
                 :is-first-group="index === 0"
@@ -90,9 +82,7 @@
 
 <script lang="ts" setup>
 import { faPlus } from '@fortawesome/free-solid-svg-icons'
-import { reactive, toRef } from 'vue'
 import { cloneDeep, isEqual, pick } from 'lodash'
-import { playlistFolderStore } from '@/stores/playlistFolderStore'
 import type { UpdatePlaylistData } from '@/stores/playlistStore'
 import { playlistStore } from '@/stores/playlistStore'
 import { eventBus } from '@/utils/eventBus'
@@ -103,7 +93,7 @@ import { useForm } from '@/composables/useForm'
 
 import TextInput from '@/components/ui/form/TextInput.vue'
 import FormRow from '@/components/ui/form/FormRow.vue'
-import SelectBox from '@/components/ui/form/SelectBox.vue'
+import FolderSelect from '@/components/ui/form/FolderSelect.vue'
 import TextArea from '@/components/ui/form/TextArea.vue'
 import TabButton from '@/components/ui/tabs/TabButton.vue'
 import Tabs from '@/components/ui/tabs/Tabs.vue'
@@ -120,23 +110,13 @@ const { playlist } = props
 const { toastSuccess } = useMessageToaster()
 const { showConfirmDialog } = useDialogBox()
 
-const folders = toRef(playlistFolderStore.state, 'folders')
-const mutablePlaylist = reactive(cloneDeep(playlist))
-
-const {
-  Btn,
-  RuleGroup,
-  activateTab,
-  isTabActive,
-  collectedRuleGroups,
-  addGroup,
-  onGroupChanged,
-} = useSmartPlaylistForm(cloneDeep(playlist.rules))
+const { Btn, RuleGroup, activateTab, isTabActive, collectedRuleGroups, addGroup, onGroupChanged } =
+  useSmartPlaylistForm(cloneDeep(playlist.rules))
 
 const close = () => emit('close')
 
 const { data, isPristine, handleSubmit } = useForm<UpdatePlaylistData>({
-  initialValues: pick(playlist, 'name', 'folder_id', 'description', 'cover'),
+  initialValues: { ...pick(playlist, 'name', 'folder_id', 'description', 'cover'), folder_name: null },
   isPristine: (original, current) => isEqual(original, current) && isEqual(collectedRuleGroups.value, playlist.rules),
   onSubmit: async data => {
     const formData = {
@@ -158,7 +138,7 @@ const { data, isPristine, handleSubmit } = useForm<UpdatePlaylistData>({
 })
 
 const maybeClose = async () => {
-  if (isPristine() || await showConfirmDialog('Discard all changes?')) {
+  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
     close()
   }
 }

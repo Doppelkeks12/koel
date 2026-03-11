@@ -32,7 +32,7 @@ import { eventBus } from '@/utils/eventBus'
 import { isEpisode, isRadioStation, isSong } from '@/utils/typeGuards'
 import { isAudioContextSupported } from '@/utils/supports'
 import { defineAsyncComponent, requireInjection } from '@/utils/helpers'
-import { CurrentStreamableKey } from '@/symbols'
+import { CurrentStreamableKey } from '@/config/symbols'
 import { artistStore } from '@/stores/artistStore'
 import { preferenceStore } from '@/stores/preferenceStore'
 import { audioService } from '@/services/audioService'
@@ -135,13 +135,17 @@ const initPlaybackRelatedServices = async () => {
   }
 }
 
-watch(preferenceStore.initialized, async initialized => {
-  if (!initialized) {
-    return
-  }
+watch(
+  preferenceStore.initialized,
+  async initialized => {
+    if (!initialized) {
+      return
+    }
 
-  await initPlaybackRelatedServices()
-}, { immediate: true })
+    await initPlaybackRelatedServices()
+  },
+  { immediate: true },
+)
 
 const setupControlHidingTimer = () => {
   hideControlsTimeout = window.setTimeout(() => root.value?.classList.add('hide-controls'), 5000)
@@ -166,8 +170,7 @@ watch(isFullscreen, fullscreen => {
   }
 })
 
-eventBus.on('FULLSCREEN_TOGGLE', () => toggleFullscreen())
-  .on('UP_NEXT', next => (nextPlayable.value = next))
+eventBus.on('FULLSCREEN_TOGGLE', () => toggleFullscreen()).on('UP_NEXT', next => (nextPlayable.value = next))
 </script>
 
 <style lang="postcss" scoped>
@@ -202,6 +205,11 @@ footer {
       @apply opacity-0;
     }
 
+    &.hide-controls::after {
+      transition: opacity 2s ease-in-out !important;
+      @apply opacity-0;
+    }
+
     .wrapper {
       @apply z-[3];
     }
@@ -224,7 +232,7 @@ footer {
     }
 
     &::after {
-      background-image: linear-gradient(0deg, rgba(0, 0, 0, 1) 0%, rgba(255, 255, 255, 0) 30vh);
+      background-image: linear-gradient(0deg, var(--color-bg) 0%, rgba(255, 255, 255, 0) 30vh);
       content: '';
       @apply absolute w-full h-full top-0 left-0 z-[1] pointer-events-none;
     }

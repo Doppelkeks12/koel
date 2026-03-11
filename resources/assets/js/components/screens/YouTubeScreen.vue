@@ -24,7 +24,7 @@ import { ref, watch } from 'vue'
 import type { YouTubePlayer } from 'youtube-player/dist/types'
 import { eventBus } from '@/utils/eventBus'
 import { requireInjection, use } from '@/utils/helpers'
-import { CurrentStreamableKey } from '@/symbols'
+import { CurrentStreamableKey } from '@/config/symbols'
 import { playback } from '@/services/playbackManager'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
@@ -54,7 +54,10 @@ const currentStreamable = requireInjection(CurrentStreamableKey)
 /**
  * Pause video playback when a playable is played/resumed.
  */
-watch(() => currentStreamable.value?.playback_state, state => state === 'Playing' && player?.pauseVideo())
+watch(
+  () => currentStreamable.value?.playback_state,
+  state => state === 'Playing' && player?.pauseVideo(),
+)
 
 eventBus.on('PLAY_YOUTUBE_VIDEO', payload => {
   showingVideo.value = true

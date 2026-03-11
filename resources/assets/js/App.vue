@@ -34,11 +34,18 @@
 <script lang="ts" setup>
 import { defineAsyncComponent } from '@/utils/helpers'
 import { computed, onMounted, provide, ref, shallowRef, watch } from 'vue'
-import { useOnline } from '@vueuse/core'
+import { useNetworkStatus } from '@/composables/useNetworkStatus'
 import { queueStore } from '@/stores/queueStore'
 import { authService } from '@/services/authService'
 import { radioStationStore } from '@/stores/radioStationStore'
-import { ContextMenuKey, CurrentStreamableKey, DialogBoxKey, MessageToasterKey, OverlayKey } from '@/symbols'
+import {
+  ContextMenuKey,
+  CurrentStreamableKey,
+  DialogBoxKey,
+  MessageToasterKey,
+  ModalKey,
+  OverlayKey,
+} from '@/config/symbols'
 import { useRouter } from '@/composables/useRouter'
 import type { Route } from '@/router'
 
@@ -72,7 +79,7 @@ const currentStreamable = ref<Streamable>()
 const showDropZone = ref(false)
 
 const { isCurrentScreen, resolveRoute, triggerNotFound } = useRouter()
-const online = useOnline()
+const { online } = useNetworkStatus()
 
 const authenticated = ref(false)
 const initialized = ref(false)
@@ -124,13 +131,19 @@ const onDragOver = (e: DragEvent) => {
   showDropZone.value = Boolean(e.dataTransfer?.types.includes('Files')) && !isCurrentScreen('Upload')
 }
 
-watch(() => queueStore.current, song => (currentStreamable.value = song))
+watch(
+  () => queueStore.current,
+  song => (currentStreamable.value = song),
+)
 
-watch(() => radioStationStore.current, station => {
-  if (station) {
-    currentStreamable.value = station
-  }
-})
+watch(
+  () => radioStationStore.current,
+  station => {
+    if (station) {
+      currentStreamable.value = station
+    }
+  },
+)
 
 const onDragEnd = () => (showDropZone.value = false)
 
@@ -149,10 +162,20 @@ provide(DialogBoxKey, dialog)
 provide(MessageToasterKey, toaster)
 provide(CurrentStreamableKey, currentStreamable)
 
-provide(ContextMenuKey, shallowRef({
-  component: null,
-  position: { top: 0, left: 0 },
-}))
+provide(
+  ContextMenuKey,
+  shallowRef({
+    component: null,
+    position: { top: 0, left: 0 },
+  }),
+)
+
+provide(
+  ModalKey,
+  shallowRef({
+    component: null,
+  }),
+)
 </script>
 
 <style lang="postcss">

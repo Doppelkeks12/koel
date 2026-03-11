@@ -1,18 +1,18 @@
-import Pusher from 'pusher-js'
-
 import { userStore } from '@/stores/userStore'
 import { authService } from '@/services/authService'
 
 export const socketService = {
-  pusher: null as Pusher.Pusher | null,
-  channel: null as Pusher.Channel | null,
+  pusher: null as any,
+  channel: null as any,
 
-  async init () {
+  async init() {
     if (!window.PUSHER_APP_KEY) {
       return false
     }
 
-    this.pusher = new Pusher(window.PUSHER_APP_KEY, {
+    const { default: PusherLib } = await import('pusher-js')
+
+    this.pusher = new PusherLib(window.PUSHER_APP_KEY, {
       authEndpoint: `${window.BASE_URL}api/broadcasting/auth`,
       auth: {
         headers: {
@@ -28,12 +28,12 @@ export const socketService = {
     return true
   },
 
-  broadcast (eventName: string, data: any = {}) {
+  broadcast(eventName: string, data: any = {}) {
     this.channel?.trigger(`client-${eventName}.${userStore.current.id}`, data)
     return this
   },
 
-  listen (eventName: string, cb: Closure) {
+  listen(eventName: string, cb: Closure) {
     this.channel?.bind(`client-${eventName}.${userStore.current.id}`, data => cb(data))
     return this
   },

@@ -23,9 +23,7 @@
         <GuitarIcon :size="96" />
       </template>
       No genres found.
-      <span v-if="currentUserCan.manageSettings()" class="secondary block">
-        Have you set up your library yet?
-      </span>
+      <span v-if="currentUserCan.manageSettings()" class="secondary block"> Have you set up your library yet? </span>
     </ScreenEmptyState>
 
     <template v-else>
@@ -48,7 +46,7 @@ import { genreStore } from '@/stores/genreStore'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import { useFuzzySearch } from '@/composables/useFuzzySearch'
-import { FilterKeywordsKey } from '@/symbols'
+import { FilterKeywordsKey } from '@/config/symbols'
 import { orderBy } from 'lodash'
 import { usePolicies } from '@/composables/usePolicies'
 
@@ -76,11 +74,7 @@ const displayedGenres = computed(() => {
 
   if (preferences.genres_sort_field === 'name') {
     // if sorted by name, ensure 'No Genre' is always on top
-    return orderBy(
-      all,
-      [genre => genre.name ? 1 : 0, 'name'],
-      ['asc', preferences.genres_sort_order],
-    )
+    return orderBy(all, [genre => (genre.name ? 1 : 0), 'name'], ['asc', preferences.genres_sort_order])
   }
 
   return orderBy(all, preferences.genres_sort_field, preferences.genres_sort_order)

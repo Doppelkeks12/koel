@@ -35,12 +35,10 @@
         <Icon :icon="faMicrophoneSlash" />
       </template>
       No artists found.
-      <span v-if="currentUserCan.manageSettings()" class="secondary block">
-        Have you set up your library yet?
-      </span>
+      <span v-if="currentUserCan.manageSettings()" class="secondary block"> Have you set up your library yet? </span>
     </ScreenEmptyState>
 
-    <div v-else ref="gridContainer" v-koel-overflow-fade class="-m-6 overflow-auto">
+    <div v-else ref="gridContainer" v-koel-overflow-fade class="-m-6 flex-1 overflow-auto">
       <GridListView :view-mode="preferences.artists_view_mode" data-testid="artist-list">
         <template v-if="showSkeletons">
           <ArtistCardSkeleton v-for="i in 10" :key="i" :layout="itemLayout" />
@@ -86,9 +84,7 @@ const page = ref<number | null>(1)
 
 const libraryEmpty = computed(() => commonStore.state.song_length === 0)
 
-const itemLayout = computed<CardLayout>(
-  () => preferences.artists_view_mode === 'thumbnails' ? 'full' : 'compact',
-)
+const itemLayout = computed<CardLayout>(() => (preferences.artists_view_mode === 'thumbnails' ? 'full' : 'compact'))
 
 const moreArtistsAvailable = computed(() => page.value !== null)
 const showSkeletons = computed(() => loading.value && artists.value.length === 0)
@@ -110,10 +106,7 @@ const fetchArtists = async () => {
   loading.value = false
 }
 
-const {
-  ToTopButton,
-  makeScrollable,
-} = useInfiniteScroll(gridContainer, async () => await fetchArtists())
+const { ToTopButton, makeScrollable } = useInfiniteScroll(gridContainer, async () => await fetchArtists())
 
 const resetState = async () => {
   page.value = 1

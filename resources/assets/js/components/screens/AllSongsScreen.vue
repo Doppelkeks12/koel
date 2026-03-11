@@ -15,12 +15,7 @@
 
         <template #controls>
           <div class="controls w-full flex justify-between items-center gap-4">
-            <SongListControls
-              v-if="totalSongCount"
-              :config
-              @play-all="playAll"
-              @play-selected="playSelected"
-            />
+            <SongListControls v-if="totalSongCount" :config @play-all="playAll" @play-selected="playSelected" />
           </div>
         </template>
       </ScreenHeader>
@@ -115,7 +110,7 @@ const playAll = async (shuffle: boolean) => {
   if (shuffle) {
     await queueStore.fetchRandom()
   } else {
-    await queueStore.fetchInOrder(sortField, sortOrder)
+    await queueStore.fetchInOrder(Array.isArray(sortField) ? sortField[0] : sortField, sortOrder)
   }
 
   go(url('queue'))

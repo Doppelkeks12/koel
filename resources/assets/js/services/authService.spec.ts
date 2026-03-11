@@ -32,7 +32,10 @@ describe('authService', () => {
     expect(authService.getApiToken()).toBe('foo')
   })
 
-  it.each([['foo', true], [null, false]])('checks if the token exists', (token, exists) => {
+  it.each([
+    ['foo', true],
+    [null, false],
+  ])('checks if the token exists', (token, exists) => {
     lsSet('api-token', token)
     expect(authService.hasApiToken()).toBe(exists)
   })
@@ -51,7 +54,7 @@ describe('authService', () => {
   it('logs in', async () => {
     const postMock = h.mock(http, 'post').mockResolvedValue({
       'audio-token': 'foo',
-      'token': 'bar',
+      token: 'bar',
     })
 
     await authService.login('john@doe.com', 'curry-wurst')
@@ -65,7 +68,7 @@ describe('authService', () => {
 
     h.mock(http, 'post').mockResolvedValue({
       'audio-token': 'foo',
-      'token': 'bar',
+      token: 'bar',
     })
 
     await authService.login('john@doe.com', 'curry-wurst')
@@ -91,7 +94,7 @@ describe('authService', () => {
     userStore.state.current = h.factory('user', {
       name: 'John Doe',
       email: 'john@doe.com',
-    })
+    }) as CurrentUser
 
     const updated = h.factory('user', {
       name: 'Jane Doe',

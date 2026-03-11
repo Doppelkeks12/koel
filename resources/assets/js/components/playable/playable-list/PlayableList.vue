@@ -55,7 +55,7 @@ import {
   PlayableListContextKey,
   PlayableListSortFieldKey,
   SelectedPlayablesKey,
-} from '@/symbols'
+} from '@/config/symbols'
 
 import PlayableListItem from '@/components/playable/playable-list/PlayableListItem.vue'
 import VirtualScroller from '@/components/ui/VirtualScroller.vue'
@@ -113,20 +113,18 @@ const {
 } = useListSelection(rows, 'playable.id')
 
 const shouldTriggerContinuousPlayback = computed(() => {
-  return preferences.continuous_playback
-    && typeof context.type !== 'undefined'
-    && ['Playlist', 'Album', 'Artist', 'Genre', 'Favorites'].includes(context.type)
+  return (
+    preferences.continuous_playback &&
+    typeof context.type !== 'undefined' &&
+    ['Playlist', 'Album', 'Artist', 'Genre', 'Favorites'].includes(context.type)
+  )
 })
 
 const contentType = computed(() => getPlayableCollectionContentType(rows.value.map(({ playable }) => playable)))
 
 const getAllPlayablesWithSort = () => rows.value.map(row => row.playable)
 
-watch(
-  selected,
-  () => setSelectedPlayables(selected.value.map(({ playable }) => playable)),
-  { deep: true },
-)
+watch(selected, () => setSelectedPlayables(selected.value.map(({ playable }) => playable)), { deep: true })
 
 const sort = (field: MaybeArray<PlayableListSortField>, order: SortOrder) => {
   // we simply pass the sort event from the header up to the parent component
@@ -182,7 +180,9 @@ const onDragOver = throttle((event: DragEvent) => {
 }, 50)
 
 const onDragLeave = (event: DragEvent) => {
-  (event.target as HTMLElement).closest('.playable-item')?.classList.remove('droppable', 'dragover-top', 'dragover-bottom')
+  ;(event.target as HTMLElement)
+    .closest('.playable-item')
+    ?.classList.remove('droppable', 'dragover-top', 'dragover-bottom')
   return false
 }
 
@@ -297,7 +297,7 @@ const calculatedItemHeight = computed(() => {
   const discCount = Object.keys(discIndexMap.value).length
   const totalAdditionalPixels = discCount * discNumberHeight
 
-  const totalHeight = (rows.value.length * standardSongItemHeight) + totalAdditionalPixels
+  const totalHeight = rows.value.length * standardSongItemHeight + totalAdditionalPixels
 
   return totalHeight / rows.value.length
 })
@@ -336,7 +336,7 @@ onMounted(() => render())
     }
 
     &.collaborator {
-      @apply basis-[72px];
+      @apply basis-20;
     }
 
     &.year {
@@ -348,7 +348,7 @@ onMounted(() => render())
     }
 
     &.added-at {
-      @apply basis-36 text-left;
+      @apply basis-44 text-left;
     }
 
     &.extra {
@@ -396,8 +396,8 @@ onMounted(() => render())
       width: 200%;
     }
 
-    .song-item :is(.track-number, .album, .time, .year, .genre, .added-at),
-    .song-list-header :is(.track-number, .album, .time, .year, .genre, .added-at) {
+    .song-item :is(.track-number, .album, .time, .year, .genre, .collaborator, .added-at),
+    .song-list-header :is(.track-number, .album, .time, .year, .genre, .collaborator, .added-at) {
       display: none;
     }
 

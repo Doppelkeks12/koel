@@ -4,14 +4,6 @@
     <ul>
       <li>
         <SponsorLogo
-          :logo="doLogo"
-          name="DigitalOcean"
-          slogan="Cloud Infrastructure for Developers"
-          url="https://www.digitalocean.com/?refcode=5860de5f25fe&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"
-        />
-      </li>
-      <li>
-        <SponsorLogo
           :logo="whatTheDiffLogo"
           name="What The Diff"
           slogan="AI powered changelog generation"
@@ -36,15 +28,6 @@
         />
       </li>
       <li>
-        <SponsorLogo
-          class="no-inverse"
-          :logo="followHeroLogo"
-          name="Twitter Follower"
-          slogan="Echte Twitter Follower Kaufen"
-          url="https://followhero.de/twitter-follower-kaufen/"
-        />
-      </li>
-      <li>
         <a class="your-logo" href="mailto:me@phanan.net?subject=Sponsoring Koel">Your logo here</a>
       </li>
     </ul>
@@ -58,7 +41,6 @@ import doLogo from '../../assets/img/sponsors/do.svg'
 import followerBoerseLogo from '../../assets/img/sponsors/follower-boerse.svg'
 import rayLogo from '../../assets/img/sponsors/ray.svg'
 import whatTheDiffLogo from '../../assets/img/sponsors/what-the-diff.svg'
-import followHeroLogo from '../../assets/img/sponsors/followhero.webp'
 </script>
 
 <style lang="postcss">

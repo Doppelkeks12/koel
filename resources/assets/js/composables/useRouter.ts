@@ -1,4 +1,4 @@
-import { RouterKey } from '@/symbols'
+import { RouterKey } from '@/config/symbols'
 import Router from '@/router'
 import { requireInjection } from '@/utils/helpers'
 
@@ -7,7 +7,7 @@ let router: Router
 export const useRouter = () => {
   router = router || requireInjection(RouterKey)
 
-  const getRouteParam = <T = string> (name: string) => router.$currentRoute.value?.params?.[name] as T
+  const getRouteParam = <T = string>(name: string) => router.$currentRoute.value?.params?.[name] as T
   const getCurrentScreen = () => router.$currentRoute.value?.screen
   const isCurrentScreen = (...screens: ScreenName[]) => screens.includes(router.$currentRoute.value?.screen)
 

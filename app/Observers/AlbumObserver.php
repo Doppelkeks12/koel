@@ -25,21 +25,18 @@ class AlbumObserver
         $oldCover = $album->getRawOriginal('cover');
 
         // If the cover is being updated, delete the old cover and thumbnail files
-        rescue_if(
-            $oldCover,
-            static function () use ($oldCover): void {
-                $oldCoverPath = image_storage_path($oldCover);
-                $parts = pathinfo($oldCoverPath);
+        rescue_if($oldCover, static function () use ($oldCover): void {
+            $oldCoverPath = image_storage_path($oldCover);
+            $parts = pathinfo($oldCoverPath);
 
-                $oldThumbnail = sprintf('%s_thumb.%s', $parts['filename'], $parts['extension']);
-                $oldFullScreenCover = sprintf('%s_fullscreen.%s', $parts['filename'], $parts['extension']);
-                File::delete([
-                    $oldCoverPath,
-                    image_storage_path($oldThumbnail),
-                    image_storage_path($oldFullScreenCover),
-                ]);
-            },
-        );
+            $oldThumbnail = sprintf('%s_thumb.%s', $parts['filename'], $parts['extension']);
+            $oldFullScreenCover = sprintf('%s_fullscreen.%s', $parts['filename'], $parts['extension']);
+            File::delete([
+                $oldCoverPath,
+                image_storage_path($oldThumbnail),
+                image_storage_path($oldFullScreenCover),
+            ]);
+        });
     }
 
     public function updated(Album $album): void
@@ -58,12 +55,10 @@ class AlbumObserver
         $thumbnailPath = image_storage_path($album->thumbnail);
         $fullScreenCover = image_storage_path($album->full_screen_cover);
 
-        rescue_if($coverPath || $thumbnailPath, static fn () => File::delete(
-            [
-                $coverPath,
-                $thumbnailPath,
-                $fullScreenCover,
-            ]
-        ));
+        rescue_if($coverPath || $thumbnailPath, static fn () => File::delete([
+            $coverPath,
+            $thumbnailPath,
+            $fullScreenCover,
+        ]));
     }
 }

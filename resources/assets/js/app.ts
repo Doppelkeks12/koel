@@ -5,7 +5,7 @@ import { tooltip } from '@/directives/tooltip'
 import { hideBrokenIcon } from '@/directives/hideBrokenIcon'
 import { overflowFade } from '@/directives/overflowFade'
 import { newTab } from '@/directives/newTab'
-import { RouterKey } from '@/symbols'
+import { RouterKey } from '@/config/symbols'
 import Router from '@/router'
 import '@/../css/app.pcss'
 import App from './App.vue'
@@ -27,4 +27,9 @@ createApp(App)
    */
   .mount('#app')
 
-navigator.serviceWorker?.register('./sw.js')
+window.addEventListener('load', () => {
+  navigator.serviceWorker?.register('./sw.js').then(registration => {
+    // Check for SW updates periodically
+    setInterval(() => registration.update(), 60 * 60 * 1000)
+  })
+})
