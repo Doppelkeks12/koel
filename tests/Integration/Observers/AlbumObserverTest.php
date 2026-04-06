@@ -12,25 +12,28 @@ use Tests\TestCase;
 
 class AlbumObserverTest extends TestCase
 {
+    public function setUp(): void
+    {
+        parent::setUp();
+
+        // Re-bind the real AlbumObserver (TestCase replaces `saved` with a no-op).
+        $this->app->instance(AlbumObserver::class, new AlbumObserver());
+    }
+
     #[Test]
     public function dispatchJobToGenerateThumbnailUponCreation(): void
     {
         Dispatcher::expects('dispatch')->once()->with(Mockery::type(GenerateAlbumThumbnailJob::class));
 
-        self::restoreObserver();
-
-        Album::factory()->create();
+        Album::factory()->createOne();
     }
 
     #[Test]
     public function dispatchJobToGenerateThumbnailUponUpdate(): void
     {
+        $album = Album::factory()->createOne();
+
         Dispatcher::expects('dispatch')->once()->with(Mockery::type(GenerateAlbumThumbnailJob::class));
-
-        /** @var Album $album */
-        $album = Album::factory()->create();
-
-        self::restoreObserver();
 
         $album->cover = 'new-cover.webp';
         $album->save();
@@ -39,23 +42,13 @@ class AlbumObserverTest extends TestCase
     #[Test]
     public function doNotDispatchJobToGenerateThumbnailIfCoverIsEmpty(): void
     {
-        Dispatcher::expects('dispatch')->never();
+        Dispatcher::expects('dispatch')->with(Mockery::type(GenerateAlbumThumbnailJob::class))->never();
 
-        /** @var Album $album */
-        $album = Album::factory()->create();
-
-        self::restoreObserver();
+        $album = Album::factory()->createOne(['cover' => '']);
 
         $album->cover = '';
         $album->save();
 
-        // create another album to ensure the observer is still not triggered
-        Album::factory()->create(['cover' => '']);
-    }
-
-    private static function restoreObserver(): void
-    {
-        // restore the observer, as it's been "forgotten" during the parent setup
-        Album::observe(AlbumObserver::class);
+        Album::factory()->createOne(['cover' => '']);
     }
 }

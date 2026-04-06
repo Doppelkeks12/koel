@@ -75,8 +75,7 @@ class ThemeServiceTest extends TestCase
     #[Test]
     public function deleteTheme(): void
     {
-        /** @var Theme $theme */
-        $theme = Theme::factory()->create();
+        $theme = Theme::factory()->createOne();
 
         $this->service->deleteTheme($theme);
 

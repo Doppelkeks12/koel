@@ -33,9 +33,7 @@ class FavoriteServiceTest extends TestCase
         Event::fake(SongFavoriteToggled::class);
 
         $user = create_user();
-
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
 
         $this->service->toggleFavorite($song, $user);
 
@@ -49,14 +47,33 @@ class FavoriteServiceTest extends TestCase
     }
 
     #[Test]
+    public function toggleFavoriteAssignsIncrementingPosition(): void
+    {
+        Event::fake(SongFavoriteToggled::class);
+
+        $user = create_user();
+        $songs = Song::factory()->createMany(3);
+
+        $this->service->toggleFavorite($songs[0], $user);
+        $this->service->toggleFavorite($songs[1], $user);
+        $this->service->toggleFavorite($songs[2], $user);
+
+        $positions = Favorite::query()
+            ->where('user_id', $user->id)
+            ->orderBy('position')
+            ->pluck('position')
+            ->toArray();
+
+        self::assertSame([0, 1, 2], $positions);
+    }
+
+    #[Test]
     public function toggleFavoriteToFalse(): void
     {
         Event::fake(SongFavoriteToggled::class);
 
         $user = create_user();
-
-        /** @var Favorite $favorite */
-        $favorite = Favorite::factory()->for($user)->create();
+        $favorite = Favorite::factory()->for($user)->createOne();
 
         $this->service->toggleFavorite($favorite->favoriteable, $user);
         $this->assertDatabaseMissing(Favorite::class, ['id' => $favorite->id]);
@@ -70,9 +87,7 @@ class FavoriteServiceTest extends TestCase
         Event::fake(SongFavoriteToggled::class);
 
         $user = create_user();
-
-        /** @var Album $album */
-        $album = Album::factory()->create();
+        $album = Album::factory()->createOne();
 
         $this->service->toggleFavorite($album, $user);
 
@@ -91,7 +106,7 @@ class FavoriteServiceTest extends TestCase
         Event::fake(MultipleSongsLiked::class);
 
         /** @var Collection<int, Song> $songs */
-        $songs = Song::factory()->count(2)->create();
+        $songs = Song::factory()->createMany(2);
         $user = create_user();
 
         $this->service->batchFavorite($songs, $user); // @phpstan-ignore-line

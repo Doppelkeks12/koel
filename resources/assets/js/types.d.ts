@@ -17,20 +17,6 @@ declare module 'youtube-player' {
   export default createYouTubePlayer
 }
 
-interface Plyr {
-  media: HTMLMediaElement
-
-  restart: () => void
-
-  play: () => void
-
-  pause: () => void
-
-  seek: (position: number) => void
-
-  setVolume: (volume: number) => void
-}
-
 declare module 'ismobilejs' {
   let apple: { device: boolean }
   let any: boolean
@@ -412,6 +398,7 @@ interface UserPreferences extends Record<string, any> {
   active_extra_panel_tab: SideSheetTab | null
   make_uploads_public: boolean
   include_public_media: boolean
+  crossfade_duration: number
   lastfm_session_key?: string
 }
 
@@ -487,6 +474,7 @@ interface EqualizerPreset {
 declare type PlaybackState = 'Stopped' | 'Playing' | 'Paused'
 declare type ScreenName =
   | '404'
+  | 'AI'
   | 'Album'
   | 'Albums'
   | 'Artist'
@@ -615,6 +603,12 @@ interface BasicListSorterDropDownItem<T extends SortField> {
 type SortOrder = 'asc' | 'desc'
 type Placement = 'before' | 'after'
 
+interface PaginateParams<S extends string = string> {
+  sort: MaybeArray<S>
+  order: SortOrder
+  page: number
+}
+
 type MethodOf<T> = { [K in keyof T]: T[K] extends Closure ? K : never }[keyof T]
 
 interface PaginatorResource<T> {
@@ -715,4 +709,47 @@ interface EmbedOptions {
 interface LrcLine {
   time: number
   text: string
+}
+
+interface AiChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  error: boolean
+}
+
+interface AiResponse {
+  message: string
+  action:
+    | 'play_songs'
+    | 'suggest_songs'
+    | 'create_smart_playlist'
+    | 'add_radio_station'
+    | 'play_radio_station'
+    | 'add_to_favorites'
+    | 'remove_from_favorites'
+    | 'add_to_playlist'
+    | 'remove_from_playlist'
+    | 'show_lyrics'
+    | 'update_lyrics'
+    | 'update_album'
+    | 'update_artist'
+    | null
+  conversation_id: string | null
+  data: {
+    type?: 'playable' | 'album' | 'artist' | 'radio-station' | 'podcast'
+    songs?: Song[]
+    queue?: boolean
+    albums?: Album[]
+    artists?: Artist[]
+    stations?: RadioStation[]
+    podcasts?: Podcast[]
+    playlist?: Playlist
+    station?: RadioStation
+    song?: Song
+    album?: Album
+    artist?: Artist
+    lyrics?: string
+    list?: string
+  }
 }

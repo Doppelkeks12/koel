@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { ref } from 'vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { assertOpenModal } from '@/__tests__/assertions'
@@ -77,6 +77,7 @@ describe('playableContextMenu.vue', () => {
 
   const fillQueue = () => {
     queueStore.state.playables = h.factory('song', 5)
+    playableStore.syncWithVault(queueStore.state.playables)
     queueStore.state.playables[2].playback_state = 'Playing'
   }
 

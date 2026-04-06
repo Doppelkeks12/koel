@@ -17,9 +17,7 @@ class PlayCountTest extends TestCase
     public function storeExistingEntry(): void
     {
         Event::fake(PlaybackStarted::class);
-
-        /** @var Interaction $interaction */
-        $interaction = Interaction::factory()->create(['play_count' => 10]);
+        $interaction = Interaction::factory()->createOne(['play_count' => 10]);
 
         $this->postAs(
             '/api/interaction/play',
@@ -40,9 +38,7 @@ class PlayCountTest extends TestCase
     public function storeNewEntry(): void
     {
         Event::fake(PlaybackStarted::class);
-
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
         $user = create_user();
 
         $this->postAs('/api/interaction/play', ['song' => $song->id], $user)->assertJsonStructure([

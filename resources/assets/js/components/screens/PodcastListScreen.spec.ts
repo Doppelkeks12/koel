@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { podcastStore } from '@/stores/podcastStore'
 import Component from './PodcastListScreen.vue'
@@ -56,5 +56,19 @@ describe('podcastListScreen.vue', () => {
 
     await h.user.click(screen.getByRole('button', { name: 'Show all' }))
     await waitFor(() => expect(screen.getAllByTestId('podcast-item')).toHaveLength(9))
+  })
+
+  it('shows contextual empty state when no favorite podcasts', async () => {
+    podcastStore.state.podcasts = h.factory('podcast', 3, { favorite: false })
+    h.mock(podcastStore, 'fetchAll')
+
+    await renderComponent()
+
+    await h.user.click(screen.getByRole('button', { name: 'Show favorites only' }))
+
+    await waitFor(() => {
+      const emptyState = screen.getByTestId('screen-empty-state')
+      expect(emptyState.textContent).toContain('No favorite podcasts')
+    })
   })
 })

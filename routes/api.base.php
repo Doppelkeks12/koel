@@ -5,6 +5,7 @@ use App\Helpers\Uuid;
 use App\Http\Controllers\API\Acl\CheckResourcePermissionController;
 use App\Http\Controllers\API\Acl\FetchAssignableRolesController;
 use App\Http\Controllers\API\ActivateLicenseController;
+use App\Http\Controllers\API\AiController;
 use App\Http\Controllers\API\AlbumController;
 use App\Http\Controllers\API\AlbumSongController;
 use App\Http\Controllers\API\Artist\ArtistAlbumController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\API\FetchFavoriteSongsController;
 use App\Http\Controllers\API\FetchInitialDataController;
 use App\Http\Controllers\API\FetchOverviewController;
 use App\Http\Controllers\API\FetchRecentlyPlayedSongController;
+use App\Http\Controllers\API\FetchSongsByIdsController;
 use App\Http\Controllers\API\FetchSongsForQueueController;
 use App\Http\Controllers\API\FetchSongsToQueueByGenreController;
 use App\Http\Controllers\API\ForgotPasswordController;
@@ -36,6 +38,7 @@ use App\Http\Controllers\API\MediaBrowser\FetchFolderSongsController;
 use App\Http\Controllers\API\MediaBrowser\FetchRecursiveFolderSongsController;
 use App\Http\Controllers\API\MediaBrowser\FetchSubfoldersController;
 use App\Http\Controllers\API\MediaBrowser\PaginateFolderSongsController;
+use App\Http\Controllers\API\MoveFavoriteSongsController;
 use App\Http\Controllers\API\MovePlaylistSongsController;
 use App\Http\Controllers\API\PaginateSongsByGenreController;
 use App\Http\Controllers\API\PlaylistCollaboration\AcceptPlaylistCollaborationInviteController;
@@ -145,6 +148,7 @@ Route::prefix('api')
             // Fetch songs under several folder paths (may include multiple nested levels).
             // This is a POST request because the folder paths may be long.
             Route::post('songs/by-folders', FetchRecursiveFolderSongsController::class);
+            Route::post('songs/by-ids', FetchSongsByIdsController::class);
 
             // Fetch songs **directly** in a specific folder path (or the media root if no path is specified)
             Route::get('songs/in-folder', FetchFolderSongsController::class);
@@ -160,6 +164,7 @@ Route::prefix('api')
             Route::post('interaction/batch/unlike', UnlikeMultipleSongsController::class);
 
             Route::post('favorites/toggle', [FavoriteController::class, 'toggle']);
+            Route::post('favorites/move', MoveFavoriteSongsController::class);
             Route::post('favorites', [FavoriteController::class, 'store']);
             Route::delete('favorites', [FavoriteController::class, 'destroy']);
 
@@ -250,6 +255,9 @@ Route::prefix('api')
                 Route::apiResource('stations', RadioStationController::class);
                 Route::get('stations/{radioStation}/now-playing', RadioStationNowPlayingController::class);
             });
+
+            // AI assistant
+            Route::post('ai/prompt', AiController::class)->middleware('throttle:10,1');
 
             // Theme routes
             Route::apiResource('themes', ThemeController::class)->except('show', 'update');

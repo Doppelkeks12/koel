@@ -37,9 +37,7 @@ class SongPlayTest extends TestCase
 
         /** @var CompositeToken $token */
         $token = app(TokenManager::class)->createCompositeToken($user);
-
-        /** @var Song $song */
-        $song = Song::factory()->create([
+        $song = Song::factory()->createOne([
             'path' => test_path('songs/blank.mp3'),
         ]);
 
@@ -56,9 +54,7 @@ class SongPlayTest extends TestCase
 
         /** @var CompositeToken $token */
         $token = app(TokenManager::class)->createCompositeToken($user);
-
-        /** @var Song $song */
-        $song = Song::factory()->create([
+        $song = Song::factory()->createOne([
             'path' => '/tmp/blank.flac',
             'mime_type' => 'audio/flac',
         ]);
@@ -77,9 +73,7 @@ class SongPlayTest extends TestCase
 
         /** @var CompositeToken $token */
         $token = app(TokenManager::class)->createCompositeToken($user);
-
-        /** @var Song $song */
-        $song = Song::factory()->create(['path' => '/var/songs/blank.mp3']);
+        $song = Song::factory()->createOne(['path' => '/var/songs/blank.mp3']);
 
         $this->mock(TranscodingStreamerAdapter::class)->expects('stream');
 

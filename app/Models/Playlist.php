@@ -8,8 +8,11 @@ use App\Models\Concerns\Playlists\ManagesCollaborators;
 use App\Models\Concerns\Playlists\ManagesPlayables;
 use App\Models\Contracts\Embeddable;
 use App\Models\Song as Playable;
+use App\Observers\PlaylistObserver;
 use App\Values\SmartPlaylist\SmartPlaylistRuleGroupCollection;
 use Carbon\Carbon;
+use Database\Factories\PlaylistFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -36,7 +39,10 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property ?string $cover The playlist cover's file name
  * @property-read EloquentCollection<array-key, PlaylistFolder> $folders
  * @property int $owner_id
+ *
+ * @method static PlaylistFactory factory(...$parameters)
  */
+#[ObservedBy(PlaylistObserver::class)]
 class Playlist extends Model implements AuditableContract, Embeddable
 {
     use Auditable;
@@ -50,9 +56,12 @@ class Playlist extends Model implements AuditableContract, Embeddable
     protected $hidden = ['created_at', 'updated_at'];
     protected $guarded = [];
 
-    protected $casts = [
-        'rules' => SmartPlaylistRulesCast::class,
-    ];
+    protected function casts(): array
+    {
+        return [
+            'rules' => SmartPlaylistRulesCast::class,
+        ];
+    }
 
     protected $appends = ['is_smart'];
     protected $with = ['users', 'collaborators', 'folders'];

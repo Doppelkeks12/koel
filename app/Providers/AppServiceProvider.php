@@ -11,7 +11,6 @@ use App\Models\Podcast;
 use App\Models\RadioStation;
 use App\Models\Song;
 use App\Models\User;
-use App\Rules\ValidRadioStationUrl;
 use App\Services\Contracts\Encyclopedia;
 use App\Services\Geolocation\Contracts\GeolocationService;
 use App\Services\Geolocation\IPinfoService;
@@ -24,7 +23,6 @@ use App\Services\Scanners\Contracts\ScannerCacheStrategy as ScannerCacheStrategy
 use App\Services\Scanners\ScannerCacheStrategy;
 use App\Services\Scanners\ScannerNoCacheStrategy;
 use App\Services\SpotifyService;
-use App\Services\TicketmasterService;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -76,17 +74,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->bind(LicenseServiceInterface::class, LicenseService::class);
 
-        $this->app
-            ->when(LicenseService::class)
-            ->needs('$hashSalt')
-            ->give(config('app.key'));
-
         $this->app->bind(ScannerCacheStrategyContract::class, static function () {
             // Use a no-cache strategy for unit tests to ensure consistent results
             return app()->runningUnitTests() ? app(ScannerNoCacheStrategy::class) : app(ScannerCacheStrategy::class);
         });
-
-        $this->app->singleton(ValidRadioStationUrl::class, static fn () => new ValidRadioStationUrl());
 
         Route::bind('genre', static function (string $value): ?Genre {
             if ($value === Genre::NO_GENRE_PUBLIC_ID) {
@@ -104,11 +95,6 @@ class AppServiceProvider extends ServiceProvider
             'radio-station' => RadioStation::class,
             'playlist' => Playlist::class,
         ]);
-
-        $this->app
-            ->when(TicketmasterService::class)
-            ->needs('$defaultCountryCode')
-            ->give(config('koel.services.ticketmaster.default_country_code'));
 
         $this->app->bind(GeolocationService::class, static function (): GeolocationService {
             return app(IPinfoService::class);

@@ -12,7 +12,11 @@ use App\Models\Concerns\SupportsDeleteWhereValueNotIn;
 use App\Models\Contracts\Embeddable;
 use App\Models\Contracts\Favoriteable;
 use App\Models\Contracts\Permissionable;
+use App\Observers\ArtistObserver;
 use Carbon\Carbon;
+use Database\Factories\ArtistFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -34,7 +38,11 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property int $user_id The ID of the user that owns this artist
  * @property string $id
  * @property string $name
+ *
+ * @method static ArtistFactory factory(...$parameters)
  */
+#[ObservedBy(ArtistObserver::class)]
+#[UseEloquentBuilder(ArtistBuilder::class)]
 class Artist extends Model implements AuditableContract, Embeddable, Favoriteable, Permissionable
 {
     use Auditable;
@@ -46,8 +54,8 @@ class Artist extends Model implements AuditableContract, Embeddable, Favoriteabl
     use Searchable;
     use SupportsDeleteWhereValueNotIn;
 
-    public const UNKNOWN_NAME = 'Unknown Artist';
-    public const VARIOUS_NAME = 'Various Artists';
+    public const string UNKNOWN_NAME = 'Unknown Artist';
+    public const string VARIOUS_NAME = 'Various Artists';
 
     protected $guarded = ['id'];
     protected $hidden = ['created_at', 'updated_at'];
@@ -56,11 +64,6 @@ class Artist extends Model implements AuditableContract, Embeddable, Favoriteabl
     {
         /** @var ArtistBuilder */
         return parent::query()->addSelect('artists.*');
-    }
-
-    public function newEloquentBuilder($query): ArtistBuilder
-    {
-        return new ArtistBuilder($query);
     }
 
     public function albums(): HasMany

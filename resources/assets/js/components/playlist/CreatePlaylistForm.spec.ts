@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { screen, waitFor } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { playlistStore } from '@/stores/playlistStore'
@@ -73,7 +73,7 @@ describe('createPlaylistForm.vue', () => {
     const storeMock = h.mock(playlistStore, 'store').mockResolvedValue(h.factory('playlist'))
 
     await h.user.upload(
-      screen.getByLabelText('Pick a cover (optional)'),
+      screen.getByLabelText('Pick or paste a cover (optional)'),
       new File(['bytes'], 'logo.png', { type: 'image/png' }),
     )
 

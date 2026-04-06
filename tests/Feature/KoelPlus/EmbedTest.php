@@ -16,17 +16,14 @@ class EmbedTest extends PlusTestCase
     #[Test]
     public function getPayloadWithCustomTheme(): void
     {
-        /** @var Theme $theme */
-        $theme = Theme::factory()->create();
+        $theme = Theme::factory()->createOne();
 
         $jsonStructure = [
             'embed' => EmbedResource::JSON_PUBLIC_STRUCTURE,
             'options' => EmbedOptionsResource::JSON_STRUCTURE,
             'theme' => ThemeResource::JSON_STRUCTURE,
         ];
-
-        /** @var Embed $embed */
-        $embed = Embed::factory()->create();
+        $embed = Embed::factory()->createOne();
         $options = EmbedOptions::make(theme: $theme->id);
 
         $this->getAs("api/embeds/{$embed->id}/$options")->assertSuccessful()->assertJsonStructure($jsonStructure);

@@ -48,8 +48,7 @@ class WatchRecordScannerTest extends TestCase
     #[Test]
     public function scanDeletedSongViaWatch(): void
     {
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
 
         $this->scanner->scan(
             new InotifyWatchRecord("DELETE $song->path"),

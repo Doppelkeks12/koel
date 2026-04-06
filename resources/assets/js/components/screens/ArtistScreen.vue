@@ -1,5 +1,5 @@
 <template>
-  <ScreenBase>
+  <ScreenBase :background-image="artist?.image || undefined">
     <template #header>
       <ScreenHeaderSkeleton v-if="loading && !artist" />
 
@@ -11,11 +11,9 @@
         </template>
 
         <template #meta>
-          <span class="flex meta-content">
-            <span>{{ pluralize(albumCount, 'album') }}</span>
-            <span>{{ pluralize(songs, 'song') }}</span>
-            <span>{{ duration }}</span>
-          </span>
+          <span>{{ pluralize(albumCount, 'album') }}</span>
+          <span>{{ pluralize(songs, 'song') }}</span>
+          <span>{{ duration }}</span>
         </template>
 
         <template #controls>
@@ -63,19 +61,19 @@
 
       <div v-show="activeTab === 'songs'" class="songs-pane">
         <SongListSkeleton v-if="loading" />
-        <SongList v-if="!loading && artist" ref="songList" @press:enter="onPressEnter" @swipe="onSwipe" />
+        <SongList
+          v-if="!loading && artist"
+          ref="songList"
+          @sort="onSort"
+          @press:enter="onPressEnter"
+          @swipe="onSwipe"
+        />
       </div>
 
       <div v-show="activeTab === 'albums'" class="albums-pane">
         <GridListView v-koel-overflow-fade view-mode="list">
           <template v-if="albums">
-            <AlbumCard
-              v-for="album in albums"
-              :key="album.id"
-              :album="album"
-              :show-release-year="true"
-              layout="compact"
-            />
+            <AlbumCard v-for="album in albums" :key="album.id" :album :show-release-year="true" layout="compact" />
           </template>
           <template v-else>
             <AlbumCardSkeleton v-for="i in 6" :key="i" layout="compact" />
@@ -84,11 +82,11 @@
       </div>
 
       <div v-if="useEncyclopedia && artist" v-show="activeTab === 'information'" class="info-pane">
-        <ArtistInfo :artist="artist" mode="full" />
+        <ArtistInfo :artist mode="full" />
       </div>
 
       <div v-if="useTicketmaster && artist" v-show="activeTab === 'events'" class="events-pane">
-        <ArtistEventList :artist="artist" />
+        <ArtistEventList :artist />
       </div>
     </ScreenTabs>
   </ScreenBase>
@@ -106,6 +104,7 @@ import { playableStore } from '@/stores/playableStore'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
+import { useLocalStorage } from '@/composables/useLocalStorage'
 import { useThirdPartyServices } from '@/composables/useThirdPartyServices'
 import { useRouter } from '@/composables/useRouter'
 import { usePolicies } from '@/composables/usePolicies'
@@ -135,6 +134,7 @@ const { useLastfm, useMusicBrainz, useTicketmaster } = useThirdPartyServices()
 const { getRouteParam, go, onScreenActivated, onRouteChanged, url, triggerNotFound } = useRouter()
 const { currentUserCan } = usePolicies()
 const { openContextMenu } = useContextMenu()
+const { get: lsGet, set: lsSet } = useLocalStorage()
 
 const activeTab = ref<Tab>('songs')
 const artist = ref<Artist>()
@@ -149,6 +149,7 @@ const {
   playableList: songList,
   context,
   duration,
+  sort,
   onPressEnter,
   playAll,
   playSelected,
@@ -190,6 +191,11 @@ const fetchScreenData = async () => {
     }
 
     context.entity = artist.value
+
+    const restoredField = lsGet<PlayableListSortField>('artist-sort-field', 'track')!
+    const restoredOrder = lsGet<SortOrder>('artist-sort-order', 'asc')!
+    sort(restoredField, restoredOrder)
+
     editable.value = await currentUserCan.editArtist(artist.value!)
   } catch (error: unknown) {
     if ((error as any)?.status === 404) {
@@ -201,6 +207,11 @@ const fetchScreenData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onSort = (field: MaybeArray<PlayableListSortField>, order: SortOrder) => {
+  lsSet('artist-sort-field', field)
+  lsSet('artist-sort-order', order)
 }
 
 onScreenActivated('Artist', () => fetchScreenData())
@@ -221,11 +232,6 @@ eventBus.on('SONGS_UPDATED', result => {
 </script>
 
 <style lang="postcss" scoped>
-.meta-content > *:not(:first-child)::before {
-  content: '•';
-  margin: 0 0.25em;
-}
-
 .screen-header :deep(.play-icon) {
   @apply scale-[2];
 }

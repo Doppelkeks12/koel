@@ -14,8 +14,8 @@
     </section>
 
     <section class="home-search-block p-6 flex gap-2">
-      <HomeButton />
-      <SearchForm class="flex-1" />
+      <HomeButton v-show="!searchFocused" />
+      <SearchForm class="flex-1" @focus-change="onSearchFocusChange" />
     </section>
 
     <section v-koel-overflow-fade class="pt-2 pb-10 overflow-y-auto space-y-8">
@@ -60,6 +60,9 @@ const { isPlus } = useKoelPlus()
 const { get: lsGet, set: lsSet } = useLocalStorage()
 
 const mobileShowing = ref(false)
+const searchFocused = ref(false)
+
+const onSearchFocusChange = (focused: boolean) => (searchFocused.value = focused)
 const expanded = ref(!lsGet('sidebar-collapsed', false))
 
 watch(expanded, value => lsSet('sidebar-collapsed', !value))
@@ -114,12 +117,10 @@ eventBus.on('TOGGLE_SIDEBAR', () => (mobileShowing.value = !mobileShowing.value)
 @import '@/../css/partials/mixins.pcss';
 
 nav {
-  @apply bg-k-fg-5;
   -ms-overflow-style: -ms-autohiding-scrollbar;
-  box-shadow: 0 0 5px 0 rgba(0, 0, 0, 0.1);
 
   &.collapsed {
-    @apply w-[24px] transition-[width] duration-200;
+    @apply w-4 transition-[width] duration-200;
 
     > *:not(.btn-toggle) {
       @apply hidden;

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { screen } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import Component from './Overlay.vue'
@@ -13,7 +13,7 @@ describe('overlay', () => {
 
   it('renders dialog element with testid', () => {
     h.render(Component)
-    expect(screen.getByTestId('overlay')).toBeTruthy()
+    screen.getByTestId('overlay')
   })
 
   it('renders with loading type by default', () => {

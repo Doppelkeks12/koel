@@ -60,6 +60,7 @@ return [
             'audio/dts' => 'dts', // DTS
             'audio/vnd.rn-realaudio' => ['ra', 'rm'], // RealAudio
             'audio/x-ms-wma' => 'wma', // Windows Media Audio (WMA)
+            'video/x-ms-asf' => 'wma', // WMA/ASF (detected by fileinfo for WMA files)
             'audio/basic' => 'au', // µ-law
 
             // Lossless and other audio formats
@@ -97,6 +98,7 @@ return [
             'audio/dts',
             'audio/vnd.rn-realaudio',
             'audio/x-ms-wma',
+            'video/x-ms-asf', // WMA detected as ASF container by fileinfo
             'audio/basic',
             'audio/vnd.wave', // not always handled correctly
             'audio/aiff',
@@ -198,6 +200,10 @@ return [
         'user_header' => env('PROXY_AUTH_USER_HEADER', 'remote-user'),
         'preferred_name_header' => env('PROXY_AUTH_PREFERRED_NAME_HEADER', 'remote-preferred-name'),
         'allow_list' => array_map(static fn ($entry) => trim($entry), explode(',', env('PROXY_AUTH_ALLOW_LIST', ''))),
+    ],
+
+    'ai' => [
+        'enabled' => env('AI_ENABLED', false),
     ],
 
     'misc' => [

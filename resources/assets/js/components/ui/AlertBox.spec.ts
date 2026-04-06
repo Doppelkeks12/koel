@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import Component from './AlertBox.vue'
 
@@ -8,7 +8,7 @@ describe('AlertBox', () => {
 
   it('renders default type with slot content', () => {
     h.render(Component, { slots: { default: 'Hello world' } })
-    expect(screen.getByText('Hello world')).toBeTruthy()
+    screen.getByText('Hello world')
   })
 
   it('applies type-based CSS class', () => {

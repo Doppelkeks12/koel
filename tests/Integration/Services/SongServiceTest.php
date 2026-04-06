@@ -11,11 +11,14 @@ use App\Models\Artist;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Models\Transcode;
+use App\Services\AlbumService;
 use App\Services\Scanners\FileScanner;
 use App\Services\SongService;
 use App\Values\Scanning\ScanConfiguration;
 use App\Values\Song\SongUpdateData;
+use Mockery;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 use function Tests\create_admin;
@@ -41,8 +44,7 @@ class SongServiceTest extends TestCase
     #[Test]
     public function updateSingleSong(): void
     {
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
 
         $data = SongUpdateData::make(albumArtistName: 'Queen', disc: 1, lyrics: 'Is this the real life?');
 
@@ -63,8 +65,7 @@ class SongServiceTest extends TestCase
     #[Test]
     public function updateSingleSongWithAlbumChanged(): void
     {
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
         $artist = $song->artist;
         $album = $song->album;
 
@@ -88,8 +89,7 @@ class SongServiceTest extends TestCase
     #[Test]
     public function updateSongWithArtistChanged(): void
     {
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
         $artist = $song->artist;
         $album = $song->album;
         $albumName = $song->album->name;
@@ -120,11 +120,8 @@ class SongServiceTest extends TestCase
     #[Test]
     public function updateMultipleSongsTrackProvided(): void
     {
-        /** @var Song $song1 */
-        $song1 = Song::factory()->create(['track' => 1]);
-
-        /** @var Song $song2 */
-        $song2 = Song::factory()->create(['track' => 2]);
+        $song1 = Song::factory()->createOne(['track' => 1]);
+        $song2 = Song::factory()->createOne(['track' => 2]);
 
         $data = SongUpdateData::make(
             artistName: 'Queen',
@@ -155,11 +152,8 @@ class SongServiceTest extends TestCase
     #[Test]
     public function updateMultipleTracksWithoutProvidingTrack(): void
     {
-        /** @var Song $song1 */
-        $song1 = Song::factory()->create(['track' => 1, 'disc' => 1]);
-
-        /** @var Song $song2 */
-        $song2 = Song::factory()->create(['track' => 2, 'disc' => 1]);
+        $song1 = Song::factory()->createOne(['track' => 1, 'disc' => 1]);
+        $song2 = Song::factory()->createOne(['track' => 2, 'disc' => 1]);
 
         $data = SongUpdateData::make(artistName: 'Queen', genre: 'Rock', lyrics: 'Is this the real life?');
 
@@ -183,7 +177,7 @@ class SongServiceTest extends TestCase
     #[Test]
     public function deleteSongs(): void
     {
-        $songs = Song::factory()->count(2)->create();
+        $songs = Song::factory()->createMany(2);
 
         Dispatcher::expects('dispatch')
             ->with(DeleteSongFilesJob::class)
@@ -203,7 +197,7 @@ class SongServiceTest extends TestCase
     #[Test]
     public function deleteSongsWithTranscodes(): void
     {
-        $transcodes = Transcode::factory()->count(2)->create();
+        $transcodes = Transcode::factory()->createMany(2);
         $songs = $transcodes->map(static fn (Transcode $transcode) => $transcode->song); // @phpstan-ignore-line
 
         Dispatcher::expects('dispatch')
@@ -265,11 +259,7 @@ class SongServiceTest extends TestCase
         Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
 
         $owner = create_admin();
-
-        /** @var Artist $artist */
         $artist = Artist::factory(['name' => 'Koel'])->for($owner)->create();
-
-        /** @var Album $album */
         $album = Album::factory([
             'name' => 'Koel Testing Vol. 1',
             'year' => null,
@@ -289,11 +279,7 @@ class SongServiceTest extends TestCase
         Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
 
         $owner = create_admin();
-
-        /** @var Artist $artist */
         $artist = Artist::factory(['name' => 'Koel'])->for($owner)->create();
-
-        /** @var Album $album */
         $album = Album::factory([
             'name' => 'Koel Testing Vol. 1',
             'year' => 2018,
@@ -305,5 +291,23 @@ class SongServiceTest extends TestCase
         self::assertTrue($song->album->is($album));
 
         self::assertSame(2018, $album->refresh()->year);
+    }
+
+    #[Test]
+    public function scanContinuesWhenCoverArtExtractionFails(): void
+    {
+        Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
+
+        $albumService = Mockery::mock(AlbumService::class);
+        $albumService->shouldReceive('storeAlbumCover')->andThrow(new RuntimeException('DecoderException'));
+        $albumService->shouldReceive('trySetAlbumCoverFromDirectory');
+        $this->app->instance(AlbumService::class, $albumService);
+
+        $this->service = app(SongService::class);
+
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: create_admin()));
+
+        self::assertSame('Amet', $song->title);
     }
 }

@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/vue'
-import type { Mock } from 'vitest'
-import { describe, expect, it, vi } from 'vitest'
+import type { Mock } from 'vite-plus/test'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { podcastStore } from '@/stores/podcastStore'
 import { playableStore as episodeStore } from '@/stores/playableStore'
@@ -12,6 +12,8 @@ import { useContextMenu } from '@/composables/useContextMenu'
 import { assertOpenContextMenu } from '@/__tests__/assertions'
 import PodcastContextMenu from '@/components/podcast/PodcastContextMenu.vue'
 import Component from './PodcastScreen.vue'
+
+vi.mock('@/composables/useContextMenu')
 
 describe('podcastScreen.vue', () => {
   const h = createHarness()
@@ -82,8 +84,9 @@ describe('podcastScreen.vue', () => {
     const playMock = h.mock(playbackService, 'resume')
 
     const { episodes } = await renderComponent()
-    queueStore.state.playables = episodes
-    queueStore.state.playables[0].playback_state = 'Paused'
+    const synced = episodeStore.syncWithVault(episodes)
+    queueStore.state.playables = synced
+    synced[0].playback_state = 'Paused'
 
     await h.tick()
     await h.user.click(screen.getByRole('button', { name: 'Start Listening' }))
@@ -134,7 +137,6 @@ describe('podcastScreen.vue', () => {
   })
 
   it('requests Actions menu', async () => {
-    vi.mock('@/composables/useContextMenu')
     const { openContextMenu } = useContextMenu()
     const { podcast } = await renderComponent()
 

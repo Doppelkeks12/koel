@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { http } from '@/services/http'
 import { playableStore } from '@/stores/playableStore'
@@ -10,7 +10,8 @@ describe('queueStore', () => {
 
   const h = createHarness({
     beforeEach: () => {
-      songs = h.factory('song', 3)
+      playableStore.vault.clear()
+      songs = playableStore.syncWithVault(h.factory('song', 3)) as Song[]
       queueStore.state.playables = reactive(songs)
     },
   })

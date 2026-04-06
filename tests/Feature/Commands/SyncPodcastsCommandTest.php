@@ -14,7 +14,7 @@ class SyncPodcastsCommandTest extends TestCase
     #[Test]
     public function syncPodcasts(): void
     {
-        Podcast::factory()->count(2)->create();
+        Podcast::factory()->createMany(2);
 
         $podcastService = Mockery::mock(PodcastService::class);
 
@@ -24,13 +24,13 @@ class SyncPodcastsCommandTest extends TestCase
 
         $this->app->instance(PodcastService::class, $podcastService);
 
-        $this->artisan('koel:podcasts:sync')->assertSuccessful();
+        $this->artisan('koel:podcasts:sync --jobs=1')->assertSuccessful();
     }
 
     #[Test]
     public function skipNonObsoletePodcasts(): void
     {
-        Podcast::factory()->create();
+        Podcast::factory()->createOne();
 
         $podcastService = Mockery::mock(PodcastService::class);
 
@@ -40,13 +40,13 @@ class SyncPodcastsCommandTest extends TestCase
 
         $this->app->instance(PodcastService::class, $podcastService);
 
-        $this->artisan('koel:podcasts:sync')->assertSuccessful();
+        $this->artisan('koel:podcasts:sync --jobs=1')->assertSuccessful();
     }
 
     #[Test]
     public function handleExceptionsGracefully(): void
     {
-        Podcast::factory()->create();
+        Podcast::factory()->createOne();
 
         $podcastService = Mockery::mock(PodcastService::class);
 
@@ -57,6 +57,12 @@ class SyncPodcastsCommandTest extends TestCase
 
         $this->app->instance(PodcastService::class, $podcastService);
 
+        $this->artisan('koel:podcasts:sync --jobs=1')->assertSuccessful();
+    }
+
+    #[Test]
+    public function handleEmptyLibrary(): void
+    {
         $this->artisan('koel:podcasts:sync')->assertSuccessful();
     }
 }

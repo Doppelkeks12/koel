@@ -1,5 +1,5 @@
 <template>
-  <ScreenBase>
+  <ScreenBase :background-image="podcast?.image">
     <template #header>
       <ScreenHeaderSkeleton v-if="loading && !podcast" />
       <ScreenHeader v-if="podcast" :layout="headerLayout">
@@ -70,7 +70,7 @@
         :items="displayedEpisodes"
         @scroll="onListScroll"
       >
-        <EpisodeItem :key="item.id" :podcast="podcast" :episode="item" />
+        <EpisodeItem :key="item.id" :podcast :episode="item" />
       </VirtualScroller>
     </div>
   </ScreenBase>

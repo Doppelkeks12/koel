@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use Database\Factories\EmbedFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property string $id
  * @property string $embeddable_id
  * @property string $embeddable_type
+ *
+ * @method static EmbedFactory factory(...$parameters)
  */
 class Embed extends Model
 {

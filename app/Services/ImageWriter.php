@@ -38,7 +38,9 @@ class ImageWriter
 
     public function write(string $destination, mixed $source, ?ImageWritingConfig $config = null): void
     {
-        $img = Image::read(Str::isUrl($source) ? Http::get($source)->body() : $source);
+        $img = Image::read(
+            Str::isUrl($source) ? Http::withUserAgent('Koel')->get($source)->body() : $source,
+        );
 
         if ($config instanceof ImageWritingConfig !== true) {
             $this->saveOriginalImage($destination, $img);

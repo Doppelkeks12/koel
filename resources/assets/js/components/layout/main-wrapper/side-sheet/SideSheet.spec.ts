@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import { ref } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { screen, waitFor } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { assertOpenModal } from '@/__tests__/assertions'
@@ -41,7 +41,6 @@ describe('sideSheet.vue', () => {
     const rendered = h.render(Component, {
       global: {
         stubs: {
-          ProfileAvatar: h.stub('profile-avatar'),
           LyricsPane: h.stub('lyrics'),
           AlbumInfo: h.stub('album-info'),
           ArtistInfo: h.stub('artist-info'),
@@ -60,7 +59,14 @@ describe('sideSheet.vue', () => {
     }
   }
 
-  it('renders without a current playable', () => expect(renderComponent().rendered.html()).toMatchSnapshot())
+  const openProfileMenu = async () => {
+    await h.user.click(screen.getByTestId('profile-dropdown-trigger'))
+  }
+
+  it('renders without a current playable', () => {
+    renderComponent()
+    screen.getByTestId('profile-dropdown-trigger')
+  })
 
   it('gets active tab from the preference', async () => {
     preferenceStore.active_extra_panel_tab = 'Lyrics'
@@ -81,6 +87,19 @@ describe('sideSheet.vue', () => {
       expect(screen.getByTestId<HTMLElement>('side-sheet-lyrics').style.display).toBe('none')
       expect(screen.getByTestId<HTMLElement>('side-sheet-album').style.display).toBe('')
       expect(preferenceStore.active_extra_panel_tab).toBe('Album')
+    })
+  })
+
+  it('persists collapsed state when closing a tab', async () => {
+    preferenceStore.active_extra_panel_tab = 'Lyrics'
+    renderComponent(ref(h.factory('song')))
+    await h.tick()
+
+    // Click the same tab again to collapse
+    await h.user.click(screen.getByTestId('side-sheet-lyrics-tab-header'))
+
+    await waitFor(() => {
+      expect(preferenceStore.active_extra_panel_tab).toBeNull()
     })
   })
 
@@ -118,10 +137,11 @@ describe('sideSheet.vue', () => {
     })
   })
 
-  it('shows About Koel model', async () => {
+  it('shows About Koel modal', async () => {
     renderComponent()
+    await openProfileMenu()
 
-    await h.user.click(screen.getByRole('button', { name: 'About Koel' }))
+    await h.user.click(screen.getByTestId('about-btn'))
 
     await assertOpenModal(openModalMock, AboutKoelModal)
   })
@@ -131,14 +151,17 @@ describe('sideSheet.vue', () => {
     commonStore.state.latest_version = 'v1.0.1'
     h.actingAsAdmin()
     renderComponent()
-    screen.getByRole('button', { name: 'New version available!' })
+    await openProfileMenu()
+
+    screen.getByText('New version available!')
   })
 
   it('logs out', async () => {
     const emitMock = h.mock(eventBus, 'emit')
     renderComponent()
+    await openProfileMenu()
 
-    await h.user.click(screen.getByRole('button', { name: 'Log out' }))
+    await h.user.click(screen.getByTestId('logout-btn'))
 
     expect(emitMock).toHaveBeenCalledWith('LOG_OUT')
   })

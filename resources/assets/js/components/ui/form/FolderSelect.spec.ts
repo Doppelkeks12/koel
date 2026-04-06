@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { screen, waitFor } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { playlistFolderStore } from '@/stores/playlistFolderStore'
@@ -35,9 +35,9 @@ describe('folderSelect', () => {
     await h.user.selectOptions(screen.getByRole('combobox'), '__new__')
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Folder name')).toBeTruthy()
-      expect(screen.getByTitle('Create')).toBeTruthy()
-      expect(screen.getByTitle('Cancel')).toBeTruthy()
+      screen.getByPlaceholderText('Folder name')
+      screen.getByTitle('Create')
+      screen.getByTitle('Cancel')
     })
   })
 
@@ -66,7 +66,7 @@ describe('folderSelect', () => {
     await h.user.click(screen.getByTitle('Cancel'))
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox')).toBeTruthy()
+      screen.getByRole('combobox')
     })
   })
 

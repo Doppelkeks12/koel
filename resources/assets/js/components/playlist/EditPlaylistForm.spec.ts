@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { playlistFolderStore } from '@/stores/playlistFolderStore'
 import { playlistStore } from '@/stores/playlistStore'
@@ -89,7 +89,7 @@ describe('editPlaylistForm.vue', () => {
     await h.user.click(screen.getByRole('button', { name: 'Remove' }))
 
     await h.user.upload(
-      screen.getByLabelText('Pick a cover (optional)'),
+      screen.getByLabelText('Pick or paste a cover (optional)'),
       new File(['bytes'], 'cover.png', { type: 'image/png' }),
     )
 

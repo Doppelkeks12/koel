@@ -9,12 +9,12 @@
 
     <main class="flex flex-1 gap-5 items-center overflow-hidden">
       <div class="w-full flex-1 overflow-hidden">
-        <h1
-          class="name text-k-fg overflow-hidden whitespace-nowrap text-ellipsis mr-4 font-thin md:font-bold my-0 leading-tight"
-        >
-          <slot />
+        <h1 class="name text-k-fg mr-4 font-thin md:font-bold my-0 leading-tight overflow-hidden">
+          <MarqueeText hover-only :speed="70">
+            <slot />
+          </MarqueeText>
         </h1>
-        <span v-if="$slots.meta" class="meta hidden text-[0.9rem] leading-loose space-x-2">
+        <span v-if="$slots.meta" class="meta hidden text-[0.9rem] leading-loose">
           <slot name="meta" />
         </span>
       </div>
@@ -25,6 +25,8 @@
 </template>
 
 <script lang="ts" setup>
+import MarqueeText from '@/components/ui/MarqueeText.vue'
+
 withDefaults(
   defineProps<{
     layout?: ScreenHeaderLayout
@@ -84,7 +86,7 @@ header.screen-header {
       @apply text-k-fg hover:text-k-highlight;
     }
 
-    > :slotted(*) + :slotted(*) {
+    :deep(> * + *) {
       @apply ml-1 inline-block before:content-['•'] before:mr-1 before:text-k-fg-70;
     }
   }

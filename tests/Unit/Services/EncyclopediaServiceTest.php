@@ -11,9 +11,11 @@ use App\Services\LastfmService;
 use App\Services\SpotifyService;
 use App\Values\Album\AlbumInformation;
 use App\Values\Artist\ArtistInformation;
+use Illuminate\Support\Facades\Cache;
 use Mockery;
 use Mockery\MockInterface;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
 use Tests\TestCase;
 
 class EncyclopediaServiceTest extends TestCase
@@ -52,8 +54,7 @@ class EncyclopediaServiceTest extends TestCase
     #[Test]
     public function getAlbumInformation(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create();
+        $album = Album::factory()->createOne();
         $info = AlbumInformation::make();
 
         $this->encyclopedia
@@ -68,8 +69,7 @@ class EncyclopediaServiceTest extends TestCase
     #[Test]
     public function getAlbumInformationTriesDownloadingCover(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create(['cover' => '']);
+        $album = Album::factory()->createOne(['cover' => '']);
         $info = AlbumInformation::make(cover: 'https://wiki.example.com/album-cover.jpg');
 
         self::assertEmpty($album->cover);
@@ -91,9 +91,7 @@ class EncyclopediaServiceTest extends TestCase
             'client_id' => 'spotify-client-id',
             'client_secret' => 'spotify-client-secret',
         ]);
-
-        /** @var Album $album */
-        $album = Album::factory()->create(['cover' => '']);
+        $album = Album::factory()->createOne(['cover' => '']);
         $info = AlbumInformation::make(cover: 'https://wiki.example.com/album-cover.jpg');
 
         self::assertEmpty($album->cover);
@@ -116,8 +114,7 @@ class EncyclopediaServiceTest extends TestCase
     #[Test]
     public function getArtistInformation(): void
     {
-        /** @var Artist $artist */
-        $artist = Artist::factory()->create();
+        $artist = Artist::factory()->createOne();
         $info = ArtistInformation::make();
 
         self::assertNotEmpty($artist->image);
@@ -134,8 +131,7 @@ class EncyclopediaServiceTest extends TestCase
     #[Test]
     public function getArtistInformationTriesDownloadingImage(): void
     {
-        /** @var Artist $artist */
-        $artist = Artist::factory()->create(['image' => '']);
+        $artist = Artist::factory()->createOne(['image' => '']);
         $info = ArtistInformation::make(image: 'https://wiki.example.com/artist-image.jpg');
 
         self::assertEmpty($artist->image);
@@ -157,9 +153,7 @@ class EncyclopediaServiceTest extends TestCase
             'client_id' => 'spotify-client-id',
             'client_secret' => 'spotify-client-secret',
         ]);
-
-        /** @var Artist $artist */
-        $artist = Artist::factory()->create(['image' => '']);
+        $artist = Artist::factory()->createOne(['image' => '']);
         $info = ArtistInformation::make(image: 'https://wiki.example.com/artist-image.jpg');
 
         self::assertEmpty($artist->image);
@@ -175,6 +169,38 @@ class EncyclopediaServiceTest extends TestCase
             ->andReturn('https://spotify.com/image.jpg');
 
         $this->imageStorage->expects('storeImage')->with('https://spotify.com/image.jpg');
+
+        self::assertSame($info, $this->encyclopediaService->getArtistInformation($artist));
+    }
+
+    #[Test]
+    public function getAlbumInformationGracefullyHandlesCacheFailure(): void
+    {
+        Cache::shouldReceive('remember')->andThrow(new RuntimeException('file_put_contents failed'));
+
+        $album = Album::factory()->createOne();
+        $info = AlbumInformation::make();
+
+        $this->encyclopedia
+            ->expects('getAlbumInformation')
+            ->with($album)
+            ->andReturn($info);
+
+        self::assertSame($info, $this->encyclopediaService->getAlbumInformation($album));
+    }
+
+    #[Test]
+    public function getArtistInformationGracefullyHandlesCacheFailure(): void
+    {
+        Cache::shouldReceive('remember')->andThrow(new RuntimeException('file_put_contents failed'));
+
+        $artist = Artist::factory()->createOne(['image' => 'existing.jpg']);
+        $info = ArtistInformation::make();
+
+        $this->encyclopedia
+            ->expects('getArtistInformation')
+            ->with($artist)
+            ->andReturn($info);
 
         self::assertSame($info, $this->encyclopediaService->getArtistInformation($artist));
     }

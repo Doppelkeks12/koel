@@ -24,11 +24,8 @@ class QueueServiceTest extends TestCase
     #[Test]
     public function getQueueState(): void
     {
-        /** @var Song $currentSong */
-        $currentSong = Song::factory()->create();
-
-        /** @var QueueState $state */
-        $state = QueueState::factory()->create([
+        $currentSong = Song::factory()->createOne();
+        $state = QueueState::factory()->createOne([
             'current_song_id' => $currentSong->id,
             'playback_position' => 123,
         ]);
@@ -65,8 +62,7 @@ class QueueServiceTest extends TestCase
     #[Test]
     public function updateQueueState(): void
     {
-        /** @var QueueState $state */
-        $state = QueueState::factory()->create();
+        $state = QueueState::factory()->createOne();
 
         $songIds = Song::factory()
             ->count(2)
@@ -84,11 +80,8 @@ class QueueServiceTest extends TestCase
     #[Test]
     public function updatePlaybackStatus(): void
     {
-        /** @var QueueState $state */
-        $state = QueueState::factory()->create();
-
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $state = QueueState::factory()->createOne();
+        $song = Song::factory()->createOne();
 
         $this->service->updatePlaybackStatus($state->user, $song, 123);
         $state->refresh();

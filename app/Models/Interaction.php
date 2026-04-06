@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\InteractionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,14 +15,19 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $song_id
  * @property Carbon|string $last_played_at
+ *
+ * @method static InteractionFactory factory(...$parameters)
  */
 class Interaction extends Model
 {
     use HasFactory;
 
-    protected $casts = [
-        'play_count' => 'integer',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'play_count' => 'integer',
+        ];
+    }
 
     protected $guarded = ['id'];
     protected $hidden = ['id', 'user_id', 'created_at', 'updated_at', 'last_played_at'];

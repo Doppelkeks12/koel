@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { screen } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import Component from './ContextMenuItem.vue'
@@ -20,17 +20,6 @@ describe('contextMenuItem', () => {
     })
 
     await h.user.click(screen.getByText('Play'))
-
-    expect(emitted().click).toBeTruthy()
-  })
-
-  it('emits click on Enter keydown', async () => {
-    const { emitted } = h.render(Component, {
-      slots: { default: 'Play' },
-    })
-
-    const li = screen.getByText('Play').closest('li')!
-    await h.trigger(li, 'keyDown', { key: 'Enter' })
 
     expect(emitted().click).toBeTruthy()
   })

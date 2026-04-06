@@ -2,7 +2,6 @@
 
 namespace Tests\Integration\Services;
 
-use App\Models\Album;
 use App\Models\Artist;
 use App\Pipelines\Encyclopedia\GetAlbumTracksUsingMbid;
 use App\Pipelines\Encyclopedia\GetAlbumWikidataIdUsingReleaseGroupMbid;
@@ -58,9 +57,7 @@ class MusicBrainzServiceTest extends TestCase
             'Skid Row (American band)',
             File::json(test_path('fixtures/wikipedia/artist-page-summary.json')),
         );
-
-        /** @var Artist $artist */
-        $artist = Artist::factory()->create(['name' => 'Skid Row']);
+        $artist = Artist::factory()->createOne(['name' => 'Skid Row']);
 
         $info = $this->service->getArtistInformation($artist);
 
@@ -87,9 +84,7 @@ class MusicBrainzServiceTest extends TestCase
             'sample-mbid',
             new Exception('Something went wrong'),
         );
-
-        /** @var Artist $artist */
-        $artist = Artist::factory()->create(['name' => 'Skid Row']);
+        $artist = Artist::factory()->createOne(['name' => 'Skid Row']);
 
         self::assertNull($this->service->getArtistInformation($artist));
     }
@@ -125,11 +120,9 @@ class MusicBrainzServiceTest extends TestCase
         );
 
         $user = create_user();
-
-        /** @var Album $album */
         $album = Artist::factory()
             ->for($user)
-            ->create(['name' => 'Skid Row'])
+            ->createOne(['name' => 'Skid Row'])
             ->albums() // @phpstan-ignore-line
             ->create([
                 'name' => 'Slave to the Grind',
@@ -156,11 +149,9 @@ class MusicBrainzServiceTest extends TestCase
         $this->mockPipelinePipe(GetAlbumTracksUsingMbid::class, 'sample-album-mbid', new Exception('Oopsie'));
 
         $user = create_user();
-
-        /** @var Album $album */
         $album = Artist::factory()
             ->for($user)
-            ->create(['name' => 'Skid Row'])
+            ->createOne(['name' => 'Skid Row'])
             ->albums() // @phpstan-ignore-line
             ->create([
                 'name' => 'Slave to the Grind',

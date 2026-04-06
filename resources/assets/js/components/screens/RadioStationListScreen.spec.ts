@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/vue'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { assertOpenModal } from '@/__tests__/assertions'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
@@ -97,4 +97,30 @@ describe('radioStationListScreen.vue', () => {
 
       screen.getByRole('button', { name: 'Add a new station' })
     }))
+
+  it('shows all or only favorites upon toggling the button', async () => {
+    await renderComponent([
+      ...h.factory('radio-station', 3, { favorite: true }),
+      ...h.factory('radio-station', 6, { favorite: false }),
+    ])
+
+    expect(screen.getAllByTestId('radio-station-card')).toHaveLength(9)
+
+    await h.user.click(screen.getByRole('button', { name: 'Show favorites only' }))
+    await waitFor(() => expect(screen.getAllByTestId('radio-station-card')).toHaveLength(3))
+
+    await h.user.click(screen.getByRole('button', { name: 'Show all' }))
+    await waitFor(() => expect(screen.getAllByTestId('radio-station-card')).toHaveLength(9))
+  })
+
+  it('shows contextual empty state when no favorite stations', async () => {
+    await renderComponent(h.factory('radio-station', 3, { favorite: false }))
+
+    await h.user.click(screen.getByRole('button', { name: 'Show favorites only' }))
+
+    await waitFor(() => {
+      const emptyState = screen.getByTestId('screen-empty-state')
+      expect(emptyState.textContent).toContain('No favorite stations')
+    })
+  })
 })

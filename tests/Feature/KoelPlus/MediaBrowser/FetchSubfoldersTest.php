@@ -21,8 +21,7 @@ class FetchSubfoldersTest extends PlusTestCase
     #[Test]
     public function testFetch(): void
     {
-        /** @var Folder $folder */
-        $folder = Folder::factory()->create();
+        $folder = Folder::factory()->createOne();
 
         /** @var Collection $subfolders */
         $subfolders = Folder::factory()
@@ -40,7 +39,7 @@ class FetchSubfoldersTest extends PlusTestCase
     #[Test]
     public function tesFetchUnderMediaRoot(): void
     {
-        $subfolders = Folder::factory()->count(2)->create();
+        $subfolders = Folder::factory()->createMany(2);
 
         $response = $this->getAs('/api/browse/folders')->assertJsonStructure([0 => FolderResource::JSON_STRUCTURE]);
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { screen, waitFor } from '@testing-library/vue'
 import { artistStore } from '@/stores/artistStore'
@@ -44,7 +44,7 @@ describe('editArtistForm.vue', () => {
     await h.type(screen.getByTitle('Artist name'), 'Dude')
 
     await h.user.upload(
-      screen.getByLabelText('Pick an image (optional)'),
+      screen.getByLabelText('Pick or paste an image (optional)'),
       new File(['bytes'], 'cover.png', { type: 'image/png' }),
     )
 

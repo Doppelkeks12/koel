@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\OrganizationFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,6 +18,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon $updated_at
  *
  * @property-read Collection<User>|array<array-key, User> $users
+ *
+ * @method static OrganizationFactory factory(...$parameters)
  */
 
 class Organization extends Model
@@ -24,7 +27,7 @@ class Organization extends Model
     use HasUlids;
     use HasFactory;
 
-    public const DEFAULT_SLUG = 'koel';
+    public const string DEFAULT_SLUG = 'koel';
 
     protected $guarded = ['id'];
 

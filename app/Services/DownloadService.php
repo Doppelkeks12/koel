@@ -6,13 +6,14 @@ use App\Enums\DownloadableType;
 use App\Enums\SongStorageType;
 use App\Exceptions\DownloadLimitExceededException;
 use App\Models\Song;
-use App\Models\SongZipArchive;
 use App\Models\User;
 use App\Repositories\SongRepository;
 use App\Services\SongStorages\CloudStorageFactory;
 use App\Services\SongStorages\SftpStorage;
 use App\Values\Downloadable;
 use App\Values\Podcast\EpisodePlayable;
+use App\Values\SongZipArchive;
+use Illuminate\Container\Attributes\Config;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\File;
 
@@ -20,6 +21,7 @@ class DownloadService
 {
     public function __construct(
         private readonly SongRepository $songRepository,
+        #[Config('koel.download.limit')]
         private readonly int $downloadLimit = 0,
     ) {}
 

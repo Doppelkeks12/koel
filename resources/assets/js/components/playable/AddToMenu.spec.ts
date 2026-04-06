@@ -1,6 +1,6 @@
 import { clone } from 'lodash'
 import { screen } from '@testing-library/vue'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { assertOpenModal } from '@/__tests__/assertions'
 import { playlistStore } from '@/stores/playlistStore'
@@ -76,6 +76,7 @@ describe('addToMenu.vue', () => {
     ['to bottom', 'queue-bottom', 'queue'],
   ])('queues songs %s', async (_: string, testId: string, queueMethod: MethodOf<typeof queueStore>) => {
     queueStore.state.playables = h.factory('song', 5)
+    playableStore.syncWithVault(queueStore.state.playables)
     queueStore.state.playables[2].playback_state = 'Playing'
 
     const mock = h.mock(queueStore, queueMethod)

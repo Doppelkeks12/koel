@@ -6,13 +6,12 @@
     tabindex="-1"
     @mouseover="focus()"
     @click.prevent="emit('click')"
-    @keydown.enter.prevent="emit('click')"
   >
     <span v-if="hasIconSlot" class="w-4">
       <slot name="icon" />
     </span>
 
-    <span class="label flex-1 overflow-hidden max-w-40 text-ellipsis">
+    <span class="label flex-1 min-w-0 max-w-40 truncate">
       <slot />
     </span>
 
@@ -20,7 +19,7 @@
       <slot name="subMenuItems" />
     </ul>
 
-    <span v-if="hasSubMenuItems">
+    <span v-if="hasSubMenuItems" class="ml-auto">
       <Icon :icon="faCaretRight" fixed-width />
     </span>
   </li>

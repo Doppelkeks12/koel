@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import isMobile from 'ismobilejs'
 import { createHarness } from '@/__tests__/TestHarness'
 import { authService } from '@/services/authService'
@@ -68,12 +68,13 @@ describe('playableStore', () => {
     expect(getMock).toHaveBeenCalledOnce()
   })
 
-  it('matches a song', () => {
+  it('matches a song by title', () => {
     const song = h.factory('song', { title: 'An amazing song' })
     const songs = [song, ...h.factory('song', 3)]
 
     expect(playableStore.matchSongsByTitle('An amazing song', songs)).toEqual(song)
     expect(playableStore.matchSongsByTitle('An Amazing Song', songs)).toEqual(song)
+    expect(playableStore.matchSongsByTitle('Nonexistent song', songs)).toBeNull()
   })
 
   it('registers a play', async () => {

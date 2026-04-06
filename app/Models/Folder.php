@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Observers\FolderObserver;
+use Database\Factories\FolderFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -22,7 +25,10 @@ use Illuminate\Support\Arr;
  * @property-read ?int $uploader_id
  * @property ?string $parent_id
  * @property string $hash
+ *
+ * @method static FolderFactory factory(...$parameters)
  */
+#[ObservedBy(FolderObserver::class)]
 class Folder extends Model
 {
     use HasFactory;

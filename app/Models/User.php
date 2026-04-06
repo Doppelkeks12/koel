@@ -8,8 +8,12 @@ use App\Enums\Acl\Role as RoleEnum;
 use App\Models\Concerns\Users\HasUserAttributes;
 use App\Models\Concerns\Users\HasUserRelationships;
 use App\Models\Contracts\Permissionable;
+use App\Observers\UserObserver;
 use App\Values\User\UserPreferences;
 use Carbon\Carbon;
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -49,7 +53,11 @@ use Spatie\Permission\Traits\HasRoles;
  * @property-read bool $is_sso
  * @property-read string $avatar
  * @property-read RoleEnum $role
+ *
+ * @method static UserFactory factory(...$parameters)
  */
+#[ObservedBy(UserObserver::class)]
+#[UseEloquentBuilder(UserBuilder::class)]
 class User extends Authenticatable implements AuditableContract, Permissionable
 {
     use Auditable;
@@ -63,11 +71,11 @@ class User extends Authenticatable implements AuditableContract, Permissionable
     use Notifiable;
     use Prunable;
 
-    public const FIRST_ADMIN_NAME = 'Koel';
-    public const FIRST_ADMIN_EMAIL = 'admin@koel.dev';
-    public const FIRST_ADMIN_PASSWORD = 'KoelIsCool';
-    public const DEMO_PASSWORD = 'demo';
-    public const DEMO_USER_DOMAIN = 'demo.koel.dev';
+    public const string FIRST_ADMIN_NAME = 'Koel';
+    public const string FIRST_ADMIN_EMAIL = 'admin@koel.dev';
+    public const string FIRST_ADMIN_PASSWORD = 'KoelIsCool';
+    public const string DEMO_PASSWORD = 'demo';
+    public const string DEMO_USER_DOMAIN = 'demo.koel.dev';
 
     protected $guarded = ['id', 'public_id'];
     protected $hidden = ['password', 'remember_token', 'created_at', 'updated_at', 'invitation_accepted_at'];
@@ -75,20 +83,18 @@ class User extends Authenticatable implements AuditableContract, Permissionable
     protected array $auditExclude = ['password', 'remember_token', 'invitation_token'];
     protected $with = ['roles', 'permissions'];
 
-    protected $casts = [
-        'preferences' => UserPreferencesCast::class,
-    ];
+    protected function casts(): array
+    {
+        return [
+            'preferences' => UserPreferencesCast::class,
+        ];
+    }
 
     // @mago-ignore lint:no-redundant-method-override
     public static function query(): UserBuilder
     {
         /** @var UserBuilder */
         return parent::query();
-    }
-
-    public function newEloquentBuilder($query): UserBuilder
-    {
-        return new UserBuilder($query);
     }
 
     public function getRouteKeyName(): string

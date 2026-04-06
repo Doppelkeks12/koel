@@ -65,7 +65,7 @@ const emit = defineEmits<{ (e: 'closing'): void }>()
 const { playables, config } = toRefs(props)
 
 const queue = toRef(queueStore.state, 'playables')
-const currentPlayable = queueStore.current
+const currentPlayable = computed(() => queueStore.current)
 
 const allPlaylists = toRef(playlistStore.state, 'playlists')
 const playlists = computed(() => allPlaylists.value.filter(({ is_smart }) => !is_smart))
@@ -80,7 +80,7 @@ watch(playables, () => playables.value.length || close())
 
 <style lang="postcss" scoped>
 li {
-  @apply h-9 leading-9 py-0 px-3 whitespace-nowrap overflow-hidden text-ellipsis rounded bg-k-fg-5 cursor-pointer
+  @apply h-9 leading-9 py-0 px-3 truncate rounded bg-k-fg-5 cursor-pointer
   hover:bg-k-highlight hover:text-k-highlight-fg;
 }
 </style>

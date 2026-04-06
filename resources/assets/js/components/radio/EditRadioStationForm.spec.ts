@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { screen, waitFor } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { radioStationStore } from '@/stores/radioStationStore'
@@ -70,7 +70,7 @@ describe('editRadioStationForm.vue', () => {
     await h.user.click(screen.getByRole('button', { name: 'Remove' }))
 
     await h.user.upload(
-      screen.getByLabelText('Pick a logo (optional)'),
+      screen.getByLabelText('Pick or paste a logo (optional)'),
       new File(['bytes'], 'logo.png', { type: 'image/png' }),
     )
 

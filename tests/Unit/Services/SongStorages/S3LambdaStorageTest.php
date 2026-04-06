@@ -67,9 +67,7 @@ class S3LambdaStorageTest extends TestCase
         $user = create_admin();
 
         $this->userRepository->expects('getOrCreateFirstAdmin')->andReturn($user);
-
-        /** @var Song $song */
-        $song = Song::factory()->create([
+        $song = Song::factory()->createOne([
             'path' => 's3://foo/bar',
             'storage' => 's3-lambda',
         ]);
@@ -104,8 +102,7 @@ class S3LambdaStorageTest extends TestCase
     #[Test]
     public function deleteSong(): void
     {
-        /** @var Song $song */
-        $song = Song::factory()->create([
+        $song = Song::factory()->createOne([
             'path' => 's3://foo/bar',
             'storage' => 's3-lambda',
         ]);

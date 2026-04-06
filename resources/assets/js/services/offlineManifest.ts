@@ -1,98 +1,83 @@
-import { logger } from '@/utils/logger'
+import type { DBSchema, IDBPDatabase } from 'idb'
+import { openDB } from 'idb'
 
 export interface OfflineManifestEntry {
-  songId: string
-  title: string
-  artist: string
-  album: string
+  playable: Playable
   cachedAt: number
   size: number
 }
 
-const DB_NAME = 'koel-offline'
-const DB_VERSION = 1
-const STORE_NAME = 'manifest'
-
-let dbPromise: Promise<IDBDatabase> | null = null
-
-const openDB = (): Promise<IDBDatabase> => {
-  if (dbPromise) return dbPromise
-
-  if (typeof indexedDB === 'undefined') {
-    return Promise.reject(new Error('indexedDB is not available'))
-  }
-
-  dbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION)
-
-    request.onupgradeneeded = () => {
-      const db = request.result
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'songId' })
-      }
-    }
-
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => {
-      dbPromise = null
-      reject(request.error)
-    }
-  })
-
-  return dbPromise
+/** The stored format includes an explicit key for IndexedDB */
+interface StoredEntry extends OfflineManifestEntry {
+  id: string
 }
 
-const withStore = async <T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> => {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, mode)
-    const store = tx.objectStore(STORE_NAME)
-    const request = fn(store)
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+interface KoelOfflineDB extends DBSchema {
+  manifest: {
+    key: string
+    value: StoredEntry
+  }
+}
+
+const DB_NAME = 'koel-offline'
+const DB_VERSION = 2
+
+let dbInstance: IDBPDatabase<KoelOfflineDB> | null = null
+let dbPromise: Promise<IDBPDatabase<KoelOfflineDB>> | null = null
+
+const getDB = async () => {
+  if (dbInstance) return dbInstance
+  if (dbPromise) return dbPromise
+
+  dbPromise = openDB<KoelOfflineDB>(DB_NAME, DB_VERSION, {
+    upgrade(db) {
+      // v1 used 'songId' as keyPath — drop and recreate with 'id'
+      if (db.objectStoreNames.contains('manifest')) {
+        db.deleteObjectStore('manifest')
+      }
+
+      db.createObjectStore('manifest', { keyPath: 'id' })
+    },
   })
+
+  try {
+    dbInstance = await dbPromise
+    return dbInstance
+  } finally {
+    dbPromise = null
+  }
 }
 
 export const offlineManifest = {
-  async getAll(): Promise<OfflineManifestEntry[]> {
+  async getAll() {
     try {
-      return await withStore('readonly', store => store.getAll())
-    } catch (error) {
-      logger.warn('Failed to read offline manifest', error)
+      return await (await getDB()).getAll('manifest')
+    } catch {
       return []
     }
   },
 
-  async get(songId: string): Promise<OfflineManifestEntry | undefined> {
+  async put(entry: OfflineManifestEntry) {
     try {
-      return await withStore('readonly', store => store.get(songId))
-    } catch (error) {
-      logger.warn('Failed to read offline manifest entry', error)
-      return undefined
+      await (await getDB()).put('manifest', { ...entry, id: entry.playable.id })
+    } catch {
+      // noop — indexedDB may not be available
     }
   },
 
-  async put(entry: OfflineManifestEntry): Promise<void> {
+  async remove(songId: Song['id']) {
     try {
-      await withStore('readwrite', store => store.put(entry))
-    } catch (error) {
-      logger.warn('Failed to write offline manifest entry', error)
+      await (await getDB()).delete('manifest', songId)
+    } catch {
+      // noop
     }
   },
 
-  async remove(songId: string): Promise<void> {
+  async clear() {
     try {
-      await withStore('readwrite', store => store.delete(songId))
-    } catch (error) {
-      logger.warn('Failed to remove offline manifest entry', error)
-    }
-  },
-
-  async clear(): Promise<void> {
-    try {
-      await withStore('readwrite', store => store.clear())
-    } catch (error) {
-      logger.warn('Failed to clear offline manifest', error)
+      await (await getDB()).clear('manifest')
+    } catch {
+      // noop
     }
   },
 }

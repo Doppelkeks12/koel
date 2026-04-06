@@ -16,7 +16,7 @@ class ThemeTest extends PlusTestCase
     public function listTheme(): void
     {
         $user = create_user();
-        Theme::factory()->for($user)->create();
+        Theme::factory()->for($user)->createOne();
 
         $this
             ->getAs('api/themes', $user)
@@ -63,8 +63,7 @@ class ThemeTest extends PlusTestCase
     #[Test]
     public function deleteTheme(): void
     {
-        /** @var Theme $theme */
-        $theme = Theme::factory()->create();
+        $theme = Theme::factory()->createOne();
 
         $this->deleteAs("api/themes/{$theme->id}", [], $theme->user)->assertNoContent();
 
@@ -74,8 +73,7 @@ class ThemeTest extends PlusTestCase
     #[Test]
     public function deleteThemeUnauthorized(): void
     {
-        /** @var Theme $theme */
-        $theme = Theme::factory()->create();
+        $theme = Theme::factory()->createOne();
 
         $this->deleteAs("api/themes/{$theme->id}", [], create_user())->assertForbidden();
 

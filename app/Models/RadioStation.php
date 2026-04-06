@@ -6,7 +6,11 @@ use App\Builders\RadioStationBuilder;
 use App\Models\Concerns\MorphsToFavorites;
 use App\Models\Contracts\Favoriteable;
 use App\Models\Contracts\Permissionable;
+use App\Observers\RadioStationObserver;
 use Carbon\Carbon;
+use Database\Factories\RadioStationFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -26,7 +30,11 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property Carbon|string $created_at
  * @property string $name
  * @property-read ?boolean $favorite Whether the (scoped) user has favorited this radio station
+ *
+ * @method static RadioStationFactory factory(...$parameters)
  */
+#[ObservedBy(RadioStationObserver::class)]
+#[UseEloquentBuilder(RadioStationBuilder::class)]
 class RadioStation extends Model implements AuditableContract, Favoriteable, Permissionable
 {
     use Auditable;
@@ -39,13 +47,17 @@ class RadioStation extends Model implements AuditableContract, Favoriteable, Per
     public $incrementing = false;
 
     protected $with = ['user'];
-    protected $casts = [
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
-        'favorite' => 'boolean',
-        'is_public' => 'boolean',
-        'description' => 'string',
-    ];
+
+    protected function casts(): array
+    {
+        return [
+            'created_at' => 'datetime',
+            'updated_at' => 'datetime',
+            'favorite' => 'boolean',
+            'is_public' => 'boolean',
+            'description' => 'string',
+        ];
+    }
 
     public function user(): BelongsTo
     {
@@ -56,11 +68,6 @@ class RadioStation extends Model implements AuditableContract, Favoriteable, Per
     {
         /** @var RadioStationBuilder */
         return parent::query()->addSelect('radio_stations.*');
-    }
-
-    public function newEloquentBuilder($query): RadioStationBuilder
-    {
-        return new RadioStationBuilder($query);
     }
 
     /** @inheritdoc */

@@ -37,11 +37,11 @@ trait HasSongAttributes
                         return SftpMetadata::make($matches[1]);
 
                     case SongStorageType::S3:
-                        preg_match('/^s3:\\/\\/(.*)\\/(.*)/', $this->path, $matches);
+                        preg_match('/^s3:\\/\\/([^\/]+)\\/(.+)/', $this->path, $matches);
                         return S3CompatibleMetadata::make($matches[1], $matches[2]);
 
                     case SongStorageType::S3_LAMBDA:
-                        preg_match('/^s3:\\/\\/(.*)\\/(.*)/', $this->path, $matches);
+                        preg_match('/^s3:\\/\\/([^\/]+)\\/(.+)/', $this->path, $matches);
                         return S3LambdaMetadata::make($matches[1], $matches[2]);
 
                     case SongStorageType::DROPBOX:
@@ -68,6 +68,11 @@ trait HasSongAttributes
 
     protected function genre(): Attribute
     {
-        return Attribute::get(fn () => $this->genres->pluck('name')->implode(', '))->shouldCache();
+        return Attribute::get(
+            fn () => $this->genres
+                ->pluck('name')
+                ->sort()
+                ->implode(', '),
+        )->shouldCache();
     }
 }

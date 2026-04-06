@@ -18,6 +18,8 @@ use App\Models\Contracts\Embeddable;
 use App\Models\Contracts\Favoriteable;
 use App\Values\SongStorageMetadata\SongStorageMetadata;
 use Carbon\Carbon;
+use Database\Factories\SongFactory;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -76,7 +78,10 @@ use PhanAn\Poddle\Values\EpisodeMetadata;
  * @property ?string $episode_guid
  * @property ?string $podcast_id
  * @property ?Podcast $podcast
+ *
+ * @method static SongFactory factory(...$parameters)
  */
+#[UseEloquentBuilder(SongBuilder::class)]
 class Song extends Model implements AuditableContract, Favoriteable, Embeddable
 {
     use Auditable;
@@ -92,20 +97,23 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable
     protected $guarded = [];
     protected $hidden = ['updated_at', 'path', 'mtime'];
 
-    protected $casts = [
-        'title' => SongTitleCast::class,
-        'lyrics' => SongLyricsCast::class,
-        'length' => 'float',
-        'file_size' => 'int',
-        'mtime' => 'int',
-        'track' => 'int',
-        'disc' => 'int',
-        'year' => 'int',
-        'is_public' => 'bool',
-        'storage' => SongStorageCast::class,
-        'episode_metadata' => EpisodeMetadataCast::class,
-        'favorite' => 'bool',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'title' => SongTitleCast::class,
+            'lyrics' => SongLyricsCast::class,
+            'length' => 'float',
+            'file_size' => 'int',
+            'mtime' => 'int',
+            'track' => 'int',
+            'disc' => 'int',
+            'year' => 'int',
+            'is_public' => 'bool',
+            'storage' => SongStorageCast::class,
+            'episode_metadata' => EpisodeMetadataCast::class,
+            'favorite' => 'bool',
+        ];
+    }
 
     protected $with = ['album', 'artist', 'album.artist', 'podcast', 'genres', 'owner'];
 
@@ -119,11 +127,6 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable
                 default => $query,
             })
             ->addSelect('songs.*');
-    }
-
-    public function newEloquentBuilder($query): SongBuilder
-    {
-        return new SongBuilder($query);
     }
 
     public function accessibleBy(User $user): bool
@@ -175,7 +178,7 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable
         $genreNames = is_array($genres) ? $genres : explode(',', $genres);
 
         $genreIds = collect($genreNames)
-            ->map(static fn (string $name) => trim($name))
+            ->map(static fn ($g) => trim($g))
             ->filter()
             ->unique()
             ->map(static fn (string $name) => Genre::get($name)->id);
@@ -191,10 +194,11 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable
     public function genreEqualsTo(string|array $genres): bool
     {
         $genreNames = collect(is_string($genres) ? explode(',', $genres) : $genres)
-            ->map(static fn (string $name) => trim($name))
+            ->map(static fn ($g) => trim($g))
             ->filter()
             ->unique()
             ->sort()
+            ->values()
             ->join(', ');
 
         if (!$this->genre && !$genreNames) {

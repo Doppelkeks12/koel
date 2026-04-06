@@ -11,6 +11,7 @@
     <PlayableListHeader v-if="config.hasHeader" :content-type="contentType" @sort="sort" />
 
     <VirtualScroller
+      ref="virtualScroller"
       v-slot="{ item }: { item: PlayableRow }"
       :item-height="calculatedItemHeight"
       :items="rows"
@@ -83,6 +84,7 @@ const [config] = requireInjection<[Partial<PlayableListConfig>]>(PlayableListCon
 const [context] = requireInjection<[PlayableListContext]>(PlayableListContextKey)
 
 const wrapper = ref<HTMLElement>()
+const virtualScroller = ref<InstanceType<typeof VirtualScroller>>()
 const sortFields = ref<PlayableListSortField[]>([])
 
 useSwipeDirection(
@@ -163,13 +165,32 @@ const onDragStart = async (row: PlayableRow, event: DragEvent) => {
   startDragging(event, selectedPlayables.value)
 }
 
+let currentDropTarget: HTMLElement | null = null
+
+const clearDropTarget = () => {
+  currentDropTarget?.classList.remove('droppable', 'dragover-top', 'dragover-bottom')
+  currentDropTarget = null
+}
+
 const onDragOver = throttle((event: DragEvent) => {
   if (!config.reorderable) {
     return
   }
 
   if (acceptsDrop(event)) {
-    const target = event.target as HTMLElement
+    const target = (event.target as HTMLElement).closest('.playable-list-item') as HTMLElement | null
+
+    if (!target) {
+      return
+    }
+
+    // If we moved to a different item, clear the old one
+    if (currentDropTarget && currentDropTarget !== target) {
+      clearDropTarget()
+    }
+
+    currentDropTarget = target
+
     const rect = target.getBoundingClientRect()
     const midPoint = rect.top + rect.height / 2
     target.classList.remove('dragover-top', 'dragover-bottom')
@@ -180,32 +201,37 @@ const onDragOver = throttle((event: DragEvent) => {
 }, 50)
 
 const onDragLeave = (event: DragEvent) => {
-  ;(event.target as HTMLElement)
-    .closest('.playable-item')
-    ?.classList.remove('droppable', 'dragover-top', 'dragover-bottom')
+  // Only clear if the cursor actually left the item (not just moved between children)
+  const related = event.relatedTarget
+
+  if (!(related instanceof Node) || !currentDropTarget?.contains(related)) {
+    clearDropTarget()
+  }
+
   return false
 }
 
 const onDrop = (row: PlayableRow, event: DragEvent) => {
   if (!config.reorderable || !getDroppedData(event) || !selectedPlayables.value.length) {
     wrapper.value?.classList.remove('dragging')
-    return onDragLeave(event)
+    clearDropTarget()
+    return false
   }
 
   wrapper.value?.classList.remove('dragging')
 
   if (!inSelectedRange(row)) {
-    emit(
-      'reorder',
-      row.playable,
-      (event.target as HTMLElement).classList.contains('dragover-bottom') ? 'after' : 'before',
-    )
+    emit('reorder', row.playable, currentDropTarget?.classList.contains('dragover-bottom') ? 'after' : 'before')
   }
 
-  return onDragLeave(event)
+  clearDropTarget()
+  return false
 }
 
-const onDragEnd = () => wrapper.value?.classList.remove('dragging')
+const onDragEnd = () => {
+  wrapper.value?.classList.remove('dragging')
+  clearDropTarget()
+}
 
 const onClick = (row: PlayableRow, event: MouseEvent) => {
   // If we're on a touch device, or if Ctrl/Cmd key is pressed, just toggle selection.
@@ -302,8 +328,17 @@ const calculatedItemHeight = computed(() => {
   return totalHeight / rows.value.length
 })
 
+const scrollToPlayable = (playable: Playable) => {
+  const index = findIndex(rows.value, row => row.playable.id === playable.id)
+
+  if (index >= 0) {
+    virtualScroller.value?.scrollToIndex(index)
+  }
+}
+
 defineExpose({
   getAllPlayablesWithSort,
+  scrollToPlayable,
 })
 
 onMounted(() => render())
@@ -321,7 +356,7 @@ onMounted(() => render())
 
   .song-list-header > span,
   .song-item > span {
-    @apply text-left p-2 align-middle text-ellipsis overflow-hidden whitespace-nowrap;
+    @apply text-left p-2 align-middle truncate;
 
     &.time {
       @apply basis-20 overflow-visible;

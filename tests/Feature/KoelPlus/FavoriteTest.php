@@ -13,8 +13,7 @@ class FavoriteTest extends PlusTestCase
     #[Test]
     public function toggleIsProhibitedIfSongIsNotAccessible(): void
     {
-        /** @var Song $song */
-        $song = Song::factory()->private()->create();
+        $song = Song::factory()->private()->createOne();
 
         $this->postAs('api/favorites/toggle', [
             'type' => 'playable',
@@ -25,8 +24,7 @@ class FavoriteTest extends PlusTestCase
     #[Test]
     public function toggleIsProhibitedIfAlbumIsNotAccessible(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create();
+        $album = Album::factory()->createOne();
 
         $this->postAs('api/favorites/toggle', [
             'type' => 'album',
@@ -37,8 +35,7 @@ class FavoriteTest extends PlusTestCase
     #[Test]
     public function toggleIsProhibitedIfArtistIsNotAccessible(): void
     {
-        /** @var Artist $artist */
-        $artist = Artist::factory()->create();
+        $artist = Artist::factory()->createOne();
 
         $this->postAs('api/favorites/toggle', [
             'type' => 'artist',
@@ -49,7 +46,7 @@ class FavoriteTest extends PlusTestCase
     #[Test]
     public function batchFavoriteIsProhibitedIfAnySongIsNotAccessible(): void
     {
-        $songs = Song::factory()->count(2)->create();
+        $songs = Song::factory()->createMany(2);
         $songs->first()->update(['is_public' => false]);
 
         $this->postAs('api/favorites', [
@@ -61,7 +58,7 @@ class FavoriteTest extends PlusTestCase
     #[Test]
     public function batchUndoFavoriteIsProhibitedIfAnySongIsNotAccessible(): void
     {
-        $songs = Song::factory()->count(2)->create();
+        $songs = Song::factory()->createMany(2);
         $songs->first()->update(['is_public' => false]);
 
         $this->deleteAs('api/favorites', [

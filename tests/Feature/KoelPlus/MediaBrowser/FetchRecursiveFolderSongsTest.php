@@ -20,14 +20,11 @@ class FetchRecursiveFolderSongsTest extends PlusTestCase
     #[Test]
     public function includesSongsInNestedFolder(): void
     {
-        /** @var Folder $folder */
-        $folder = Folder::factory()->create(['path' => 'foo']);
+        $folder = Folder::factory()->createOne(['path' => 'foo']);
+        $subfolder = Folder::factory()->for($folder, 'parent')->createOne(['path' => 'foo/bar']);
 
-        /** @var Folder $subfolder */
-        $subfolder = Folder::factory()->for($folder, 'parent')->create(['path' => 'foo/bar']);
-
-        $irrelevantFolder = Folder::factory()->create(['path' => 'foo/baz']);
-        Song::factory()->for($irrelevantFolder)->create();
+        $irrelevantFolder = Folder::factory()->createOne(['path' => 'foo/baz']);
+        Song::factory()->for($irrelevantFolder)->createOne();
 
         $songs = Song::factory()
             ->for($subfolder)
@@ -50,14 +47,13 @@ class FetchRecursiveFolderSongsTest extends PlusTestCase
     #[Test]
     public function resolveWhenOneOfThePathsIsRoot(): void
     {
-        /** @var Folder $folder */
-        $folder = Folder::factory()->create(['path' => 'foo']);
+        $folder = Folder::factory()->createOne(['path' => 'foo']);
 
         $songs = Song::factory()
             ->for($folder)
             ->count(2)
             ->create()
-            ->merge(Song::factory()->count(1)->create());
+            ->merge(Song::factory()->createMany(1));
 
         $response = $this->postAs('/api/songs/by-folders', [
             'paths' => ['', 'foo'],

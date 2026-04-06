@@ -10,8 +10,12 @@ use App\Models\Concerns\SupportsDeleteWhereValueNotIn;
 use App\Models\Contracts\Embeddable;
 use App\Models\Contracts\Favoriteable;
 use App\Models\Contracts\Permissionable;
+use App\Observers\AlbumObserver;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Database\Factories\AlbumFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -41,7 +45,11 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property string $cover The album cover's file name
  * @property string $id
  * @property string $name Name of the album
+ *
+ * @method static AlbumFactory factory(...$parameters)
  */
+#[ObservedBy(AlbumObserver::class)]
+#[UseEloquentBuilder(AlbumBuilder::class)]
 class Album extends Model implements AuditableContract, Embeddable, Favoriteable, Permissionable
 {
     use Auditable;
@@ -53,7 +61,7 @@ class Album extends Model implements AuditableContract, Embeddable, Favoriteable
     use Searchable;
     use SupportsDeleteWhereValueNotIn;
 
-    public const UNKNOWN_NAME = 'Unknown Album';
+    public const string UNKNOWN_NAME = 'Unknown Album';
 
     protected $guarded = ['id'];
     protected $hidden = ['updated_at'];
@@ -67,11 +75,6 @@ class Album extends Model implements AuditableContract, Embeddable, Favoriteable
     {
         /** @var AlbumBuilder */
         return parent::query()->addSelect('albums.*');
-    }
-
-    public function newEloquentBuilder($query): AlbumBuilder
-    {
-        return new AlbumBuilder($query);
     }
 
     /**

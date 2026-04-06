@@ -49,7 +49,7 @@ class PlaylistServiceTest extends TestCase
     #[Test]
     public function createPlaylistWithSongs(): void
     {
-        $songs = Song::factory(2)->create();
+        $songs = Song::factory()->createMany(2);
         $user = create_user();
 
         $data = PlaylistCreateData::make(
@@ -116,8 +116,7 @@ class PlaylistServiceTest extends TestCase
     #[Test]
     public function createPlaylistInFolder(): void
     {
-        /** @var PlaylistFolder $folder */
-        $folder = PlaylistFolder::factory()->create();
+        $folder = PlaylistFolder::factory()->createOne();
 
         $data = PlaylistCreateData::make(name: 'foo', description: 'bar', folderId: $folder->id);
 
@@ -190,8 +189,8 @@ class PlaylistServiceTest extends TestCase
     public function addSongsToPlaylist(): void
     {
         $playlist = create_playlist();
-        $playlist->addPlayables(Song::factory(2)->create());
-        $songs = Song::factory(2)->create();
+        $playlist->addPlayables(Song::factory()->createMany(2));
+        $songs = Song::factory()->createMany(2);
 
         $addedSongs = $this->service->addPlayablesToPlaylist($playlist, $songs, $playlist->owner);
         $playlist->refresh();
@@ -209,14 +208,12 @@ class PlaylistServiceTest extends TestCase
         $podcastService = app(PodcastService::class);
 
         $playlist = create_playlist();
-        $playlist->addPlayables(Song::factory(2)->create());
-
-        /** @var Podcast $podcast */
-        $podcast = Podcast::factory()->create();
-        $episodes = Song::factory(2)
+        $playlist->addPlayables(Song::factory()->createMany(2));
+        $podcast = Podcast::factory()->createOne();
+        $episodes = Song::factory()
             ->asEpisode()
             ->for($podcast)
-            ->create();
+            ->createMany(2);
 
         $podcastService->subscribeUserToPodcast($playlist->owner, $podcast);
 
@@ -232,11 +229,11 @@ class PlaylistServiceTest extends TestCase
     public function addMixOfSongsAndEpisodesToPlaylist(): void
     {
         $playlist = create_playlist();
-        $playlist->addPlayables(Song::factory(2)->create());
-        $playables = Song::factory(2)
+        $playlist->addPlayables(Song::factory()->createMany(2));
+        $playables = Song::factory()
             ->asEpisode()
-            ->create()
-            ->merge(Song::factory(2)->create());
+            ->createMany(2)
+            ->merge(Song::factory()->createMany(2));
 
         $addedEpisodes = $this->service->addPlayablesToPlaylist($playlist, $playables, $playlist->owner);
         $playlist->refresh();
@@ -257,7 +254,7 @@ class PlaylistServiceTest extends TestCase
         $playlist->refresh();
         self::assertTrue($this->service->isPlaylistCollaborative($playlist));
 
-        $songs = Song::factory(2)->create(['is_public' => false]);
+        $songs = Song::factory()->state(['is_public' => false])->createMany(2);
 
         $this->service->addPlayablesToPlaylist($playlist, $songs, $user);
 
@@ -268,7 +265,7 @@ class PlaylistServiceTest extends TestCase
     public function makePlaylistSongsPublic(): void
     {
         $playlist = create_playlist();
-        $playlist->addPlayables(Song::factory(2)->create(['is_public' => false]));
+        $playlist->addPlayables(Song::factory()->state(['is_public' => false])->createMany(2));
 
         $this->service->makePlaylistContentPublic($playlist);
 
@@ -279,7 +276,7 @@ class PlaylistServiceTest extends TestCase
     public function moveSongsInPlaylist(): void
     {
         $playlist = create_playlist();
-        $songs = Song::factory(4)->create();
+        $songs = Song::factory()->createMany(4);
         $ids = $songs->modelKeys();
         $playlist->addPlayables($songs);
 

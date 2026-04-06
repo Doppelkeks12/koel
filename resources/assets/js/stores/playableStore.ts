@@ -1,13 +1,12 @@
 import isMobile from 'ismobilejs'
-import slugify from 'slugify'
 import { differenceBy, merge, orderBy, sumBy, take, unionBy, uniqBy } from 'lodash'
 import type { Reactive } from 'vue'
 import { reactive, watch } from 'vue'
-import { arrayify, use } from '@/utils/helpers'
+import { arrayify, moveItemsInList, use } from '@/utils/helpers'
 import { isSong } from '@/utils/typeGuards'
 import { logger } from '@/utils/logger'
 import { md5 } from '@/utils/crypto'
-import { secondsToHumanReadable } from '@/utils/formatters'
+import { normalizeForComparison, secondsToHumanReadable } from '@/utils/formatters'
 import { authService } from '@/services/authService'
 import { cache } from '@/services/cache'
 import { http } from '@/services/http'
@@ -41,20 +40,10 @@ export interface SongUpdateResult {
   }
 }
 
-export interface SongListPaginateParams extends Record<string, any> {
-  sort: MaybeArray<PlayableListSortField>
-  order: SortOrder
-  page: number
-}
-
-export interface GenreSongListPaginateParams extends Record<string, any> {
-  sort: MaybeArray<PlayableListSortField>
-  order: SortOrder
-  page: number
-}
+export type SongListPaginateParams = PaginateParams<PlayableListSortField>
 
 export const playableStore = {
-  vault: new Map<Playable['id'], Playable>(),
+  vault: new Map<Playable['id'], Reactive<Playable>>(),
 
   state: reactive<{ playables: Playable[]; favorites: Playable[] }>({
     playables: [],
@@ -62,6 +51,16 @@ export const playableStore = {
   }),
 
   getFormattedLength: (playables: MaybeArray<Playable>) => secondsToHumanReadable(sumBy(arrayify(playables), 'length')),
+
+  findPlaying() {
+    for (const playable of this.vault.values()) {
+      if (playable.playback_state !== 'Stopped') {
+        return playable
+      }
+    }
+
+    return undefined
+  },
 
   byId(id: Playable['id']) {
     const playable = this.vault.get(id)
@@ -133,15 +132,8 @@ export const playableStore = {
   },
 
   matchSongsByTitle: (title: string, songs: Song[]) => {
-    title = slugify(title.toLowerCase())
-
-    for (const song of songs) {
-      if (slugify(song.title.toLowerCase()) === title) {
-        return song
-      }
-    }
-
-    return null
+    const normalizedTitle = normalizeForComparison(title)
+    return songs.find(song => normalizeForComparison(song.title) === normalizedTitle) ?? null
   },
 
   /**
@@ -283,7 +275,7 @@ export const playableStore = {
     )
   },
 
-  async paginateSongsByGenre(genre: Genre | Genre['id'], params: GenreSongListPaginateParams) {
+  async paginateSongsByGenre(genre: Genre | Genre['id'], params: SongListPaginateParams) {
     const id = typeof genre === 'string' ? genre : genre.id
 
     const resource = await http.get<PaginatorResource<Song>>(
@@ -441,5 +433,23 @@ export const playableStore = {
     })
 
     this.state.favorites = differenceBy(this.state.favorites, playables, 'id')
+  },
+
+  async moveFavoritesInList(playables: MaybeArray<Playable>, target: Playable, placement: Placement) {
+    const orderHash = JSON.stringify(this.state.favorites.map(({ id }) => id))
+
+    this.state.favorites.splice(
+      0,
+      this.state.favorites.length,
+      ...moveItemsInList(this.state.favorites, playables, target, placement),
+    )
+
+    if (orderHash !== JSON.stringify(this.state.favorites.map(({ id }) => id))) {
+      await http.silently.post('favorites/move', {
+        placement,
+        songs: arrayify(playables).map(({ id }) => id),
+        target: target.id,
+      })
+    }
   },
 }

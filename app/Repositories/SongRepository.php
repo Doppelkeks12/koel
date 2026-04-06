@@ -24,6 +24,7 @@ use App\Values\SmartPlaylist\SmartPlaylistRuleGroup as RuleGroup;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use LogicException;
 
 /**
@@ -33,7 +34,7 @@ use LogicException;
 // @mago-ignore lint:too-many-methods,cyclomatic-complexity
 class SongRepository extends Repository implements ScoutableRepository
 {
-    private const LIST_SIZE_LIMIT = 500;
+    private const int LIST_SIZE_LIMIT = 500;
 
     public function __construct(
         private readonly AlbumRepository $albumRepository,
@@ -66,9 +67,9 @@ class SongRepository extends Repository implements ScoutableRepository
     }
 
     /** @return Collection|array<array-key, Song> */
-    public function getMostPlayed(int $count = 8, ?User $scopedUser = null): Collection
+    public function getMostPlayed(int $count = 8, ?User $scopedUser = null, ?PlayableType $type = null): Collection
     {
-        return Song::query(user: $scopedUser ?? $this->auth->user())
+        return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
             ->where('interactions.play_count', '>', 0)
             ->orderByDesc('interactions.play_count')
@@ -77,9 +78,19 @@ class SongRepository extends Repository implements ScoutableRepository
     }
 
     /** @return Collection|array<array-key, Song> */
-    public function getRecentlyPlayed(int $count = 8, ?User $scopedUser = null): Collection
+    public function getLeastPlayed(int $count = 50, ?User $scopedUser = null, ?PlayableType $type = null): Collection
     {
-        return Song::query(user: $scopedUser ?? $this->auth->user())
+        return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
+            ->withUserContext()
+            ->orderBy('play_count')
+            ->limit($count)
+            ->get();
+    }
+
+    /** @return Collection|array<array-key, Song> */
+    public function getRecentlyPlayed(int $count = 8, ?User $scopedUser = null, ?PlayableType $type = null): Collection
+    {
+        return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
             ->where('interactions.play_count', '>', 0)
             ->addSelect('interactions.last_played_at')
@@ -135,9 +146,12 @@ class SongRepository extends Repository implements ScoutableRepository
     }
 
     /** @return Collection|array<array-key, Song> */
-    public function getFavorites(?User $scopedUser = null): Collection
+    public function getFavorites(?User $scopedUser = null, ?PlayableType $type = null): Collection
     {
-        return Song::query(user: $scopedUser ?? $this->auth->user())->withUserContext(favoritesOnly: true)->get();
+        return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
+            ->withUserContext(favoritesOnly: true)
+            ->orderBy('favorites.position')
+            ->get();
     }
 
     /** @return Collection|array<array-key, Song> */
@@ -172,12 +186,9 @@ class SongRepository extends Repository implements ScoutableRepository
 
         return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
+            ->leftJoin('albums as albums_by_artist', 'songs.album_id', 'albums_by_artist.id')
             ->where(static function (SongBuilder $query) use ($artist): void {
-                $query->whereBelongsTo($artist)->orWhereHas('album', static function (Builder $albumQuery) use (
-                    $artist,
-                ): void {
-                    $albumQuery->whereBelongsTo($artist);
-                });
+                $query->where('songs.artist_id', $artist->id)->orWhere('albums_by_artist.artist_id', $artist->id);
             })
             ->orderBy('songs.album_name')
             ->orderBy('songs.disc')
@@ -231,7 +242,7 @@ class SongRepository extends Repository implements ScoutableRepository
     {
         throw_unless($playlist->is_smart, NonSmartPlaylistException::create($playlist));
 
-        $query = Song::query(type: PlayableType::SONG, user: $scopedUser)->withUserContext();
+        $query = Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())->withUserContext();
 
         $playlist->rule_groups->each(static function (RuleGroup $group, int $index) use ($query): void {
             $whereClosure = static function (SongBuilder $subQuery) use ($group): void {
@@ -409,12 +420,66 @@ class SongRepository extends Repository implements ScoutableRepository
     }
 
     /** @return Collection<Song>|array<array-key, Song> */
+    public function searchByLyrics(string $lyrics, int $limit = 50, ?User $user = null): Collection
+    {
+        $query = Song::query(type: PlayableType::SONG, user: $user ?? $this->auth->user())->withUserContext();
+
+        if (DB::getDriverName() === 'sqlite') {
+            $query->where('songs.lyrics', 'like', '%' . $lyrics . '%');
+        } else {
+            $query->whereFullText('songs.lyrics', $lyrics);
+        }
+
+        return $query->limit($limit)->get();
+    }
+
+    /** @return Collection<Song>|array<array-key, Song> */
+    public function getSimilar(Song $song, int $limit = 50, ?User $user = null): Collection
+    {
+        /** @var Collection<int, Song> $songs */
+        $songs = new Collection([$song]);
+
+        return $this->getSimilarToMany($songs, $limit, $user);
+    }
+
+    /** @param Collection<int, Song> $songs */
+    public function getSimilarToMany(Collection $songs, int $limit = 50, ?User $user = null): Collection
+    {
+        if ($songs->isEmpty()) {
+            return new Collection();
+        }
+
+        $songIds = $songs->pluck('id')->all();
+        $artistIds = $songs->pluck('artist_id')->unique()->all();
+
+        /** @var Collection<int, Song> $loadedSongs */
+        $loadedSongs = $songs->load('genres');
+        $genreIds = $loadedSongs->flatMap(static fn (Song $song) => $song->genres->pluck('id'))->unique()->all();
+
+        return Song::query(type: PlayableType::SONG, user: $user ?? $this->auth->user())
+            ->withUserContext()
+            ->whereNotIn('songs.id', $songIds)
+            ->where(static function (SongBuilder $query) use ($artistIds, $genreIds): void {
+                $query->whereIn(
+                    'songs.artist_id',
+                    $artistIds,
+                )->when($genreIds, static fn (SongBuilder $q) => $q->orWhereHas('genres', static fn (Builder $gq) => $gq->whereIn(
+                    'genres.id',
+                    $genreIds,
+                )));
+            })
+            ->inRandomOrder()
+            ->limit($limit)
+            ->get();
+    }
+
+    /** @return Collection<Song>|array<array-key, Song> */
     public function search(string $keywords, int $limit, ?User $user = null): Collection
     {
         return $this->getMany(
             ids: Song::search($keywords)
-                ->get()
                 ->take($limit)
+                ->get()
                 ->modelKeys(),
             preserveOrder: true,
             scopedUser: $user,

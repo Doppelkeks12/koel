@@ -21,9 +21,7 @@ class FavoriteTest extends TestCase
     public function favorite(): void
     {
         Event::fake(SongFavoriteToggled::class);
-
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $song = Song::factory()->createOne();
         $user = create_user();
 
         $this->postAs(
@@ -48,9 +46,7 @@ class FavoriteTest extends TestCase
     public function undoFavorite(): void
     {
         Event::fake(SongFavoriteToggled::class);
-
-        /** @var Favorite $favorite */
-        $favorite = Favorite::factory()->create();
+        $favorite = Favorite::factory()->createOne();
 
         $this->postAs(
             'api/favorites/toggle',
@@ -74,7 +70,7 @@ class FavoriteTest extends TestCase
         Event::fake(MultipleSongsLiked::class);
 
         /** @var Collection<Song> $songs */
-        $songs = Song::factory()->count(2)->create();
+        $songs = Song::factory()->createMany(2);
         $user = create_user();
 
         $this->postAs(
@@ -126,5 +122,27 @@ class FavoriteTest extends TestCase
         }
 
         Event::assertDispatched(MultipleSongsUnliked::class);
+    }
+
+    #[Test]
+    public function fetchFavoritesInPositionOrder(): void
+    {
+        $user = create_user();
+        $songs = Song::factory()->createMany(3);
+
+        // Create favorites in reverse position order to verify sorting
+        foreach ($songs as $index => $song) {
+            Favorite::factory()->for($user)->createOne([
+                'favoriteable_id' => $song->id,
+                'favoriteable_type' => 'playable',
+                'position' => count($songs) - 1 - $index,
+            ]);
+        }
+
+        $response = $this->getAs('api/songs/favorites', $user)->assertSuccessful();
+        $returnedIds = collect($response->json())->pluck('id')->toArray();
+
+        // Songs should be returned in position order (reversed from creation order)
+        self::assertSame([$songs[2]->id, $songs[1]->id, $songs[0]->id], $returnedIds);
     }
 }

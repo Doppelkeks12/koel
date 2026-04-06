@@ -27,8 +27,7 @@ class QueueTest extends TestCase
     #[Test]
     public function getExistingState(): void
     {
-        /** @var QueueState $queueState */
-        $queueState = QueueState::factory()->create([
+        $queueState = QueueState::factory()->createOne([
             'current_song_id' => Song::factory(),
             'playback_position' => 123,
         ]);
@@ -43,7 +42,7 @@ class QueueTest extends TestCase
 
         $this->assertDatabaseMissing(QueueState::class, ['user_id' => $user->id]);
 
-        $songIds = Song::factory(2)->create()->modelKeys();
+        $songIds = Song::factory()->createMany(2)->modelKeys();
 
         $this->putAs('api/queue/state', ['songs' => $songIds], $user)->assertNoContent();
 
@@ -53,13 +52,24 @@ class QueueTest extends TestCase
     }
 
     #[Test]
+    public function updateStateWithEmptySongList(): void
+    {
+        $user = create_user();
+
+        $this->assertDatabaseMissing(QueueState::class, ['user_id' => $user->id]);
+
+        $this->putAs('api/queue/state', ['songs' => []], $user)->assertNoContent();
+
+        /** @var QueueState $queue */
+        $queue = QueueState::query()->whereBelongsTo($user)->firstOrFail();
+        self::assertSame([], $queue->song_ids);
+    }
+
+    #[Test]
     public function updatePlaybackStatus(): void
     {
-        /** @var QueueState $state */
-        $state = QueueState::factory()->create();
-
-        /** @var Song $song */
-        $song = Song::factory()->create();
+        $state = QueueState::factory()->createOne();
+        $song = Song::factory()->createOne();
 
         $this->putAs(
             'api/queue/playback-status',
@@ -70,9 +80,7 @@ class QueueTest extends TestCase
         $state->refresh();
         self::assertSame($song->id, $state->current_song_id);
         self::assertSame(123, $state->playback_position);
-
-        /** @var Song $anotherSong */
-        $anotherSong = Song::factory()->create();
+        $anotherSong = Song::factory()->createOne();
 
         $this->putAs(
             'api/queue/playback-status',
@@ -88,7 +96,7 @@ class QueueTest extends TestCase
     #[Test]
     public function fetchSongs(): void
     {
-        Song::factory(10)->create();
+        Song::factory()->createMany(10);
 
         $this
             ->getAs('api/queue/fetch?order=rand&limit=5')

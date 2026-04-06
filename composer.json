@@ -9,7 +9,7 @@
   "license": "MIT",
   "type": "project",
   "require": {
-    "php": ">=8.2",
+    "php": ">=8.3",
     "laravel/framework": "^12.0",
     "james-heinrich/getid3": "^1.9",
     "guzzlehttp/guzzle": "^7.2",
@@ -23,7 +23,6 @@
     "ext-SimpleXML": "*",
     "daverandom/resume": "^0.0.3",
     "laravel/helpers": "^1.7",
-    "lstrojny/functional-php": "^1.14",
     "teamtnt/laravel-scout-tntsearch-driver": "^15.0",
     "algolia/algoliasearch-client-php": "^3.3",
     "webmozart/assert": "^1.10",
@@ -34,8 +33,8 @@
     "http-interop/http-factory-guzzle": "^1.2",
     "league/flysystem-aws-s3-v3": "^3.0",
     "spatie/flysystem-dropbox": "^3.0",
-    "saloonphp/saloon": "^3.8",
-    "saloonphp/laravel-plugin": "^3.0",
+    "saloonphp/saloon": "^4.0",
+    "saloonphp/laravel-plugin": "^4.0",
     "laravel/socialite": "^5.12",
     "laravel/ui": "^4.5",
     "nunomaduro/collision": "^v8.8",
@@ -46,7 +45,6 @@
     "fileeye/mimemap": "^2.2",
     "ezyang/htmlpurifier": "^4.18",
     "jaybizzle/crawler-detect": "^1.3",
-    "paragonie/sodium_compat": "^1.6",
     "laravel/nightwatch": "^1.13",
     "intervention/image-laravel": "^1.5",
     "laravel/prompts": "^0.3.6",
@@ -54,7 +52,8 @@
     "fakerphp/faker": "^1.24",
     "spatie/laravel-permission": "^6.21",
     "enshrined/svg-sanitize": "^0.22.0",
-    "phanan/poddle": "^1.2"
+    "phanan/poddle": "^1.2",
+    "laravel/ai": "^0.2.6"
   },
   "require-dev": {
     "roave/security-advisories": "dev-latest",
@@ -127,7 +126,7 @@
     "analyze": "phpstan analyse --memory-limit 1G --configuration phpstan.neon.dist --ansi",
     "dev": [
       "Composer\\Config::disableProcessTimeout",
-      "npx concurrently -k -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"vite\" --names=server,queue,vite --restart-tries=3"
+      "npx concurrently -k -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"vp dev\" --names=server,queue,vite --restart-tries=3"
     ]
   },
   "config": {
@@ -138,7 +137,7 @@
       "carthage-software/mago": true
     },
     "platform": {
-      "php": "8.2.0"
+      "php": "8.3.0"
     }
   },
   "minimum-stability": "stable",

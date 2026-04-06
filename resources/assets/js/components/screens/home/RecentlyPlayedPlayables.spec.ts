@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/vue'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { overviewStore } from '@/stores/overviewStore'
 import Router from '@/router'
@@ -11,7 +11,7 @@ describe('recentlyPlayedPlayables.vue', () => {
   it('displays the songs', async () => {
     overviewStore.state.recentlyPlayed = h.factory('song', 6)
     h.render(Component)
-    await waitFor(() => expect(screen.getAllByTestId('song-item')).toHaveLength(6))
+    await waitFor(() => expect(screen.getAllByTestId('song-card')).toHaveLength(6))
   })
 
   it('goes to dedicated screen', async () => {

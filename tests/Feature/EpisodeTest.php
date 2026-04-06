@@ -12,8 +12,7 @@ class EpisodeTest extends TestCase
     #[Test]
     public function fetchEpisode(): void
     {
-        /** @var Song $episode */
-        $episode = Song::factory()->asEpisode()->create();
+        $episode = Song::factory()->asEpisode()->createOne();
 
         $this->getAs("api/songs/{$episode->id}")->assertJsonStructure(SongResource::JSON_STRUCTURE);
     }

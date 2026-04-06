@@ -1,6 +1,5 @@
 import { nextTick, reactive } from 'vue'
-import plyr from 'plyr'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import * as lodash from 'lodash'
 import { createHarness } from '@/__tests__/TestHarness'
 
@@ -22,23 +21,25 @@ import { playbackService } from '@/services/QueuePlaybackService'
 describe('playbackService', () => {
   const h = createHarness({
     beforeEach: () => {
+      playableStore.vault.clear()
       h.createAudioPlayer()
-      playbackService.activate(document.querySelector('.plyr')!)
+      playbackService.activate(document.querySelector<HTMLMediaElement>('#audio-player')!)
     },
   })
 
   const setCurrentSong = (song?: Playable) => {
-    song = reactive(song || h.factory('song', { playback_state: 'Playing' }))
-
-    queueStore.state.playables = reactive([song])
-    return song
+    const playbackState = song?.playback_state ?? 'Playing'
+    const [synced] = playableStore.syncWithVault(song || h.factory('song'))
+    synced.playback_state = playbackState
+    queueStore.state.playables = reactive([synced])
+    return synced
   }
 
   it('only initializes once', () => {
-    const spy = vi.spyOn(plyr, 'setup')
-
-    playbackService.activate(document.querySelector('.plyr')!)
-    expect(spy).not.toHaveBeenCalled()
+    const media = playbackService.media
+    playbackService.activate(document.querySelector<HTMLMediaElement>('#audio-player')!)
+    // media reference should remain the same (not re-initialized)
+    expect(playbackService.media).toBe(media)
   })
 
   it.each([
@@ -55,7 +56,7 @@ describe('playbackService', () => {
 
       setCurrentSong(song)
 
-      const mediaElement = playbackService.player.media
+      const mediaElement = playbackService.media
 
       // we can't set mediaElement.currentTime|duration directly because they're read-only
       h.setReadOnlyProperty(mediaElement, 'currentTime', currentTime)
@@ -79,18 +80,19 @@ describe('playbackService', () => {
     const playNextMock = h.mock(playbackService, 'playNext')
 
     const errorEvent = new Event('error')
-    playbackService.player.media.dispatchEvent(errorEvent)
+    playbackService.media.dispatchEvent(errorEvent)
 
     expect(playNextMock).toHaveBeenCalled()
     expect(logMock).toHaveBeenCalledWith(errorEvent)
   })
 
   it('scrobbles if current playable ends', () => {
+    setCurrentSong()
     commonStore.state.uses_last_fm = true
     userStore.state.current.preferences.lastfm_session_key = 'foo'
 
     const scrobbleMock = h.mock(playableStore, 'scrobble')
-    playbackService.player.media.dispatchEvent(new Event('ended'))
+    playbackService.media.dispatchEvent(new Event('ended'))
     expect(scrobbleMock).toHaveBeenCalled()
   })
 
@@ -109,7 +111,7 @@ describe('playbackService', () => {
       commonStore.state.uses_last_fm = false // so that no scrobbling is made unnecessarily
       preferences.temporary.repeat_mode = repeatMode
 
-      playbackService.player.media.dispatchEvent(new Event('ended'))
+      playbackService.media.dispatchEvent(new Event('ended'))
 
       expect(restartMock).toHaveBeenCalledTimes(restartCalls)
       expect(playNextMock).toHaveBeenCalledTimes(playNextCalls)
@@ -123,10 +125,11 @@ describe('playbackService', () => {
   ])(
     'when next playable preloaded is %s, current media time is %d, media duration is %d, then preload() should be called %d times',
     (preloaded, currentTime, duration, numberOfCalls) => {
+      setCurrentSong()
       h.mock(playbackService, 'registerPlay')
       h.setReadOnlyProperty(queueStore, 'next', h.factory('song', { preloaded }))
 
-      const mediaElement = playbackService.player.media
+      const mediaElement = playbackService.media
 
       h.setReadOnlyProperty(mediaElement, 'currentTime', currentTime)
       h.setReadOnlyProperty(mediaElement, 'duration', duration)
@@ -176,7 +179,6 @@ describe('playbackService', () => {
     h.mock(Math, 'floor', 1000)
     const broadcastMock = h.mock(socketService, 'broadcast')
     const showNotificationMock = h.mock(playbackService, 'showNotification')
-    const restartMock = h.mock(playbackService.player, 'restart')
     const putMock = h.mock(http, 'put')
     const playMock = h.mock(window.HTMLMediaElement.prototype, 'play')
 
@@ -186,7 +188,7 @@ describe('playbackService', () => {
     expect(song.play_count_registered).toBe(false)
     expect(broadcastMock).toHaveBeenCalledWith('SOCKET_STREAMABLE', song)
     expect(showNotificationMock).toHaveBeenCalled()
-    expect(restartMock).toHaveBeenCalled()
+    expect(playbackService.media.currentTime).toBe(0)
     expect(playMock).toHaveBeenCalled()
 
     expect(putMock).toHaveBeenCalledWith('queue/playback-status', {
@@ -209,17 +211,16 @@ describe('playbackService', () => {
   it('restarts playable if playPrev is triggered after 5 seconds', async () => {
     setCurrentSong()
 
-    const mock = h.mock(playbackService.player, 'restart')
-    h.setReadOnlyProperty(playbackService.player.media, 'currentTime', 6)
+    h.setReadOnlyProperty(playbackService.media, 'currentTime', 6)
 
     await playbackService.playPrev()
 
-    expect(mock).toHaveBeenCalled()
+    expect(playbackService.media.currentTime).toBe(0)
   })
 
   it('stops if playPrev is triggered when there is no prev playable and repeat mode is NO_REPEAT', async () => {
     const stopMock = h.mock(playbackService, 'stop')
-    h.setReadOnlyProperty(playbackService.player.media, 'currentTime', 4)
+    h.setReadOnlyProperty(playbackService.media, 'currentTime', 4)
     h.setReadOnlyProperty(playbackService, 'previous', undefined)
     preferences.temporary.repeat_mode = 'NO_REPEAT'
 
@@ -230,7 +231,7 @@ describe('playbackService', () => {
 
   it('plays the previous playable', async () => {
     const previousSong = h.factory('song')
-    h.setReadOnlyProperty(playbackService.player.media, 'currentTime', 4)
+    h.setReadOnlyProperty(playbackService.media, 'currentTime', 4)
     h.setReadOnlyProperty(playbackService, 'previous', previousSong)
     const playMock = h.mock(playbackService, 'play')
 
@@ -261,22 +262,20 @@ describe('playbackService', () => {
 
   it('stops playback', () => {
     const currentSong = setCurrentSong()
-    const pauseMock = h.mock(playbackService.player, 'pause')
-    const seekMock = h.mock(playbackService.player, 'seek')
+    const pauseMock = h.mock(playbackService.media, 'pause')
     const broadcastMock = h.mock(socketService, 'broadcast')
 
     playbackService.stop()
 
     expect(currentSong.playback_state).toEqual('Stopped')
     expect(pauseMock).toHaveBeenCalled()
-    expect(seekMock).toHaveBeenCalledWith(0)
     expect(broadcastMock).toHaveBeenCalledWith('SOCKET_PLAYBACK_STOPPED')
     expect(document.title).toEqual('Koel')
   })
 
   it('pauses playback', () => {
     const song = setCurrentSong()
-    const pauseMock = h.mock(playbackService.player, 'pause')
+    const pauseMock = h.mock(playbackService.media, 'pause')
     const broadcastMock = h.mock(socketService, 'broadcast')
 
     playbackService.pause()
@@ -305,6 +304,7 @@ describe('playbackService', () => {
 
   it('plays first in queue if toggled when there is no current playable', async () => {
     queueStore.state.playables = []
+    playableStore.vault.clear()
     const playFirstInQueueMock = h.mock(playbackService, 'playFirstInQueue')
 
     await playbackService.toggle()
@@ -372,7 +372,7 @@ describe('playbackService', () => {
     const logMock = h.mock(logger, 'error')
     const playNextMock = h.mock(playbackService, 'playNext')
 
-    playbackService.player.media.dispatchEvent(new Event('error'))
+    playbackService.media.dispatchEvent(new Event('error'))
 
     expect(playNextMock).not.toHaveBeenCalled()
     expect(logMock).not.toHaveBeenCalled()

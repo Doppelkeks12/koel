@@ -1,5 +1,5 @@
 <template>
-  <ScreenBase>
+  <ScreenBase :background-image="album?.cover">
     <template #header>
       <ScreenHeaderSkeleton v-if="loading && !album" />
 
@@ -11,15 +11,13 @@
         </template>
 
         <template #meta>
-          <span class="flex meta-content">
-            <a v-if="isStandardArtist" :href="url('artists.show', { id: album.artist_id })" class="artist">
-              {{ album.artist_name }}
-            </a>
-            <span v-else class="text-k-fg">{{ album.artist_name }}</span>
-            <span v-if="album.year">{{ album.year }}</span>
-            <span>{{ pluralize(songs, 'song') }}</span>
-            <span>{{ duration }}</span>
-          </span>
+          <a v-if="isStandardArtist" :href="url('artists.show', { id: album.artist_id })" class="artist">
+            {{ album.artist_name }}
+          </a>
+          <span v-else class="text-k-fg">{{ album.artist_name }}</span>
+          <span v-if="album.year">{{ album.year }}</span>
+          <span>{{ pluralize(songs, 'song') }}</span>
+          <span>{{ duration }}</span>
         </template>
 
         <template #controls>
@@ -65,7 +63,7 @@
 
       <div v-show="activeTab === 'songs'" class="songs-pane">
         <SongListSkeleton v-if="loading" />
-        <SongList v-if="!loading && album" ref="songList" @press:enter="onPressEnter" @swipe="onSwipe" />
+        <SongList v-if="!loading && album" ref="songList" @sort="onSort" @press:enter="onPressEnter" @swipe="onSwipe" />
       </div>
 
       <div v-show="activeTab === 'other-albums'" class="albums-pane" data-testid="albums-pane">
@@ -73,7 +71,7 @@
           <GridListView v-if="otherAlbums.length" v-koel-overflow-fade view-mode="list">
             <AlbumCard v-for="otherAlbum in otherAlbums" :key="otherAlbum.id" :album="otherAlbum" layout="compact" />
           </GridListView>
-          <p v-else>No other albums by {{ album.artist_name }} found in the library.</p>
+          <p v-else class="p-6 text-k-fg-50">No other albums by {{ album.artist_name }} found in the library.</p>
         </template>
         <GridListView v-else view-mode="list">
           <AlbumCardSkeleton v-for="i in 6" :key="i" layout="compact" />
@@ -81,7 +79,7 @@
       </div>
 
       <div v-if="useEncyclopedia && album" v-show="activeTab === 'information'" class="info-pane">
-        <AlbumInfo :album="album" mode="full" />
+        <AlbumInfo :album mode="full" />
       </div>
     </ScreenTabs>
   </ScreenBase>
@@ -99,6 +97,7 @@ import { useErrorHandler } from '@/composables/useErrorHandler'
 import { usePolicies } from '@/composables/usePolicies'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
+import { useLocalStorage } from '@/composables/useLocalStorage'
 import { useRouter } from '@/composables/useRouter'
 import { useThirdPartyServices } from '@/composables/useThirdPartyServices'
 import { useContextMenu } from '@/composables/useContextMenu'
@@ -124,6 +123,7 @@ const FavoriteButton = defineAsyncComponent(() => import('@/components/ui/Favori
 const { getRouteParam, go, onScreenActivated, onRouteChanged, url, triggerNotFound } = useRouter()
 const { currentUserCan } = usePolicies()
 const { PlayableListControls: SongListControls, config } = usePlayableListControls('Album')
+const { get: lsGet, set: lsSet } = useLocalStorage()
 const { useLastfm, useMusicBrainz } = useThirdPartyServices()
 const { openContextMenu } = useContextMenu()
 
@@ -192,7 +192,9 @@ const fetchScreenData = async () => {
 
     context.entity = album.value
 
-    sort('track')
+    const restoredField = lsGet<PlayableListSortField>('album-sort-field', 'track')!
+    const restoredOrder = lsGet<SortOrder>('album-sort-order', 'asc')!
+    sort(restoredField, restoredOrder)
 
     editable.value = await currentUserCan.editAlbum(album.value!)
   } catch (error: unknown) {
@@ -205,6 +207,11 @@ const fetchScreenData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onSort = (field: MaybeArray<PlayableListSortField>, order: SortOrder) => {
+  lsSet('album-sort-field', field)
+  lsSet('album-sort-order', order)
 }
 
 onScreenActivated('Album', () => fetchScreenData())
@@ -225,11 +232,6 @@ eventBus.on('SONGS_UPDATED', result => {
 </script>
 
 <style lang="postcss" scoped>
-.meta-content > *:not(:first-child)::before {
-  content: '•';
-  margin: 0 0.25em;
-}
-
 .screen-header :deep(.play-icon) {
   @apply scale-[2];
 }

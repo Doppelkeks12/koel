@@ -1,7 +1,7 @@
 <template>
   <footer
     ref="root"
-    class="flex flex-col relative z-20 bg-k-fg-5 h-k-footer-height"
+    class="flex flex-col relative z-20 bg-k-fg-3 border border-k-fg-5 m-4 rounded-xl overflow-hidden h-k-footer-height pt-[var(--progress-bar-height)]"
     @mousemove="showControls"
     @contextmenu.prevent="requestContextMenu"
   >
@@ -118,9 +118,9 @@ const albumCoverImage = computed(() => {
 })
 
 const initPlaybackRelatedServices = async () => {
-  const plyrWrapper = document.querySelector<HTMLElement>('.plyr')
+  const audioElement = document.querySelector<HTMLMediaElement>('#audio-player')
 
-  if (!plyrWrapper) {
+  if (!audioElement) {
     await nextTick()
     await initPlaybackRelatedServices()
     return
@@ -131,7 +131,7 @@ const initPlaybackRelatedServices = async () => {
 
   // If audio context is supported, initialize the audio service which handles audio processing (equalizer, etc.)
   if (isAudioContextSupported) {
-    audioService.init(playbackService.player.media)
+    audioService.init(playbackService.media)
   }
 }
 

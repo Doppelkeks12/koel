@@ -17,7 +17,7 @@ class AlbumTest extends TestCase
     #[Test]
     public function index(): void
     {
-        Album::factory(10)->create();
+        Album::factory()->createMany(10);
 
         $this->getAs('api/albums')->assertJsonStructure(AlbumResource::PAGINATION_JSON_STRUCTURE);
 
@@ -38,14 +38,13 @@ class AlbumTest extends TestCase
     public function show(): void
     {
         $this->getAs('api/albums/'
-        . Album::factory()->create()->id)->assertJsonStructure(AlbumResource::JSON_STRUCTURE);
+        . Album::factory()->createOne()->id)->assertJsonStructure(AlbumResource::JSON_STRUCTURE);
     }
 
     #[Test]
     public function updateWithCover(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create();
+        $album = Album::factory()->createOne();
 
         $ulid = Ulid::freeze();
 
@@ -72,8 +71,7 @@ class AlbumTest extends TestCase
     #[Test]
     public function updateKeepingCoverIntact(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create(['cover' => 'neat-cover.webp']);
+        $album = Album::factory()->createOne(['cover' => 'neat-cover.webp']);
 
         $this
             ->putAs(
@@ -93,8 +91,7 @@ class AlbumTest extends TestCase
     #[Test]
     public function updateRemovingCover(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create(['cover' => 'neat-cover.webp']);
+        $album = Album::factory()->createOne(['cover' => 'neat-cover.webp']);
 
         $this
             ->putAs(
@@ -115,11 +112,8 @@ class AlbumTest extends TestCase
     #[Test]
     public function updatingToExistingNameFails(): void
     {
-        /** @var Album $existingAlbum */
-        $existingAlbum = Album::factory()->create(['name' => 'Black Album']);
-
-        /** @var Album $album */
-        $album = Album::factory()->for($existingAlbum->artist)->create();
+        $existingAlbum = Album::factory()->createOne(['name' => 'Black Album']);
+        $album = Album::factory()->for($existingAlbum->artist)->createOne();
 
         $this->putAs(
             "api/albums/{$album->id}",
@@ -136,8 +130,7 @@ class AlbumTest extends TestCase
     #[Test]
     public function nonAdminCannotUpdateAlbum(): void
     {
-        /** @var Album $album */
-        $album = Album::factory()->create();
+        $album = Album::factory()->createOne();
 
         $this->putAs(
             "api/albums/{$album->id}",
