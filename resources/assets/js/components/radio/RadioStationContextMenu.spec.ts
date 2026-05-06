@@ -3,7 +3,6 @@ import { screen } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { assertOpenModal } from '@/__tests__/assertions'
 import { playbackService } from '@/services/RadioPlaybackService'
-import { acl } from '@/services/acl'
 import { radioStationStore } from '@/stores/radioStationStore'
 import EditRadioStationForm from '@/components/radio/EditRadioStationForm.vue'
 
@@ -23,12 +22,11 @@ describe('radioStationContextMenu.vue', () => {
   })
 
   const renderComponent = async (station?: RadioStation, manageable = true) => {
-    h.mock(acl, 'checkResourcePermission').mockReturnValue(manageable)
-
     station =
       station ||
-      h.factory('radio-station', {
+      h.factory('radio-station').make({
         favorite: false,
+        permissions: { edit: manageable, delete: manageable },
       })
 
     const rendered = h.render(Component, {
@@ -36,9 +34,6 @@ describe('radioStationContextMenu.vue', () => {
         station,
       },
     })
-
-    // For all menu items (including Delete and Edit, which require permission checks) to be rendered
-    await h.tick(7)
 
     return {
       ...rendered,
@@ -64,6 +59,20 @@ describe('radioStationContextMenu.vue', () => {
     screen.getByText('Favorite')
   })
 
+  it('hides Edit when only delete is permitted', async () => {
+    await renderComponent(h.factory('radio-station').make({ permissions: { edit: false, delete: true } }))
+
+    expect(screen.queryByText('Edit…')).toBeNull()
+    screen.getByText('Delete')
+  })
+
+  it('hides Delete when only edit is permitted', async () => {
+    await renderComponent(h.factory('radio-station').make({ permissions: { edit: true, delete: false } }))
+
+    expect(screen.queryByText('Delete')).toBeNull()
+    screen.getByText('Edit…')
+  })
+
   it('plays', async () => {
     h.createAudioPlayer()
 
@@ -80,7 +89,7 @@ describe('radioStationContextMenu.vue', () => {
 
     const stopMock = h.mock(playbackService, 'stop')
 
-    await renderComponent(h.factory('radio-station', { playback_state: 'Playing' }))
+    await renderComponent(h.factory('radio-station').make({ playback_state: 'Playing' }))
     await h.user.click(screen.getByText('Stop'))
 
     expect(stopMock).toHaveBeenCalled()
@@ -88,7 +97,7 @@ describe('radioStationContextMenu.vue', () => {
 
   it('favorites', async () => {
     const toggleMock = h.mock(radioStationStore, 'toggleFavorite')
-    const { station } = await renderComponent(h.factory('radio-station', { favorite: false }))
+    const { station } = await renderComponent(h.factory('radio-station').make({ favorite: false }))
 
     await h.user.click(screen.getByText('Favorite'))
     expect(toggleMock).toHaveBeenCalledWith(station)
@@ -96,7 +105,7 @@ describe('radioStationContextMenu.vue', () => {
 
   it('undoes favorite', async () => {
     const toggleMock = h.mock(radioStationStore, 'toggleFavorite')
-    const { station } = await renderComponent(h.factory('radio-station', { favorite: true }))
+    const { station } = await renderComponent(h.factory('radio-station').make({ favorite: true }))
 
     await h.user.click(screen.getByText('Undo Favorite'))
     expect(toggleMock).toHaveBeenCalledWith(station)

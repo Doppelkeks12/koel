@@ -7,7 +7,6 @@ import { downloadService } from '@/services/downloadService'
 import { playbackService } from '@/services/QueuePlaybackService'
 import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
-import { acl } from '@/services/acl'
 import EditAlbumForm from '@/components/album/EditAlbumForm.vue'
 import CreateEmbedForm from '@/components/embed/CreateEmbedForm.vue'
 
@@ -27,17 +26,16 @@ describe('albumContextMenu.vue', () => {
   })
 
   const renderComponent = async (album?: Album) => {
-    h.mock(acl, 'checkResourcePermission').mockReturnValue(true)
-
     if (!vi.isMockFunction(playableStore.fetchSongsForAlbum)) {
       h.mock(playableStore, 'fetchSongsForAlbum').mockResolvedValue([])
     }
 
     album =
       album ||
-      h.factory('album', {
+      h.factory('album').make({
         name: 'IV',
         favorite: false,
+        permissions: { edit: true },
       })
 
     const rendered = h.actingAsAdmin().render(Component, {
@@ -57,7 +55,7 @@ describe('albumContextMenu.vue', () => {
   it('plays all', async () => {
     h.createAudioPlayer()
 
-    const songs = h.factory('song', 10)
+    const songs = h.factory('song').make(10)
     const fetchMock = h.mock(playableStore, 'fetchSongsForAlbum').mockResolvedValue(songs)
     const playMock = h.mock(playbackService, 'queueAndPlay')
 
@@ -72,7 +70,7 @@ describe('albumContextMenu.vue', () => {
   it('shuffles all', async () => {
     h.createAudioPlayer()
 
-    const songs = h.factory('song', 10)
+    const songs = h.factory('song').make(10)
     const fetchMock = h.mock(playableStore, 'fetchSongsForAlbum').mockResolvedValue(songs)
     const playMock = h.mock(playbackService, 'queueAndPlay')
 
@@ -101,7 +99,7 @@ describe('albumContextMenu.vue', () => {
   })
 
   it('does not have an option to download or go to Unknown Album and Artist', async () => {
-    await renderComponent(factory.states('unknown')('album'))
+    await renderComponent(factory('album').state('unknown').make())
 
     expect(screen.queryByText('Go to Album')).toBeNull()
     expect(screen.queryByText('Go to Artist')).toBeNull()
@@ -110,9 +108,6 @@ describe('albumContextMenu.vue', () => {
 
   it('requests edit form', async () => {
     const { album } = await renderComponent()
-
-    // for the "Edit…" menu item to show up
-    await h.tick(2)
 
     await h.user.click(screen.getByText('Edit…'))
 

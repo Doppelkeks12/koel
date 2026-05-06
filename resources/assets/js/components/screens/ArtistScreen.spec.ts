@@ -6,7 +6,6 @@ import { artistStore } from '@/stores/artistStore'
 import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
 import { eventBus } from '@/utils/eventBus'
-import { acl } from '@/services/acl'
 import Router from '@/router'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { assertOpenContextMenu } from '@/__tests__/assertions'
@@ -16,24 +15,20 @@ import Component from './ArtistScreen.vue'
 vi.mock('@/composables/useContextMenu')
 
 describe('artistScreen.vue', () => {
-  const h = createHarness({
-    beforeEach: () => {
-      h.mock(acl, 'checkResourcePermission').mockResolvedValue(true)
-    },
-  })
+  const h = createHarness()
 
   const renderComponent = async (tab: 'songs' | 'albums' | 'information' | 'events' = 'songs', artist?: Artist) => {
     commonStore.state.uses_last_fm = true
 
     artist =
       artist ||
-      h.factory('artist', {
+      h.factory('artist').make({
         name: 'Led Zeppelin',
       })
 
     const resolveArtistMock = h.mock(artistStore, 'resolve').mockResolvedValue(artist)
 
-    const songs = h.factory('song', 13)
+    const songs = h.factory('song').make(13)
     const fetchSongsMock = h.mock(playableStore, 'fetchSongsForArtist').mockResolvedValue(songs)
 
     const rendered = h.visit(`artists/${artist.id}/${tab}`).render(Component, {
@@ -99,7 +94,7 @@ describe('artistScreen.vue', () => {
   })
 
   it('has a Favorite button if artist is favorite', async () => {
-    const { artist } = await renderComponent('songs', h.factory('artist', { favorite: true }))
+    const { artist } = await renderComponent('songs', h.factory('artist').make({ favorite: true }))
     const favoriteMock = h.mock(artistStore, 'toggleFavorite')
 
     await waitFor(async () => {
@@ -109,7 +104,7 @@ describe('artistScreen.vue', () => {
   })
 
   it('does not have a Favorite button if artist is not favorite', async () => {
-    await renderComponent('songs', h.factory('artist', { favorite: false }))
+    await renderComponent('songs', h.factory('artist').make({ favorite: false }))
     expect(screen.queryByRole('button', { name: 'Favorite' })).toBeNull()
   })
 

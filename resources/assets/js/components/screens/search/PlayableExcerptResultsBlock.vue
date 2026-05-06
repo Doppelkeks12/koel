@@ -4,18 +4,24 @@
       {{ headingText }}
 
       <Btn
+        size="small"
         v-if="playables.length && !searching"
+        variant="highlight"
         data-testid="view-all-songs-btn"
-        highlight
         rounded
-        small
         @click.prevent="goToSongResults"
       >
         View All
       </Btn>
     </template>
 
-    <PlayableListSkeleton v-if="searching" class="border border-k-fg-5 rounded-lg" />
+    <PlayableListSkeleton
+      v-if="searching"
+      class="border border-k-fg-5 rounded-lg"
+      role="status"
+      aria-busy="true"
+      aria-label="Loading"
+    />
     <template v-else>
       <PlayableList
         v-if="displayedPlayables.length"

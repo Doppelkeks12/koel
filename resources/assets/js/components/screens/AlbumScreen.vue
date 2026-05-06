@@ -1,7 +1,7 @@
 <template>
   <ScreenBase :background-image="album?.cover">
     <template #header>
-      <ScreenHeaderSkeleton v-if="loading && !album" />
+      <ScreenHeaderSkeleton v-if="loading && !album" role="status" aria-busy="true" aria-label="Loading" />
 
       <ScreenHeader v-if="album" :disabled="loading" :layout="songs.length ? headerLayout : 'collapsed'">
         {{ album.name }}
@@ -35,7 +35,7 @@
               @toggle="toggleFavorite"
             />
 
-            <Btn gray @click="requestContextMenu">
+            <Btn variant="ghost" @click="requestContextMenu">
               <Icon :icon="faEllipsis" fixed-width />
               <span class="sr-only">More Actions</span>
             </Btn>
@@ -62,7 +62,7 @@
       </template>
 
       <div v-show="activeTab === 'songs'" class="songs-pane">
-        <SongListSkeleton v-if="loading" />
+        <SongListSkeleton v-if="loading" role="status" aria-busy="true" aria-label="Loading" />
         <SongList v-if="!loading && album" ref="songList" @sort="onSort" @press:enter="onPressEnter" @swipe="onSwipe" />
       </div>
 
@@ -94,7 +94,6 @@ import { albumStore } from '@/stores/albumStore'
 import { artistStore } from '@/stores/artistStore'
 import { playableStore } from '@/stores/playableStore'
 import { useErrorHandler } from '@/composables/useErrorHandler'
-import { usePolicies } from '@/composables/usePolicies'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
 import { useLocalStorage } from '@/composables/useLocalStorage'
@@ -121,7 +120,6 @@ const AlbumCardSkeleton = defineAsyncComponent(() => import('@/components/ui/alb
 const FavoriteButton = defineAsyncComponent(() => import('@/components/ui/FavoriteButton.vue'))
 
 const { getRouteParam, go, onScreenActivated, onRouteChanged, url, triggerNotFound } = useRouter()
-const { currentUserCan } = usePolicies()
 const { PlayableListControls: SongListControls, config } = usePlayableListControls('Album')
 const { get: lsGet, set: lsSet } = useLocalStorage()
 const { useLastfm, useMusicBrainz } = useThirdPartyServices()
@@ -133,7 +131,6 @@ const songs = ref<Song[]>([])
 const loading = ref(false)
 const otherAlbums = ref<Album[] | undefined>()
 const info = ref<ArtistInfo | undefined>()
-const editable = ref(false)
 
 const {
   PlayableList: SongList,
@@ -195,8 +192,6 @@ const fetchScreenData = async () => {
     const restoredField = lsGet<PlayableListSortField>('album-sort-field', 'track')!
     const restoredOrder = lsGet<SortOrder>('album-sort-order', 'asc')!
     sort(restoredField, restoredOrder)
-
-    editable.value = await currentUserCan.editAlbum(album.value!)
   } catch (error: unknown) {
     if ((error as any)?.status === 404) {
       triggerNotFound()

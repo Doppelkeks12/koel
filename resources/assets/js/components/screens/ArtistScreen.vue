@@ -1,7 +1,7 @@
 <template>
   <ScreenBase :background-image="artist?.image || undefined">
     <template #header>
-      <ScreenHeaderSkeleton v-if="loading && !artist" />
+      <ScreenHeaderSkeleton v-if="loading && !artist" role="status" aria-busy="true" aria-label="Loading" />
 
       <ScreenHeader v-if="artist" :disabled="loading" :layout="songs.length ? headerLayout : 'collapsed'">
         {{ artist.name }}
@@ -30,7 +30,7 @@
               class="px-3.5 py-2"
               @toggle="toggleFavorite"
             />
-            <Btn gray @click="requestContextMenu">
+            <Btn variant="ghost" @click="requestContextMenu">
               <Icon :icon="faEllipsis" fixed-width />
               <span class="sr-only">More Actions</span>
             </Btn>
@@ -60,7 +60,7 @@
       </template>
 
       <div v-show="activeTab === 'songs'" class="songs-pane">
-        <SongListSkeleton v-if="loading" />
+        <SongListSkeleton v-if="loading" role="status" aria-busy="true" aria-label="Loading" />
         <SongList
           v-if="!loading && artist"
           ref="songList"
@@ -107,7 +107,6 @@ import { usePlayableListControls } from '@/composables/usePlayableListControls'
 import { useLocalStorage } from '@/composables/useLocalStorage'
 import { useThirdPartyServices } from '@/composables/useThirdPartyServices'
 import { useRouter } from '@/composables/useRouter'
-import { usePolicies } from '@/composables/usePolicies'
 import { useContextMenu } from '@/composables/useContextMenu'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
@@ -132,7 +131,6 @@ type Tab = (typeof validTabs)[number]
 const { PlayableListControls: SongListControls, config } = usePlayableListControls('Artist')
 const { useLastfm, useMusicBrainz, useTicketmaster } = useThirdPartyServices()
 const { getRouteParam, go, onScreenActivated, onRouteChanged, url, triggerNotFound } = useRouter()
-const { currentUserCan } = usePolicies()
 const { openContextMenu } = useContextMenu()
 const { get: lsGet, set: lsSet } = useLocalStorage()
 
@@ -141,7 +139,6 @@ const artist = ref<Artist>()
 const songs = ref<Song[]>([])
 const loading = ref(false)
 const albums = ref<Album[] | undefined>()
-const editable = ref(false)
 
 const {
   PlayableList: SongList,
@@ -195,8 +192,6 @@ const fetchScreenData = async () => {
     const restoredField = lsGet<PlayableListSortField>('artist-sort-field', 'track')!
     const restoredOrder = lsGet<SortOrder>('artist-sort-order', 'asc')!
     sort(restoredField, restoredOrder)
-
-    editable.value = await currentUserCan.editArtist(artist.value!)
   } catch (error: unknown) {
     if ((error as any)?.status === 404) {
       triggerNotFound()

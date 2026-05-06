@@ -8,8 +8,8 @@
             <Btn
               v-koel-tooltip
               :title="preferences.artists_favorites_only ? 'Show all' : 'Show favorites only'"
+              variant="ghost"
               class="border border-k-fg-10"
-              transparent
               @click.prevent="toggleFavoritesOnly"
             >
               <Icon
@@ -46,11 +46,16 @@
     </ScreenEmptyState>
 
     <template v-else>
-      <template v-if="showSkeletons">
-        <div class="grid gap-5 p-6" :style="{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }">
-          <ArtistCardSkeleton v-for="i in 10" :key="i" :layout="itemLayout" />
-        </div>
-      </template>
+      <div
+        v-if="showSkeletons"
+        class="grid gap-5 p-6"
+        :style="{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading"
+      >
+        <ArtistCardSkeleton v-for="i in 10" :key="i" :layout="itemLayout" />
+      </div>
       <div class="-m-6 flex-1 flex flex-col min-h-0" v-else>
         <VirtualGridScroller
           ref="grid"

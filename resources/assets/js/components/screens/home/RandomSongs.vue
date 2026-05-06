@@ -2,12 +2,12 @@
   <HomeScreenBlock>
     <template #header>
       Something Random
-      <Btn v-if="playables.length" class="float-right" transparent rounded small @click.prevent="refresh">
+      <Btn size="small" variant="ghost" v-if="playables.length" class="float-right" rounded @click.prevent="refresh">
         <Icon :icon="faRotateRight" />
         <span class="sr-only">Refresh</span>
       </Btn>
     </template>
-    <PlayableCardGridSkeleton v-if="loading" class="-mx-6" />
+    <PlayableCardGridSkeleton v-if="loading" class="-mx-6" role="status" aria-busy="true" aria-label="Loading" />
     <template v-else>
       <PlayableCardGrid v-if="playables.length" :aria-busy="refreshing" class="-mx-6" :playables />
       <p v-else>No songs available.</p>

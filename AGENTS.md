@@ -241,6 +241,10 @@ protected function isAccessible(User $user, ?string $path = null): bool
 - Traits must be placed in a `Concerns` subfolder (namespace) relative to their consumers (e.g. `App\Ai\Tools\Concerns\PlaysMusic`).
 - Interfaces must be placed in a `Contracts` subfolder (namespace) relative to their consumers (e.g. `App\Ai\Tools\Contracts\SomeInterface`).
 
+## Self-Explanatory Code
+- Code should read on its own. If a piece of code needs a comment to be understood, that's a signal the code is wrong, not that the comment is needed — refactor it: extract a named helper, rename a variable to encode intent, lift a condition into a named flag, pull a block into a small function. Use a comment only when refactoring genuinely can't carry the intent (a hidden invariant, a workaround tied to a specific external bug, behaviour a reader would otherwise misjudge). Never write comments that narrate the next line, summarise the surrounding block, or restate what well-named identifiers already say.
+- Don't use single-letter variable names. The only allowed ones are `i` / `j` for loop counters and `h` for the test harness. For everything else (callback params, destructured fields, lambda args, etc.) pick a name that says what it is.
+
 ## PHP Conventions
 - Always prefer Laravel's built-in helpers over custom implementations (e.g. `str()->plural()`, `Str::slug()`, `Arr::flatten()`, etc.). Do not reimplement what Laravel already provides.
 - All methods must have explicit visibility (`public`, `protected`, or `private`). Never omit the visibility keyword, even on interface methods or static methods.
@@ -268,6 +272,18 @@ protected function isAccessible(User $user, ?string $path = null): bool
 - Focus on the feature/purpose, not implementation details. For example, prefer "feat: show current playing song during radio stream" over "feat: radio station ICY metadata now-playing". Same applies to PR titles.
 - Never mention Claude Code in commits, PR descriptions, or any generated content. No "Generated with Claude Code" footers, no Co-Authored-By lines referencing Claude.
 - When the implementation of a PR changes (e.g. during code review), always update the PR title and description to reflect the current state of the changes.
+
+## Releasing
+- To release a new version, run `php artisan koel:release` (interactive) or `php artisan koel:release {patch|minor|major|vX.Y.Z}`. The command handles the version bump, commit, tag, `latest` tag move, and `release` branch sync.
+- Do not bump `.version`, create release tags, or move the `latest` tag manually — always use `php artisan koel:release`.
+- After the command finishes, the draft release is **not** immediately available on https://github.com/koel/koel/releases. The tag push triggers the `Upload Release Assets` GitHub Action (`.github/workflows/release.yml`), which sets up PHP/Node, builds assets, packages the zip/tarball, and only then creates the draft release. This typically takes several minutes.
+- Wait for the workflow to finish before opening the releases page. Poll with `gh run list --workflow=release.yml --limit 1` or block on it with `gh run watch` (pick the most recent run). Once it's `completed/success`, the draft release exists and can be edited/published on GitHub.
+- For minor/patch releases, you may be asked to write the release notes. Follow the convention of prior releases (e.g. v9.1.1, v9.1.0, v8.3.1):
+    - Title: `vX.Y.Z` (no codename — codenames are reserved for major versions like "Beethoven" in v9.0.0, "Tchaikovsky" in v8.0.0).
+    - Body matches GitHub's auto-generated format. Easiest way: `gh api repos/koel/koel/releases/generate-notes -F tag_name=vX.Y.Z -F previous_tag_name=vPREV --jq .body` to fetch the auto-generated body, then apply it with `gh release edit vX.Y.Z --repo koel/koel --notes-file -`.
+    - Required structure: a `## What's Changed` section with bullets in the form `* <full conventional-commit subject> by @<author> in <PR or commit URL>`, optionally a `## New Contributors` section, and a trailing `**Full Changelog**: https://github.com/koel/koel/compare/vPREV...vX.Y.Z` line.
+    - Do not rewrite or summarize commit subjects — keep them verbatim. Direct-to-master commits without PRs link to the commit SHA URL instead of a PR URL.
+    - Leave the release as a draft after editing notes; do not publish unless explicitly told to.
 
 ## AI Assistant Tools
 - When AI assistant tool capabilities change (added, removed, or updated), always update the sample prompts in `AiSamplePrompts.vue` to reflect the current abilities.

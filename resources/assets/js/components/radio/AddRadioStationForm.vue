@@ -26,14 +26,14 @@
       <FormRow>
         <label>
           <CheckBox v-model="data.is_public" name="is_public" />
-          <span class="ml-2">Make this station public</span>
+          <span class="ml-2">Accessible to all users</span>
         </label>
       </FormRow>
     </main>
 
     <footer>
       <Btn type="submit">Save</Btn>
-      <Btn white @click.prevent="maybeClose">Cancel</Btn>
+      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>

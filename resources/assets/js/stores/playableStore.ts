@@ -1,8 +1,7 @@
 import isMobile from 'ismobilejs'
-import { differenceBy, merge, orderBy, sumBy, take, unionBy, uniqBy } from 'lodash'
-import type { Reactive } from 'vue'
-import { reactive, watch } from 'vue'
-import { arrayify, moveItemsInList, use } from '@/utils/helpers'
+import { differenceBy, orderBy, sumBy, take, unionBy, uniqBy } from 'lodash'
+import { Reactive, reactive, watch } from 'vue'
+import { arrayify, flattenParams, moveItemsInList, use } from '@/utils/helpers'
 import { isSong } from '@/utils/typeGuards'
 import { logger } from '@/utils/logger'
 import { md5 } from '@/utils/crypto'
@@ -10,6 +9,7 @@ import { normalizeForComparison, secondsToHumanReadable } from '@/utils/formatte
 import { authService } from '@/services/authService'
 import { cache } from '@/services/cache'
 import { http } from '@/services/http'
+import { useVault } from '@/composables/useVault'
 import { preferenceStore } from '@/stores/preferenceStore'
 import { commonStore } from '@/stores/commonStore'
 import { albumStore } from '@/stores/albumStore'
@@ -42,8 +42,20 @@ export interface SongUpdateResult {
 
 export type SongListPaginateParams = PaginateParams<PlayableListSortField>
 
+const watchPlayCount = (playable: Playable) => {
+  watch(
+    () => playable.play_count,
+    () => overviewStore.refreshPlayStats(),
+  )
+}
+
 export const playableStore = {
-  vault: new Map<Playable['id'], Reactive<Playable>>(),
+  ...useVault<Playable>({
+    onItemAdded: playable => {
+      playable.playback_state = 'Stopped'
+      watchPlayCount(playable)
+    },
+  }),
 
   state: reactive<{ playables: Playable[]; favorites: Playable[] }>({
     playables: [],
@@ -185,30 +197,6 @@ export const playableStore = {
 
   getShareableUrl: (song: Playable) => `${window.BASE_URL}#/songs/${song.id}`,
 
-  syncWithVault(playables: MaybeArray<Playable>) {
-    return arrayify(playables).map(playable => {
-      let local = this.byId(playable.id)
-
-      if (local) {
-        merge(local, playable)
-      } else {
-        local = reactive(playable)
-        local.playback_state = 'Stopped'
-        this.watchPlayCount(local)
-        this.vault.set(local.id, local)
-      }
-
-      return local
-    })
-  },
-
-  watchPlayCount: (playable: Playable) => {
-    watch(
-      () => playable.play_count,
-      () => overviewStore.refreshPlayStats(),
-    )
-  },
-
   ensureNotDeleted: (songs: MaybeArray<Song>) => arrayify(songs).filter(({ deleted }) => !deleted),
 
   async fetchSongsForAlbum(album: Album | Album['id']) {
@@ -279,7 +267,7 @@ export const playableStore = {
     const id = typeof genre === 'string' ? genre : genre.id
 
     const resource = await http.get<PaginatorResource<Song>>(
-      `genres/${id}/songs?${new URLSearchParams(params).toString()}`,
+      `genres/${id}/songs?${new URLSearchParams(flattenParams(params))}`,
     )
 
     const songs = this.syncWithVault(resource.data) as Song[]
@@ -302,7 +290,7 @@ export const playableStore = {
   },
 
   async paginateSongs(params: SongListPaginateParams) {
-    const resource = await http.get<PaginatorResource<Playable>>(`songs?${new URLSearchParams(params).toString()}`)
+    const resource = await http.get<PaginatorResource<Playable>>(`songs?${new URLSearchParams(flattenParams(params))}`)
     this.state.playables = unionBy(this.state.playables, this.syncWithVault(resource.data), 'id')
 
     return resource.links.next ? ++resource.meta.current_page : null

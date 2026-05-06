@@ -26,14 +26,14 @@
       <FormRow>
         <label>
           <CheckBox v-model="data.is_public" name="is_public" />
-          <span class="ml-2">Make this station public</span>
+          <span class="ml-2">Accessible to all users</span>
         </label>
       </FormRow>
     </main>
 
     <footer>
       <Btn type="submit">Save</Btn>
-      <Btn white @click.prevent="maybeClose">Cancel</Btn>
+      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -45,6 +45,7 @@ import { useMessageToaster } from '@/composables/useMessageToaster'
 import type { RadioStationData } from '@/stores/radioStationStore'
 import { radioStationStore } from '@/stores/radioStationStore'
 import { useForm } from '@/composables/useForm'
+import { playback } from '@/services/playbackManager'
 
 import TextInput from '@/components/ui/form/TextInput.vue'
 import Btn from '@/components/ui/form/Btn.vue'
@@ -72,7 +73,14 @@ const { data, isPristine, handleSubmit } = useForm<RadioStationData>({
       delete formData.logo
     }
 
-    await radioStationStore.update(station, formData)
+    const current = radioStationStore.current
+    const onAirUrl = current?.id === station.id && current.playback_state === 'Playing' ? station.url : null
+
+    const updated = await radioStationStore.update(station, formData)
+
+    if (onAirUrl && onAirUrl !== updated.url) {
+      await playback('radio').play(updated)
+    }
   },
   onSuccess: () => {
     close()

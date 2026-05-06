@@ -7,7 +7,6 @@ use App\Casts\UserPreferencesCast;
 use App\Enums\Acl\Role as RoleEnum;
 use App\Models\Concerns\Users\HasUserAttributes;
 use App\Models\Concerns\Users\HasUserRelationships;
-use App\Models\Contracts\Permissionable;
 use App\Observers\UserObserver;
 use App\Values\User\UserPreferences;
 use Carbon\Carbon;
@@ -20,6 +19,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection as BaseCollection;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
 use OwenIt\Auditing\Auditable;
@@ -58,7 +58,7 @@ use Spatie\Permission\Traits\HasRoles;
  */
 #[ObservedBy(UserObserver::class)]
 #[UseEloquentBuilder(UserBuilder::class)]
-class User extends Authenticatable implements AuditableContract, Permissionable
+class User extends Authenticatable implements AuditableContract
 {
     use Auditable;
     use HasApiTokens;
@@ -122,8 +122,16 @@ class User extends Authenticatable implements AuditableContract, Permissionable
         return $this->podcasts()->whereKey($podcast)->exists();
     }
 
-    public static function getPermissionableIdentifier(): string
+    /** @return BaseCollection<RoleEnum> */
+    public function getAssignableRoles(): BaseCollection
     {
-        return 'public_id';
+        if (!$this->can('manage', self::class)) {
+            return collect();
+        }
+
+        return RoleEnum::allAvailable()
+            ->filter(fn (RoleEnum $role) => $this->role->canManage($role))
+            ->sortBy(static fn (RoleEnum $role) => $role->level())
+            ->values();
     }
 }

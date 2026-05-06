@@ -12,12 +12,16 @@ export default (): Playlist => ({
   rules: [],
   is_collaborative: false,
   cover: faker.image.url(),
+  permissions: {
+    edit: faker.datatype.boolean(),
+    delete: faker.datatype.boolean(),
+  },
 })
 
 export const states: Record<string, () => Omit<Partial<Playlist>, 'type'>> = {
   smart: () => ({
     is_smart: true,
-    rules: [factory('smart-playlist-rule-group') as SmartPlaylistRuleGroup],
+    rules: [factory('smart-playlist-rule-group').make() as SmartPlaylistRuleGroup],
   }),
   orphan: () => ({
     folder_id: null,

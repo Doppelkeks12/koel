@@ -19,17 +19,17 @@
 
         <template #controls>
           <SongListControls :config @play-all="playAll" @play-selected="playSelected">
-            <Btn gray @click="requestContextMenu">
+            <Btn variant="ghost" @click="requestContextMenu">
               <Icon :icon="faEllipsis" fixed-width />
               <span class="sr-only">More Actions</span>
             </Btn>
           </SongListControls>
         </template>
       </ScreenHeader>
-      <ScreenHeaderSkeleton v-else />
+      <ScreenHeaderSkeleton v-else role="status" aria-busy="true" aria-label="Loading" />
     </template>
 
-    <PlayableListSkeleton v-if="showSkeletons" class="-m-6" />
+    <PlayableListSkeleton v-if="showSkeletons" class="-m-6" role="status" aria-busy="true" aria-label="Loading" />
     <SongList
       v-else
       ref="songList"

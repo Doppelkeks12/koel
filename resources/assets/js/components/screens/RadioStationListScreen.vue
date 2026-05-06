@@ -7,11 +7,11 @@
         <template #controls>
           <div class="flex gap-2">
             <Btn
+              size="small"
               v-koel-tooltip
               :title="preferences.radio_stations_favorites_only ? 'Show all' : 'Show favorites only'"
+              variant="ghost"
               class="border border-k-fg-10"
-              small
-              transparent
               @click.prevent="toggleFavoritesOnly"
             >
               <Icon
@@ -30,10 +30,10 @@
             <ListFilter />
 
             <Btn
+              size="small"
               v-if="canAdd"
               v-koel-tooltip
-              highlight
-              small
+              variant="highlight"
               title="Add a new station"
               @click.prevent="requestAddStationForm"
             >
@@ -60,9 +60,9 @@
 
     <div v-else ref="gridContainer" v-koel-overflow-fade class="-m-6 flex-1 overflow-auto">
       <GridListView ref="grid" :view-mode="preferences.radio_stations_view_mode" data-testid="radio-station-grid">
-        <template v-if="showSkeletons">
+        <div v-if="showSkeletons" role="status" aria-busy="true" aria-label="Loading" class="contents">
           <AlbumCardSkeleton v-for="i in 10" :key="i" :layout="itemLayout" />
-        </template>
+        </div>
         <template v-else>
           <RadioStationCard v-for="station in stations" :key="station.id" :station :layout="itemLayout" />
           <BtnScrollToTop />
