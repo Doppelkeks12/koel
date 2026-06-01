@@ -68,7 +68,7 @@
 
       <div v-show="activeTab === 'other-albums'" class="albums-pane" data-testid="albums-pane">
         <template v-if="otherAlbums">
-          <GridListView v-if="otherAlbums.length" v-koel-overflow-fade view-mode="list">
+          <GridListView class="scroll-mask-y" v-if="otherAlbums.length" view-mode="list">
             <AlbumCard v-for="otherAlbum in otherAlbums" :key="otherAlbum.id" :album="otherAlbum" layout="compact" />
           </GridListView>
           <p v-else class="p-6 text-k-fg-50">No other albums by {{ album.artist_name }} found in the library.</p>
@@ -227,6 +227,7 @@ eventBus.on('SONGS_UPDATED', result => {
 </script>
 
 <style lang="postcss" scoped>
+@reference '@css/app.pcss';
 .screen-header :deep(.play-icon) {
   @apply scale-[2];
 }

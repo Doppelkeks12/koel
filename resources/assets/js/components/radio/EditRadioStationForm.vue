@@ -14,6 +14,10 @@
         <TextInput v-model="data.url" type="url" name="url" placeholder="https://radio.example.com/stream" required />
       </FormRow>
       <FormRow>
+        <template #label>Homepage URL</template>
+        <TextInput v-model="data.homepage_url" type="url" name="homepage_url" placeholder="https://radio.example.com" />
+      </FormRow>
+      <FormRow>
         <template #label>Description</template>
         <TextArea
           v-model="data.description"
@@ -39,7 +43,9 @@
 </template>
 
 <script setup lang="ts">
-import { cloneDeep, pick } from 'lodash'
+import { pick } from 'lodash-es'
+import { toRaw } from 'vue'
+
 import { useDialogBox } from '@/composables/useDialogBox'
 import { useMessageToaster } from '@/composables/useMessageToaster'
 import type { RadioStationData } from '@/stores/radioStationStore'
@@ -65,9 +71,9 @@ const { toastSuccess } = useMessageToaster()
 const { showConfirmDialog } = useDialogBox()
 
 const { data, isPristine, handleSubmit } = useForm<RadioStationData>({
-  initialValues: { ...pick(station, 'name', 'url', 'description', 'is_public', 'logo') },
+  initialValues: { ...pick(station, 'name', 'url', 'homepage_url', 'description', 'is_public', 'logo') },
   onSubmit: async data => {
-    const formData = cloneDeep(data)
+    const formData = structuredClone(toRaw(data))
 
     if (formData.logo === station.logo) {
       delete formData.logo

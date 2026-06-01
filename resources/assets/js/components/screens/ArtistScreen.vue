@@ -71,7 +71,7 @@
       </div>
 
       <div v-show="activeTab === 'albums'" class="albums-pane">
-        <GridListView v-koel-overflow-fade view-mode="list">
+        <GridListView class="scroll-mask-y" view-mode="list">
           <template v-if="albums">
             <AlbumCard v-for="album in albums" :key="album.id" :album :show-release-year="true" layout="compact" />
           </template>
@@ -227,6 +227,7 @@ eventBus.on('SONGS_UPDATED', result => {
 </script>
 
 <style lang="postcss" scoped>
+@reference '@css/app.pcss';
 .screen-header :deep(.play-icon) {
   @apply scale-[2];
 }

@@ -78,7 +78,7 @@
 
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
-import { orderBy } from 'lodash'
+import { orderBy } from 'lodash-es'
 import { faEllipsis, faPause, faPlay, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 import { computed, nextTick, onMounted, provide, reactive, ref } from 'vue'
 import { useRouter } from '@/composables/useRouter'
@@ -289,6 +289,7 @@ eventBus.on('PODCAST_UNSUBSCRIBED', ({ id }) => id === podcast.value?.id && go(u
 </script>
 
 <style scoped lang="postcss">
+@reference '@css/app.pcss';
 :deep(.items-wrapper) {
   @apply divide-y divide-k-fg-10;
 }

@@ -15,6 +15,7 @@ use App\Http\Controllers\API\AuthController;
 use App\Http\Controllers\API\DisconnectFromLastfmController;
 use App\Http\Controllers\API\Embed\EmbedController;
 use App\Http\Controllers\API\Embed\EmbedOptionsController;
+use App\Http\Controllers\API\EqualizerPresetController;
 use App\Http\Controllers\API\ExcerptSearchController;
 use App\Http\Controllers\API\FavoriteController;
 use App\Http\Controllers\API\FetchAlbumInformationController;
@@ -32,6 +33,7 @@ use App\Http\Controllers\API\GenreController;
 use App\Http\Controllers\API\GetOneTimeTokenController;
 use App\Http\Controllers\API\LambdaSongController as S3SongController;
 use App\Http\Controllers\API\LikeMultipleSongsController;
+use App\Http\Controllers\API\Me\RegenerateSubsonicApiKeyController;
 use App\Http\Controllers\API\MediaBrowser\FetchFolderSongsController;
 use App\Http\Controllers\API\MediaBrowser\FetchRecursiveFolderSongsController;
 use App\Http\Controllers\API\MediaBrowser\FetchSubfoldersController;
@@ -208,6 +210,9 @@ Route::prefix('api')
             Route::get('me', [ProfileController::class, 'show']);
             Route::put('me', [ProfileController::class, 'update']);
             Route::patch('me/preferences', UpdateUserPreferenceController::class);
+            Route::post('me/equalizer-presets', [EqualizerPresetController::class, 'store']);
+            Route::delete('me/equalizer-presets/{id}', [EqualizerPresetController::class, 'destroy']);
+            Route::post('me/subsonic-api-key/regenerate', RegenerateSubsonicApiKeyController::class);
 
             // Last.fm-related routes
             Route::post('lastfm/session-key', SetLastfmSessionKeyController::class);

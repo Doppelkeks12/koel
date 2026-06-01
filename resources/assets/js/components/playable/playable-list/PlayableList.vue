@@ -20,7 +20,7 @@
         :key="item.playable.id"
         :item="item"
         :show-disc="showDiscLabel(item.playable)"
-        draggable="true"
+        :draggable="!isMobile.any"
         @click="onClick(item, $event)"
         @dragleave="onDragLeave"
         @dragstart="onDragStart(item, $event)"
@@ -35,7 +35,7 @@
 </template>
 
 <script lang="ts" setup>
-import { findIndex, throttle } from 'lodash'
+import { useThrottleFn } from '@vueuse/core'
 import isMobile from 'ismobilejs'
 import type { Ref } from 'vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
@@ -171,7 +171,7 @@ const clearDropTarget = () => {
   currentDropTarget = null
 }
 
-const onDragOver = throttle((event: DragEvent) => {
+const onDragOver = useThrottleFn((event: DragEvent) => {
   if (!config.reorderable) {
     return
   }
@@ -307,7 +307,7 @@ const showDiscLabel = (row: Playable) => {
     return false
   }
 
-  const index = findIndex(rows.value, ({ playable }) => playable.id === row.id)
+  const index = rows.value.findIndex(({ playable }) => playable.id === row.id)
   return discIndexMap.value[index] !== undefined
 }
 
@@ -328,7 +328,7 @@ const calculatedItemHeight = computed(() => {
 })
 
 const scrollToPlayable = (playable: Playable) => {
-  const index = findIndex(rows.value, row => row.playable.id === playable.id)
+  const index = rows.value.findIndex(row => row.playable.id === playable.id)
 
   if (index >= 0) {
     virtualScroller.value?.scrollToIndex(index)
@@ -344,6 +344,7 @@ onMounted(() => render())
 </script>
 
 <style lang="postcss">
+@reference '@css/app.pcss';
 .playable-list-wrap {
   .virtual-scroller {
     @apply flex-1;

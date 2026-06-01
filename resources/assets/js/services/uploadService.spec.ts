@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
+import { albumStore } from '@/stores/albumStore'
+import { playableStore } from '@/stores/playableStore'
 import type { UploadFile } from '@/services/uploadService'
 import { uploadService } from '@/services/uploadService'
 
@@ -192,7 +194,23 @@ describe('uploadService', () => {
     await uploadService.upload(file)
 
     expect(file.status).toBe('Errored')
-    expect(file.message).toBe('Upload failed: Unknown error.')
+    expect(file.message).toBe('Server error.')
+  })
+
+  it('shows a generic server error when responseData cannot be parsed', async () => {
+    const error = Object.assign(new Error('Upload failed with status 413'), {
+      status: 413,
+      responseData: undefined,
+    })
+
+    mockPostWithProgressRejection(error)
+    h.mock(uploadService, 'proceed')
+
+    const file = createUploadFile()
+    await uploadService.upload(file)
+
+    expect(file.status).toBe('Errored')
+    expect(file.message).toBe('Server error.')
   })
 
   it('aborts an in-progress upload', async () => {
@@ -295,5 +313,17 @@ describe('uploadService', () => {
 
     expect(file.status).toBe('Ready')
     expect(file.progress).toBe(0)
+  })
+
+  it('invalidates album and artist song caches when handling an upload result', () => {
+    const song = h.factory('song').make()
+    const album = h.factory('album').make()
+    const invalidateMock = h.mock(playableStore, 'invalidateAlbumAndArtistSongCaches')
+    h.mock(playableStore, 'syncWithVault')
+    h.mock(albumStore, 'syncWithVault')
+
+    uploadService.handleUploadResult({ song, album })
+
+    expect(invalidateMock).toHaveBeenCalledWith(song)
   })
 })

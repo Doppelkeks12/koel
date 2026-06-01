@@ -18,6 +18,7 @@ class PodcastRepository extends Repository implements ScoutableRepository
         return $this->findOneBy(['url' => $url]);
     }
 
+    /** @return Collection<int, Podcast> */
     public function getAllSubscribedByUser(bool $favoritesOnly, ?User $user = null): Collection
     {
         $user ??= $this->auth->user();
@@ -30,6 +31,7 @@ class PodcastRepository extends Repository implements ScoutableRepository
             ->get();
     }
 
+    /** @return Collection<int, Podcast> */
     public function getMany(array $ids, bool $preserveOrder = false, ?User $user = null): Collection
     {
         $user ??= $this->auth->user();
@@ -48,10 +50,7 @@ class PodcastRepository extends Repository implements ScoutableRepository
     public function search(string $keywords, int $limit, ?User $user = null): Collection
     {
         return $this->getMany(
-            ids: Podcast::search($keywords)
-                ->take($limit)
-                ->get()
-                ->modelKeys(),
+            ids: Podcast::search($keywords)->take($limit)->get()->modelKeys(),
             preserveOrder: true,
             user: $user,
         );
