@@ -5,7 +5,6 @@ namespace App\Services\Podcast;
 use App\Events\UserUnsubscribedFromPodcast;
 use App\Exceptions\FailedToParsePodcastFeedException;
 use App\Exceptions\UserAlreadySubscribedToPodcastException;
-use App\Helpers\Network;
 use App\Helpers\Uuid;
 use App\Models\Podcast;
 use App\Models\PodcastUserPivot;
@@ -13,13 +12,14 @@ use App\Models\Song as Episode;
 use App\Models\User;
 use App\Repositories\PodcastRepository;
 use App\Repositories\SongRepository;
+use App\Services\Network\Network;
+use App\Services\Network\SafeHttp;
 use Carbon\Carbon;
 use GuzzleHttp\Client;
 use GuzzleHttp\RedirectMiddleware;
 use GuzzleHttp\RequestOptions;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use PhanAn\Poddle\Poddle;
 use PhanAn\Poddle\Values\Episode as EpisodeValue;
@@ -35,7 +35,8 @@ class PodcastService
         private readonly PodcastRepository $podcastRepository,
         private readonly SongRepository $songRepository,
         private readonly Network $network,
-        private ?ClientInterface $client = null,
+        private readonly SafeHttp $http,
+        private readonly ?ClientInterface $client = null,
     ) {}
 
     public function addPodcast(string $url, User $user): Podcast
@@ -217,8 +218,12 @@ class PodcastService
             return false;
         }
 
+        if (!$this->network->isSafeUrl($podcast->url)) {
+            return true;
+        }
+
         try {
-            $lastModified = Http::head($podcast->url)->header('Last-Modified');
+            $lastModified = $this->http->head($podcast->url)->header('Last-Modified');
 
             if (!$lastModified) {
                 return true;
@@ -245,7 +250,7 @@ class PodcastService
             return null;
         }
 
-        $client ??= new Client();
+        $client ??= $this->http->getPinnedGuzzleClient($url, trackRedirects: true);
 
         try {
             $response = $client->request($method, $url, [
@@ -254,7 +259,6 @@ class PodcastService
                     'Origin' => '*',
                 ],
                 RequestOptions::HTTP_ERRORS => false,
-                RequestOptions::ALLOW_REDIRECTS => ['track_redirects' => true],
             ]);
 
             $redirects = Arr::wrap($response->getHeader(RedirectMiddleware::HISTORY_HEADER));
@@ -282,15 +286,15 @@ class PodcastService
 
     private static function parseFeedDate(?string $date): ?Carbon
     {
-        if (!$date) {
-            return null;
-        }
-
-        return rescue(static fn (): Carbon => Carbon::parse($date));
+        return $date ? rescue(static fn (): Carbon => Carbon::parse($date)) : null;
     }
 
     private function createParser(string $url): Poddle
     {
-        return Poddle::fromUrl($url, 5 * 60, $this->client);
+        if ($this->client) {
+            return Poddle::fromUrl($url, 5 * 60, $this->client);
+        }
+
+        return Poddle::fromXml($this->http->get($url)->body());
     }
 }

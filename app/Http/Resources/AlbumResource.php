@@ -19,6 +19,8 @@ class AlbumResource extends JsonResource
         'cover',
         'created_at',
         'year',
+        'length',
+        'rating',
         'permissions' => [
             'edit',
         ],
@@ -40,6 +42,24 @@ class AlbumResource extends JsonResource
             'path',
             'per_page',
             'to',
+        ],
+    ];
+
+    public const array CURSOR_PAGINATION_JSON_STRUCTURE = [
+        'data' => [
+            '*' => self::JSON_STRUCTURE,
+        ],
+        'links' => [
+            'first',
+            'last',
+            'prev',
+            'next',
+        ],
+        'meta' => [
+            'path',
+            'per_page',
+            'next_cursor',
+            'prev_cursor',
         ],
     ];
 
@@ -77,6 +97,8 @@ class AlbumResource extends JsonResource
             'year' => $this->album->year,
             'is_external' => $this->unless($embedding, fn () => $isPlus && $this->album->user_id !== $user->id),
             'favorite' => $this->unless($embedding, $this->album->favorite),
+            'length' => $this->unless($embedding, fn () => (float) ($this->album->length ?? 0)),
+            'rating' => $this->unless($embedding, fn () => (int) ($this->album->rating ?? 0)),
             'permissions' => $this->unless($embedding, fn () => [
                 'edit' => $user->can('edit', $this->album),
             ]),

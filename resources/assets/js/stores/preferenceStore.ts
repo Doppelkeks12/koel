@@ -17,9 +17,9 @@ export const defaultPreferences: UserPreferences = {
     gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   },
   equalizer_presets: [],
-  albums_view_mode: 'thumbnails',
-  artists_view_mode: 'thumbnails',
-  radio_stations_view_mode: 'thumbnails',
+  albums_view_mode: 'grid',
+  artists_view_mode: 'grid',
+  radio_stations_view_mode: 'grid',
   albums_sort_field: 'name',
   artists_sort_field: 'name',
   genres_sort_field: 'name',
@@ -47,16 +47,30 @@ export const defaultPreferences: UserPreferences = {
   include_public_media: true,
   continuous_playback: false,
   crossfade_duration: 0,
+  home_blocks_order: [],
 }
 
 const preferenceStore = {
-  _temporary: false,
+  isTemporary: false,
   initialized: ref(false),
 
   state: reactive<UserPreferences>(defaultPreferences),
 
   init(preferences: UserPreferences = defaultPreferences) {
     Object.assign(this.state, preferences)
+
+    for (const key of ['albums_view_mode', 'artists_view_mode', 'radio_stations_view_mode'] as const) {
+      if ((this.state[key] as string) === 'thumbnails') {
+        this.state[key] = 'grid'
+      }
+    }
+    if (this.state.albums_view_mode === 'list') {
+      this.state.albums_view_mode = 'table'
+    }
+    if (this.state.artists_view_mode === 'list') {
+      this.state.artists_view_mode = 'table'
+    }
+
     this.setupProxy()
 
     this.initialized.value = true
@@ -82,10 +96,10 @@ const preferenceStore = {
 
     this.state[key] = value
 
-    if (!this._temporary) {
+    if (!this.isTemporary) {
       this.update(key, value)
     } else {
-      this._temporary = false
+      this.isTemporary = false
     }
   },
 
@@ -104,12 +118,12 @@ const preferenceStore = {
   // Calling preferenceStore.temporary.volume = 7 won't trigger saving.
   // This is useful in tests as it doesn't create stray HTTP requests.
   get temporary() {
-    this._temporary = true
+    this.isTemporary = true
     return this as unknown as ExportedType
   },
 }
 
-type ExportedType = Omit<typeof preferenceStore, 'setupProxy' | '_temporary'> & UserPreferences
+type ExportedType = Omit<typeof preferenceStore, 'setupProxy' | 'isTemporary'> & UserPreferences
 
 const exported = preferenceStore as unknown as ExportedType
 

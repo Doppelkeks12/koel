@@ -38,6 +38,7 @@ class TestHarness {
 
       commonStore.state.song_length = 10
       commonStore.state.allows_download = true
+      commonStore.state.allows_embedding = true
       commonStore.state.uses_i_tunes = true
       commonStore.state.supports_batch_downloading = true
       commonStore.state.supports_transcoding = true
@@ -80,7 +81,7 @@ class TestHarness {
     return this.actingAsUser(factory('user').state('admin').make() as CurrentUser)
   }
 
-  public mock<T, M extends MethodOf<Required<T>>>(obj: T, methodName: M, implementation?: any) {
+  public mock<T>(obj: T, methodName: MethodOf<Required<T>>, implementation?: any) {
     // check if the method is already mocked, and if so, use it instead of creating a new mock
     for (const [key, _] of this.backupMethods.entries()) {
       if (key[0] !== obj || key[1] !== methodName) {

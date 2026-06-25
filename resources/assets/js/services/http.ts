@@ -49,10 +49,14 @@ class Http {
               try {
                 url = new URL(error.request?.url || '').pathname
               } catch {
-                url = String(error.request?.url || '')
+                url = error.request?.url || ''
               }
 
-              if (!(method === 'post' && url.endsWith('/me'))) {
+              const isAuthEntryPoint =
+                method === 'post' &&
+                (url.endsWith('/me') || url.endsWith('/me/two-factor-challenge') || url.endsWith('/me/otp'))
+
+              if (!isAuthEntryPoint) {
                 authService.setRedirect()
                 eventBus.emit('LOG_OUT')
               }

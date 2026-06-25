@@ -31,6 +31,7 @@ class UserPreferencesCastTest extends TestCase
             'equalizer_presets',
             'genres_sort_field',
             'genres_sort_order',
+            'home_blocks_order',
             'include_public_media',
             'lastfm_session_key',
             'lyrics_zoom_level',
@@ -85,9 +86,9 @@ class UserPreferencesCastTest extends TestCase
 
         self::assertSame(7.0, $prefs->volume);
         self::assertSame('NO_REPEAT', $prefs->repeatMode);
-        self::assertSame('thumbnails', $prefs->albumsViewMode);
-        self::assertSame('thumbnails', $prefs->artistsViewMode);
-        self::assertSame('thumbnails', $prefs->radioStationsViewMode);
+        self::assertSame('grid', $prefs->albumsViewMode);
+        self::assertSame('grid', $prefs->artistsViewMode);
+        self::assertSame('grid', $prefs->radioStationsViewMode);
         self::assertSame('name', $prefs->albumsSortField);
         self::assertSame('name', $prefs->artistsSortField);
         self::assertSame('name', $prefs->genresSortField);
@@ -176,13 +177,13 @@ class UserPreferencesCastTest extends TestCase
     {
         $user = create_user([
             'preferences' => [
-                'albums_view_mode' => 'list',
-                'artists_view_mode' => 'list',
+                'albums_view_mode' => 'table',
+                'artists_view_mode' => 'table',
             ],
         ]);
 
-        self::assertSame('list', $user->preferences->albumsViewMode);
-        self::assertSame('list', $user->preferences->artistsViewMode);
+        self::assertSame('table', $user->preferences->albumsViewMode);
+        self::assertSame('table', $user->preferences->artistsViewMode);
     }
 
     #[Test]

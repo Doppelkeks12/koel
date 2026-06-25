@@ -11,9 +11,9 @@ const preferences: UserPreferences = {
   current_equalizer_preset: faker.helpers.arrayElement(equalizerPresets),
   equalizer_presets: [],
   crossfade_duration: 0,
-  artists_view_mode: 'thumbnails',
-  albums_view_mode: 'thumbnails',
-  radio_stations_view_mode: 'thumbnails',
+  artists_view_mode: 'grid',
+  albums_view_mode: 'grid',
+  radio_stations_view_mode: 'grid',
   albums_sort_field: 'name',
   albums_sort_order: 'asc',
   albums_favorites_only: false,
@@ -40,6 +40,7 @@ const preferences: UserPreferences = {
   detect_duplicate_uploads: true,
   include_public_media: true,
   lastfm_session_key: 'fake-session-key',
+  home_blocks_order: [],
 }
 
 export default (): User => ({

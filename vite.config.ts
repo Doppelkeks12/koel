@@ -13,6 +13,14 @@ export default defineConfig({
     '**/*.php': ['composer cs'],
     'resources/assets/**/*.{js,ts,css,pcss,vue}': ['vp check --fix'],
   },
+  fmt: {
+    semi: false,
+    singleQuote: true,
+    arrowParens: 'avoid',
+    printWidth: 120,
+    objectWrap: 'preserve',
+    ignorePatterns: ['resources/assets/css/vendor/**', 'resources/assets/js/visualizers/**'],
+  },
   lint: {
     plugins: ['typescript', 'vue', 'import'],
     categories: {
@@ -35,6 +43,7 @@ export default defineConfig({
       'no-unsafe-type-assertion': 'off',
       'no-unnecessary-type-assertion': 'off',
       'no-unnecessary-type-arguments': 'off',
+      'no-unnecessary-type-parameters': 'off',
       'no-floating-promises': 'off',
       'unbound-method': 'off',
       'restrict-template-expressions': 'off',
@@ -57,26 +66,28 @@ export default defineConfig({
   plugins: [
     vue(),
     tailwindcss(),
-    laravel({
-      input: [
-        'resources/assets/js/app.ts',
-        'resources/assets/js/remote/app.ts'
-      ],
-      refresh: true
-    }),
-    visualizer({
-      filename: 'stats.html'
-    })
+    ...(process.env.VITEST
+      ? []
+      : [
+          laravel({
+            input: ['resources/assets/js/app.ts', 'resources/assets/js/remote/app.ts'],
+            refresh: true,
+          }),
+          visualizer({
+            filename: 'stats.html',
+          }),
+        ]),
   ],
   build: {
-    cssMinify: 'esbuild'
+    cssMinify: 'esbuild',
+    assetsInlineLimit: 0,
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, './resources/assets/js'),
       '@modules': resolve(__dirname, './node_modules'),
-      'lodash': 'lodash-es'
-    }
+      lodash: 'lodash-es',
+    },
   },
   test: {
     environment: 'jsdom',
@@ -86,5 +97,5 @@ export default defineConfig({
         cacheDir: resolve(__dirname, 'node_modules/.vitest'),
       },
     },
-  }
+  },
 })

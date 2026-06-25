@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { screen } from '@testing-library/vue'
+import { shallowRef } from 'vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { assertOpenModal } from '@/__tests__/assertions'
 import factory from '@/__tests__/factory'
+import { ContextMenuKey } from '@/config/symbols'
 import { downloadService } from '@/services/downloadService'
 import { playbackService } from '@/services/QueuePlaybackService'
+import { artistStore } from '@/stores/artistStore'
 import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
 import CreateEmbedForm from '@/components/embed/CreateEmbedForm.vue'
@@ -44,8 +47,6 @@ describe('artistContextMenu.vue', () => {
       artist,
     }
   }
-
-  it('renders', async () => expect((await renderComponent()).html()).toMatchSnapshot())
 
   it('plays all', async () => {
     h.createAudioPlayer()
@@ -109,5 +110,27 @@ describe('artistContextMenu.vue', () => {
     await h.user.click(screen.getByText('Embed…'))
 
     await assertOpenModal(openModalMock, CreateEmbedForm, { embeddable: artist })
+  })
+
+  it('does not have an option to embed when embedding is disabled', async () => {
+    commonStore.state.allows_embedding = false
+    await renderComponent()
+
+    expect(screen.queryByText('Embed…')).toBeNull()
+  })
+
+  it('closes the menu after rating', async () => {
+    h.mock(artistStore, 'rate')
+    const menu = shallowRef<any>({ component: Component, position: { top: 0, left: 0 } })
+    const artist = h.factory('artist').make({ rating: 0 })
+
+    h.render(Component, {
+      props: { artist },
+      global: { provide: { [ContextMenuKey as symbol]: menu } },
+    })
+
+    await h.user.click(screen.getByRole('radio', { name: 'Rate 4 of 5' }))
+
+    expect(menu.value.component).toBeNull()
   })
 })

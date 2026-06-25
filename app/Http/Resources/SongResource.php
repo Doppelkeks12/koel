@@ -27,6 +27,7 @@ class SongResource extends JsonResource
         'full_screen_cover',
         'length',
         'liked',
+        'rating',
         'play_count',
         'track',
         'genre',
@@ -52,6 +53,24 @@ class SongResource extends JsonResource
             'path',
             'per_page',
             'to',
+        ],
+    ];
+
+    public const array CURSOR_PAGINATION_JSON_STRUCTURE = [
+        'data' => [
+            0 => self::JSON_STRUCTURE,
+        ],
+        'links' => [
+            'first',
+            'last',
+            'prev',
+            'next',
+        ],
+        'meta' => [
+            'path',
+            'per_page',
+            'next_cursor',
+            'prev_cursor',
         ],
     ];
 
@@ -99,6 +118,7 @@ class SongResource extends JsonResource
             'length' => $this->song->length,
             'liked' => $this->unless($embedding, $this->song->favorite), // backwards compatibility
             'favorite' => $this->unless($embedding, $this->song->favorite),
+            'rating' => $this->unless($embedding, fn () => (int) ($this->song->rating ?? 0)),
             'play_count' => $this->unless($embedding, (int) $this->song->play_count),
             'track' => $this->song->track,
             'disc' => $this->unless($embedding, $this->song->disc),

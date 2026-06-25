@@ -6,39 +6,29 @@ import { commonStore } from '@/stores/commonStore'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import Component from './AlbumListScreen.vue'
 
-const virtualGridStub = {
-  template: '<div data-testid="album-grid"><slot v-for="(item, i) in items" :key="i" :item="item" /></div>',
-  props: ['items', 'minItemWidth'],
+const albumGridStub = {
+  template: '<div data-testid="album-grid"><div v-for="(a, i) in albums" :key="i" data-testid="album-card" /></div>',
+  props: ['albums', 'showReleaseYear'],
   methods: { scrollToTop() {} },
 }
 
-const albumCardStub = {
-  template: '<div data-testid="album-card" :data-layout="layout" />',
-  props: ['album', 'layout', 'showReleaseYear'],
+const albumTableStub = {
+  template: '<div data-testid="album-table" />',
+  props: ['albums', 'field', 'order'],
 }
 
 describe('albumListScreen.vue', () => {
   const h = createHarness()
 
   const renderComponent = async () => {
-    const paginator: PaginatorResource<Album> = {
-      data: h.factory('album').make(9),
-      links: {
-        next: '?page=1',
-      },
-      meta: {
-        current_page: 0,
-      },
-    }
-
-    const paginateMock = h.mock(albumStore, 'paginate').mockResolvedValueOnce(paginator)
+    const paginateMock = h.mock(albumStore, 'paginate').mockResolvedValueOnce('next-cursor-token')
     albumStore.state.albums = h.factory('album').make(9)
 
     const rendered = h.render(Component, {
       global: {
         stubs: {
-          AlbumCard: albumCardStub,
-          VirtualGridScroller: virtualGridStub,
+          AlbumGrid: albumGridStub,
+          AlbumTable: albumTableStub,
         },
       },
     })
@@ -63,28 +53,31 @@ describe('albumListScreen.vue', () => {
     await waitFor(() => screen.getByTestId('screen-empty-state'))
   })
 
-  it.each<[ViewMode, CardLayout]>([
-    ['thumbnails', 'full'],
-    ['list', 'compact'],
-  ])('passes correct card layout for %s view mode', async (mode, expectedLayout) => {
-    preferences.temporary.albums_view_mode = mode
+  it('renders the table when the view mode is table', async () => {
+    preferences.temporary.albums_view_mode = 'table'
     await renderComponent()
 
-    const cards = screen.getAllByTestId('album-card')
-    cards.forEach((card: HTMLElement) => expect(card.dataset.layout).toBe(expectedLayout))
+    expect(screen.queryByTestId('album-grid')).toBeNull()
+    screen.getByTestId('album-table')
   })
 
-  it('switches layout via view mode toggle', async () => {
+  it('switches between grid and table via the view mode toggle', async () => {
+    preferences.temporary.albums_view_mode = 'grid'
     await renderComponent()
 
-    await h.user.click(screen.getByRole('radio', { name: 'View as list' }))
+    screen.getByTestId('album-grid')
+    expect(screen.queryByTestId('album-table')).toBeNull()
+
+    await h.user.click(screen.getByRole('radio', { name: 'View as table' }))
     await waitFor(() => {
-      screen.getAllByTestId('album-card').forEach((card: HTMLElement) => expect(card.dataset.layout).toBe('compact'))
+      screen.getByTestId('album-table')
+      expect(screen.queryByTestId('album-grid')).toBeNull()
     })
 
-    await h.user.click(screen.getByRole('radio', { name: 'View as thumbnails' }))
+    await h.user.click(screen.getByRole('radio', { name: 'View as grid' }))
     await waitFor(() => {
-      screen.getAllByTestId('album-card').forEach((card: HTMLElement) => expect(card.dataset.layout).toBe('full'))
+      screen.getByTestId('album-grid')
+      expect(screen.queryByTestId('album-table')).toBeNull()
     })
   })
 
@@ -96,7 +89,7 @@ describe('albumListScreen.vue', () => {
     await waitFor(() =>
       expect(paginateMock).toHaveBeenNthCalledWith(2, {
         favorites_only: true,
-        page: 1,
+        cursor: '',
         order: 'asc',
         sort: 'name',
       }),
@@ -107,7 +100,7 @@ describe('albumListScreen.vue', () => {
     await waitFor(() =>
       expect(paginateMock).toHaveBeenNthCalledWith(3, {
         favorites_only: false,
-        page: 1,
+        cursor: '',
         order: 'asc',
         sort: 'name',
       }),
@@ -123,8 +116,8 @@ describe('albumListScreen.vue', () => {
     h.render(Component, {
       global: {
         stubs: {
-          AlbumCard: albumCardStub,
-          VirtualGridScroller: virtualGridStub,
+          AlbumGrid: albumGridStub,
+          AlbumTable: albumTableStub,
         },
       },
     })
@@ -151,8 +144,8 @@ describe('albumListScreen.vue', () => {
     h.render(Component, {
       global: {
         stubs: {
-          AlbumCard: albumCardStub,
-          VirtualGridScroller: virtualGridStub,
+          AlbumGrid: albumGridStub,
+          AlbumTable: albumTableStub,
         },
       },
     })

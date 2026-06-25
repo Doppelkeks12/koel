@@ -3,6 +3,7 @@
 namespace Tests\Integration\Services\Podcast;
 
 use App\Events\UserUnsubscribedFromPodcast;
+use App\Exceptions\FailedToParsePodcastFeedException;
 use App\Exceptions\UserAlreadySubscribedToPodcastException;
 use App\Models\Podcast;
 use App\Models\PodcastUserPivot;
@@ -12,7 +13,9 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -31,13 +34,25 @@ class PodcastServiceTest extends TestCase
         parent::setUp();
 
         $mock = new MockHandler([
-            new Response(200, [], file_get_contents(test_path('fixtures/podcast.xml'))),
+            new Response(200, [], File::get(test_path('fixtures/podcast.xml'))),
         ]);
 
         $handlerStack = HandlerStack::create($mock);
         $this->instance(ClientInterface::class, new Client(['handler' => $handlerStack]));
 
         $this->service = app(PodcastService::class);
+    }
+
+    #[Test]
+    public function addPodcastRejectsUnsafeUrl(): void
+    {
+        // No injected client, so the fetch goes through SafeHttp, whose SSRF guard
+        // rejects the private host; addPodcast surfaces it as a parse failure.
+        $this->app->forgetInstance(ClientInterface::class);
+
+        $this->expectException(FailedToParsePodcastFeedException::class);
+
+        app(PodcastService::class)->addPodcast('http://127.0.0.1/feed.xml', create_user());
     }
 
     #[Test]
@@ -59,6 +74,27 @@ class PodcastServiceTest extends TestCase
             'added_by' => $user->id,
         ]);
 
+        self::assertCount(8, $podcast->episodes);
+    }
+
+    #[Test]
+    public function addPodcastFollowsFeedRedirects(): void
+    {
+        // Some feeds (e.g. Podigee) respond with a 301 to a CDN and an empty
+        // redirect body. The fetch must follow the redirect; otherwise the empty
+        // body is handed to the parser and surfaces as a misleading parse error.
+        $this->app->forgetInstance(ClientInterface::class);
+
+        Http::fake([
+            'https://example.com/feed.xml' => Http::response('', 301, [
+                'Location' => 'https://example.org/real-feed.xml',
+            ]),
+            'https://example.org/real-feed.xml' => Http::response(File::get(test_path('fixtures/podcast.xml'))),
+        ]);
+
+        $podcast = app(PodcastService::class)->addPodcast('https://example.com/feed.xml', create_user());
+
+        self::assertSame('Podcast Feed Parser', $podcast->title);
         self::assertCount(8, $podcast->episodes);
     }
 
@@ -180,6 +216,41 @@ class PodcastServiceTest extends TestCase
     }
 
     #[Test]
+    public function podcastObsoleteForcedWhenFeedUrlIsUnsafe(): void
+    {
+        // Even though the URL was somehow stored, isPodcastObsolete must refuse
+        // to probe it — returning true so the caller falls into refreshPodcast,
+        // which re-validates the URL via SafeHttp before fetching.
+        $podcast = Podcast::factory()->createOne([
+            'url' => 'http://127.0.0.1/feed.xml',
+            'last_synced_at' => now()->subDays(1),
+        ]);
+
+        self::assertTrue($this->service->isPodcastObsolete($podcast));
+    }
+
+    #[Test]
+    public function podcastObsoleteWhenFeedHeadRedirectsToPrivateHost(): void
+    {
+        // 302 to a private host on the HEAD probe — on_redirect throws, the
+        // method's catch block returns true (treat as obsolete) and refresh
+        // path will refuse to fetch from the private URL via createParser.
+        Http::fake([
+            'https://example.com/feed.xml' => Http::response('', 302, ['Location' => 'http://127.0.0.1/feed.xml']),
+            '*' => Http::response(),
+        ]);
+
+        $podcast = Podcast::factory()->createOne([
+            'url' => 'https://example.com/feed.xml',
+            'last_synced_at' => now()->subDays(1),
+        ]);
+
+        self::assertTrue($this->service->isPodcastObsolete($podcast));
+
+        Http::assertNotSent(static fn (Request $request): bool => str_contains($request->url(), '127.0.0.1'));
+    }
+
+    #[Test]
     public function updateEpisodeProgress(): void
     {
         $episode = Song::factory()->asEpisode()->createOne();
@@ -232,7 +303,10 @@ class PodcastServiceTest extends TestCase
         ]);
 
         $handlerStack = HandlerStack::create($mock);
-        $client = new Client(['handler' => $handlerStack]);
+        $client = new Client([
+            'handler' => $handlerStack,
+            'allow_redirects' => ['track_redirects' => true],
+        ]);
 
         self::assertSame('https://assets.example.com/episode.mp3', $this->service->getStreamableUrl(
             'https://example.com/episode.mp3',
@@ -252,7 +326,7 @@ class PodcastServiceTest extends TestCase
     public function addPodcastSkipsEpisodesWithUnsafeEnclosureUrls(): void
     {
         $mock = new MockHandler([
-            new Response(200, [], file_get_contents(test_path('fixtures/podcast-with-unsafe-enclosures.xml'))),
+            new Response(200, [], File::get(test_path('fixtures/podcast-with-unsafe-enclosures.xml'))),
         ]);
 
         $this->instance(ClientInterface::class, new Client(['handler' => HandlerStack::create($mock)]));
@@ -282,6 +356,21 @@ class PodcastServiceTest extends TestCase
     }
 
     #[Test]
+    public function getStreamableUrlRejectsRedirectToPrivateHost(): void
+    {
+        // Initial URL is public, but the server 302s to 127.0.0.1. The on_redirect
+        // validator must throw before the follow-up request is issued, and the
+        // method returns null instead of leaking the internal target.
+        $mock = new MockHandler([
+            new Response(302, ['Location' => 'http://127.0.0.1/episode.mp3']),
+        ]);
+
+        $client = new Client(['handler' => HandlerStack::create($mock)]);
+
+        self::assertNull($this->service->getStreamableUrl('https://example.com/episode.mp3', $client));
+    }
+
+    #[Test]
     public function refreshPodcastUsesLastBuildDateWhenPubDateIsStale(): void
     {
         // The fixture has pubDate=2021 (stale) and lastBuildDate=2024-05-02 (the real update date).
@@ -289,7 +378,7 @@ class PodcastServiceTest extends TestCase
         // With the old code, pubDate (2021) < last_synced_at (2023) would cause an early return.
         // The fix picks the most recent date (lastBuildDate=2024) which is after last_synced_at.
         $mock = new MockHandler([
-            new Response(200, [], file_get_contents(test_path('fixtures/podcast-stale-pubdate.xml'))),
+            new Response(200, [], File::get(test_path('fixtures/podcast-stale-pubdate.xml'))),
         ]);
 
         $this->instance(ClientInterface::class, new Client(['handler' => HandlerStack::create($mock)]));

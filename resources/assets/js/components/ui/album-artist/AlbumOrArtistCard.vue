@@ -8,7 +8,7 @@
   >
     <article
       :class="layout"
-      class="relative group flex p-5 rounded-[inherit] flex-col gap-5"
+      class="relative group flex h-full p-5 rounded-[inherit] flex-col gap-5"
       data-testid="artist-album-card"
       :draggable="!isMobile.any"
       tabindex="0"
@@ -94,24 +94,6 @@ article {
 
     :deep(.thumbnail) {
       @apply w-[80px] rounded-md;
-    }
-  }
-
-  .meta {
-    :deep(a),
-    :deep(button) {
-      & + a,
-      & + button {
-        &::before {
-          @apply mr-0.5 content-['•'];
-        }
-      }
-
-      & + button {
-        &::before {
-          @apply mr-1;
-        }
-      }
     }
   }
 }

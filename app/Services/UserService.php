@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\Acl\Role;
 use App\Exceptions\UserProspectUpdateDeniedException;
 use App\Models\Organization;
 use App\Models\User;
@@ -11,8 +12,10 @@ use App\Values\ImageWritingConfig;
 use App\Values\User\SsoUser;
 use App\Values\User\UserCreateData;
 use App\Values\User\UserUpdateData;
+use Illuminate\Container\Attributes\Config;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
+use SensitiveParameter;
 
 class UserService
 {
@@ -20,6 +23,8 @@ class UserService
         private readonly UserRepository $repository,
         private readonly ImageStorage $imageStorage,
         private readonly OrganizationService $organizationService,
+        #[Config('koel.sso.default_role')]
+        private readonly Role $defaultSsoRole = Role::USER,
     ) {}
 
     public function createUser(UserCreateData $dto, ?Organization $organization = null): User
@@ -50,7 +55,13 @@ class UserService
             return $existingUser;
         }
 
-        return $this->createUser(UserCreateData::fromSsoUser($ssoUser));
+        return $this->createUser(UserCreateData::fromSsoUser($ssoUser, $this->defaultSsoRole));
+    }
+
+    public function changePassword(User $user, #[SensitiveParameter] string $newPassword): void
+    {
+        $user->password = $newPassword;
+        $user->save();
     }
 
     public function updateUser(User $user, UserUpdateData $dto): User
@@ -61,7 +72,7 @@ class UserService
         $data = [
             'name' => $dto->name,
             'email' => $dto->email,
-            'password' => $dto->password ?: $user->password,
+            'password' => $dto->password ?? $user->password,
             'avatar' => $dto->avatar ? $this->maybeStoreAvatar($dto->avatar) : null,
         ];
 

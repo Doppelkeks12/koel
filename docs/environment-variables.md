@@ -145,6 +145,7 @@ Koel Plus only. See [Single Sign-On](plus/sso).
 | `SSO_OIDC_CLIENT_ID` | OAuth client ID registered with the IdP. | _(empty)_ |
 | `SSO_OIDC_CLIENT_SECRET` | OAuth client secret. | _(empty)_ |
 | `SSO_OIDC_BUTTON_LABEL` | Label shown on the OIDC login button. | `OpenID Connect` |
+| `SSO_DEFAULT_ROLE` | The role given to a user on their first SSO login: `user` or `guest`. Applies to OIDC, Google, and reverse-proxy auth. | `user` |
 
 ## Proxy Authentication
 
@@ -177,3 +178,4 @@ Additional providers (Gemini, Ollama, etc.) can be configured in `config/ai.php`
 | `BACKUP_ON_DELETE` | Whether to create a backup of a song when deleting it from the filesystem. | `true` |
 | `CDN_URL` | A CDN URL mapped to Koel's home URL, used to serve media files. No trailing slash. | _(empty)_ |
 | `MEDIA_BROWSER_ENABLED` | Whether to enable the media browser (experimental Koel Plus feature). | `false` |
+| `EMBED_ENABLED` | Whether to allow embedding songs, albums, artists, and playlists on external sites. Set to `false` to hide the "Embed…" menu entries and disable both creation and rendering of embed widgets. | `true` |

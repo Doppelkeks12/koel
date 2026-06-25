@@ -1,7 +1,22 @@
 <template>
   <ScreenBase id="homeWrapper">
     <template #header>
-      <ScreenHeader layout="collapsed">{{ greeting }}</ScreenHeader>
+      <ScreenHeader layout="collapsed">
+        {{ greeting }}
+        <template #controls>
+          <button
+            v-if="!libraryEmpty"
+            type="button"
+            class="w-9 h-9 rounded-full flex items-center justify-center text-k-fg-70 hover:text-k-fg hover:bg-k-fg-5 transition shrink-0"
+            title="Reorder home blocks"
+            data-testid="reorder-home-blocks-btn"
+            @click="openReorderModal"
+          >
+            <ListChevronsUpDownIcon class="w-5 h-5" />
+            <span class="sr-only">Reorder home blocks</span>
+          </button>
+        </template>
+      </ScreenHeader>
     </template>
 
     <ScreenEmptyState v-if="libraryEmpty">
@@ -12,17 +27,14 @@
       <span v-if="currentUserCan.manageSettings()" class="secondary block"> Have you set up your library yet? </span>
     </ScreenEmptyState>
 
-    <div v-else class="home-sections space-y-12">
-      <RecentlyPlayedPlayables :loading data-testid="recently-played-songs" />
-      <NewAlbums :loading data-testid="recently-added-albums" />
-      <SimilarSongs :loading data-testid="similar-songs" />
-      <TopAlbums :loading data-testid="most-played-albums" />
-      <MostPlayedSongs :loading data-testid="most-played-songs" />
-      <TopArtists :loading data-testid="most-played-artists" />
-      <NewSongs :loading data-testid="recently-added-songs" />
-      <NewArtists :loading data-testid="recently-added-artists" />
-      <LeastPlayedSongs :loading data-testid="least-played-songs" />
-      <RandomSongs :loading data-testid="random-songs" />
+    <div v-else class="home-sections space-y-12 w-full">
+      <component
+        v-for="block in orderedBlocks"
+        :key="block.id"
+        :is="block.component"
+        :loading
+        :data-testid="block.id"
+      />
       <BtnScrollToTop />
     </div>
   </ScreenBase>
@@ -30,13 +42,17 @@
 
 <script lang="ts" setup>
 import { faVolumeOff } from '@fortawesome/free-solid-svg-icons'
+import { ListChevronsUpDownIcon } from 'lucide-vue-next'
 import { sample } from 'lodash-es'
-import { computed, ref } from 'vue'
+import type { Component } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { eventBus } from '@/utils/eventBus'
 import { commonStore } from '@/stores/commonStore'
 import { overviewStore } from '@/stores/overviewStore'
+import { preferenceStore } from '@/stores/preferenceStore'
 import { userStore } from '@/stores/userStore'
 import { useRouter } from '@/composables/useRouter'
+import { useModal } from '@/composables/useModal'
 import { usePolicies } from '@/composables/usePolicies'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 
@@ -47,6 +63,8 @@ import NewSongs from '@/components/screens/home/NewSongs.vue'
 import TopArtists from '@/components/screens/home/TopArtists.vue'
 import TopAlbums from '@/components/screens/home/TopAlbums.vue'
 import NewArtists from '@/components/screens/home/NewArtists.vue'
+import RandomAlbums from '@/components/screens/home/RandomAlbums.vue'
+import RandomArtists from '@/components/screens/home/RandomArtists.vue'
 import LeastPlayedSongs from '@/components/screens/home/LeastPlayedSongs.vue'
 import RandomSongs from '@/components/screens/home/RandomSongs.vue'
 import SimilarSongs from '@/components/screens/home/SimilarSongs.vue'
@@ -55,7 +73,31 @@ import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
 import BtnScrollToTop from '@/components/ui/BtnScrollToTop.vue'
 import ScreenBase from '@/components/screens/ScreenBase.vue'
 
+const ReorderBlocksModal = defineAsyncComponent(() => import('@/components/screens/home/ReorderBlocksModal.vue'))
+
+interface Block {
+  id: string
+  label: string
+  component: Component
+}
+
+const blocks: Block[] = [
+  { id: 'recently-played-songs', label: 'Recently Played', component: RecentlyPlayedPlayables },
+  { id: 'recently-added-albums', label: 'Latest Albums', component: NewAlbums },
+  { id: 'similar-songs', label: 'You Might Also Like', component: SimilarSongs },
+  { id: 'most-played-albums', label: 'Top Albums', component: TopAlbums },
+  { id: 'most-played-songs', label: 'Most Played', component: MostPlayedSongs },
+  { id: 'most-played-artists', label: 'Top Artists', component: TopArtists },
+  { id: 'recently-added-songs', label: 'New Songs', component: NewSongs },
+  { id: 'recently-added-artists', label: 'New Artists', component: NewArtists },
+  { id: 'least-played-songs', label: 'Hidden Gems', component: LeastPlayedSongs },
+  { id: 'random-songs', label: 'Random Songs', component: RandomSongs },
+  { id: 'random-albums', label: 'Random Albums', component: RandomAlbums },
+  { id: 'random-artists', label: 'Random Artists', component: RandomArtists },
+]
+
 const { currentUserCan } = usePolicies()
+const { openModal } = useModal()
 
 const greetings = [
   'Oh hai!',
@@ -74,6 +116,24 @@ const libraryEmpty = computed(() => commonStore.state.song_length === 0)
 
 const loading = ref(false)
 let initialized = false
+
+// Sort `blocks` so they appear in the order saved in the preference. Blocks
+// whose id isn't in the saved list fall to the end (Infinity), keeping their
+// canonical relative order via Array.sort's stability.
+const orderedBlocks = computed<Block[]>(() => {
+  const saved = preferenceStore.home_blocks_order ?? []
+  const positionOf = (id: string) => {
+    const i = saved.indexOf(id)
+    return i === -1 ? Infinity : i
+  }
+
+  return [...blocks].sort((a, b) => positionOf(a.id) - positionOf(b.id))
+})
+
+const openReorderModal = () =>
+  openModal<'REORDER_HOME_BLOCKS'>(ReorderBlocksModal, {
+    blocks: orderedBlocks.value.map(({ id, label }) => ({ id, label })),
+  })
 
 eventBus
   .on('SONGS_DELETED', () => overviewStore.fetch())
@@ -98,11 +158,18 @@ useRouter().onScreenActivated('Home', async () => {
 <style lang="postcss" scoped>
 @reference '@css/app.pcss';
 .home-sections {
-  > *:not(:first-child) {
-    @apply pt-12 relative;
+  @apply min-w-0;
 
+  > * {
+    @apply min-w-0;
+  }
+
+  > *:not(:first-child) {
+    @apply relative;
+
+    /* Divider sits in the gap between blocks. */
     &::before {
-      @apply content-[''] absolute top-0 left-0 right-0 -mx-6 h-px bg-k-fg-5;
+      @apply content-[''] absolute -top-6 left-0 right-0 -mx-6 h-px bg-k-fg-5;
     }
   }
 }

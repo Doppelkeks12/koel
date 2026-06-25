@@ -7,6 +7,8 @@ use App\Http\Resources\SongResource;
 use App\Jobs\DeleteSongFilesJob;
 use App\Models\Album;
 use App\Models\Artist;
+use App\Models\Favorite;
+use App\Models\Rating;
 use App\Models\Song;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Bus;
@@ -14,6 +16,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 use function Tests\create_admin;
+use function Tests\create_user;
 
 class SongTest extends TestCase
 {
@@ -24,6 +27,121 @@ class SongTest extends TestCase
 
         $this->getAs('api/songs')->assertJsonStructure(SongResource::PAGINATION_JSON_STRUCTURE);
         $this->getAs('api/songs?sort=title&order=desc')->assertJsonStructure(SongResource::PAGINATION_JSON_STRUCTURE);
+    }
+
+    #[Test]
+    public function indexWithCursorReturnsCursorPagination(): void
+    {
+        Song::factory()->createMany(51);
+
+        $response = $this->getAs(
+            'api/songs?cursor=',
+        )->assertJsonStructure(SongResource::CURSOR_PAGINATION_JSON_STRUCTURE);
+
+        self::assertCount(50, $response->json('data'));
+        self::assertNotNull($response->json('meta.next_cursor'));
+        self::assertNull($response->json('meta.prev_cursor'));
+
+        $secondPage = $this->getAs(
+            'api/songs?cursor=' . $response->json('meta.next_cursor'),
+        )->assertJsonStructure(SongResource::CURSOR_PAGINATION_JSON_STRUCTURE);
+
+        self::assertCount(1, $secondPage->json('data'));
+        self::assertNull($secondPage->json('meta.next_cursor'));
+        self::assertNotNull($secondPage->json('meta.prev_cursor'));
+    }
+
+    #[Test]
+    public function indexWithCursorTraversesAllSupportedSortsWithoutDuplicates(): void
+    {
+        $user = create_user();
+        $songs = Song::factory()->createMany(60);
+
+        foreach ($songs->take(20) as $i => $song) {
+            Rating::factory()
+                ->for($user)
+                ->for($song, 'rateable')
+                ->createOne(['rating' => ($i % 5) + 1]);
+        }
+        foreach ($songs->slice(20, 10) as $song) {
+            Favorite::factory()->for($user)->for($song, 'favoriteable')->createOne();
+        }
+
+        foreach ([
+            'title',
+            'track',
+            'length',
+            'year',
+            'created_at',
+            'artist_name',
+            'album_name',
+            'rating',
+            'favorite',
+        ] as $sort) {
+            $allIds = [];
+            $cursor = '';
+            $pages = 0;
+
+            while ($cursor !== null && $pages < 4) {
+                $pages++;
+                $r = $this
+                    ->getAs("api/songs?cursor={$cursor}&sort={$sort}&order=desc", $user)
+                    ->assertOk()
+                    ->assertJsonStructure(SongResource::CURSOR_PAGINATION_JSON_STRUCTURE);
+
+                $allIds = array_merge($allIds, collect($r->json('data'))->pluck('id')->all());
+                $cursor = $r->json('meta.next_cursor');
+            }
+
+            self::assertCount(60, $allIds, "sort={$sort} returned wrong total");
+            self::assertCount(60, array_unique($allIds), "sort={$sort} returned duplicates");
+        }
+    }
+
+    #[Test]
+    public function indexSortedByFavoriteScopesToCurrentUser(): void
+    {
+        $user = create_user();
+        $other = create_user();
+
+        Song::factory()->createOne(['title' => 'Unfavorited']);
+        $mine = Song::factory()->createOne(['title' => 'Mine']);
+        $theirs = Song::factory()->createOne(['title' => 'Theirs']);
+
+        Favorite::factory()->for($user)->for($mine, 'favoriteable')->createOne();
+        Favorite::factory()->for($other)->for($theirs, 'favoriteable')->createOne();
+
+        $descIds = $this->getAs('api/songs?sort=favorite&order=desc', $user)->json('data.*.id');
+
+        // current user's favorited song comes first; other user's favorite is invisible to this sort
+        self::assertSame($mine->id, $descIds[0]);
+    }
+
+    #[Test]
+    public function indexSortedByRatingScopesToCurrentUser(): void
+    {
+        $user = create_user();
+        $other = create_user();
+
+        $low = Song::factory()->createOne(['title' => 'Low']);
+        $high = Song::factory()->createOne(['title' => 'High']);
+        $unrated = Song::factory()->createOne(['title' => 'Unrated']);
+
+        Rating::factory()->for($user)->for($low, 'rateable')->createOne(['rating' => 2]);
+        Rating::factory()->for($user)->for($high, 'rateable')->createOne(['rating' => 5]);
+        Rating::factory()->for($other)->for($unrated, 'rateable')->createOne(['rating' => 5]);
+
+        $descIds = $this->getAs('api/songs?sort=rating&order=desc', $user)->json('data.*.id');
+
+        self::assertSame($high->id, $descIds[0]);
+        self::assertSame($low->id, $descIds[1]);
+        self::assertSame($unrated->id, $descIds[2]);
+
+        $ascIds = $this->getAs('api/songs?sort=rating&order=asc', $user)->json('data.*.id');
+
+        self::assertSame($unrated->id, $ascIds[0]);
+        self::assertSame($low->id, $ascIds[1]);
+        self::assertSame($high->id, $ascIds[2]);
     }
 
     #[Test]

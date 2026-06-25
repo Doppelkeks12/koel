@@ -11,8 +11,10 @@ use App\Values\User\Preferences\AlbumsViewModePreference;
 use App\Values\User\Preferences\CrossfadeDurationPreference;
 use App\Values\User\Preferences\CurrentEqualizerPresetPreference;
 use App\Values\User\Preferences\EqualizerPresetsPreference;
+use App\Values\User\Preferences\HomeBlocksOrderPreference;
 use App\Values\User\Preferences\LastfmSessionKeyPreference;
 use App\Values\User\Preferences\MakeUploadsPublicPreference;
+use App\Values\User\Preferences\RadioStationsViewModePreference;
 use App\Values\User\Preferences\RepeatModePreference;
 use App\Values\User\Preferences\TranscodeQualityPreference;
 use App\Values\User\Preferences\VolumePreference;
@@ -50,7 +52,21 @@ class PreferenceBehaviorTest extends TestCase
     public function albumsViewModeRejectsUnknownValue(): void
     {
         $this->expectException(AssertException::class);
-        AlbumsViewModePreference::make('grid');
+        AlbumsViewModePreference::make('mosaic');
+    }
+
+    #[Test]
+    public function albumsViewModeNormalizesLegacyValues(): void
+    {
+        self::assertSame('grid', AlbumsViewModePreference::make('thumbnails')->getValue());
+        self::assertSame('table', AlbumsViewModePreference::make('list')->getValue());
+    }
+
+    #[Test]
+    public function radioStationsViewModeNormalizesLegacyValues(): void
+    {
+        self::assertSame('grid', RadioStationsViewModePreference::make('thumbnails')->getValue());
+        self::assertSame('table', RadioStationsViewModePreference::make('list')->getValue());
     }
 
     #[Test]
@@ -155,6 +171,40 @@ class PreferenceBehaviorTest extends TestCase
         self::assertInstanceOf(EqualizerPresetCollection::class, $value);
         self::assertCount(1, $value);
         self::assertSame('Mine', $value->first()->name);
+    }
+
+    #[Test]
+    public function homeBlocksOrderDefaultsToEmptyArray(): void
+    {
+        self::assertSame([], HomeBlocksOrderPreference::make(null)->getValue());
+    }
+
+    #[Test]
+    public function homeBlocksOrderAcceptsArrayOfStrings(): void
+    {
+        $ids = ['random-songs', 'recently-added-albums', 'most-played-songs'];
+        self::assertSame($ids, HomeBlocksOrderPreference::make($ids)->getValue());
+    }
+
+    #[Test]
+    public function homeBlocksOrderFiltersNonStringEntriesAndReindexes(): void
+    {
+        $value = HomeBlocksOrderPreference::make([
+            'random-songs',
+            42,
+            null,
+            'recently-added-albums',
+            ['nested'],
+        ])->getValue();
+
+        self::assertSame(['random-songs', 'recently-added-albums'], $value);
+    }
+
+    #[Test]
+    public function homeBlocksOrderCoercesNonArrayInputToEmpty(): void
+    {
+        self::assertSame([], HomeBlocksOrderPreference::make('not-an-array')->getValue());
+        self::assertSame([], HomeBlocksOrderPreference::make(123)->getValue());
     }
 
     #[Test]
