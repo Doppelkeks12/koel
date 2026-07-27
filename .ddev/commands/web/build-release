@@ -2,7 +2,7 @@
 set -euo pipefail
 
 export PNPM_HOME="$HOME/.local/share/pnpm"
-export PATH="$PNPM_HOME:$PATH"
+export PATH="$PNPM_HOME/bin:$PATH"
 
 # Get Version
 VERSION=$(cat .version)
@@ -13,7 +13,7 @@ composer install --prefer-dist --no-dev --optimize-autoloader
 php artisan koel:init --no-interaction
 
 # Create archiv
-rm -rf .git ./node_modules ./storage/search-indexes/*.index ./koel.db ./.env .ddev
+rm -rf .git ./node_modules ./storage/search-indexes/*.index ./koel.db ./.env .ddev .pnpm-store
 cd ../
 zip -r "/var/www/koel-doppelkeks12-${VERSION}.zip" html/
 tar -zcf "/var/www/koel-doppelkeks12-${VERSION}.tar.gz" html/
