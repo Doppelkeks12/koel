@@ -59,7 +59,7 @@ class ImageWriter
 
         $config ??= ImageWritingConfig::default();
 
-        $img->scale(width: $config->maxWidth);
+        $img->scaleDown(width: $config->maxWidth);
 
         if ($config->blur) {
             $img->blur($config->blur);
