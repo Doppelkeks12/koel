@@ -9,7 +9,7 @@ Koel supports multiple users with different roles and permissions.
 * **Admins** can do basically anything: manage settings, users, and the shared music library
 * **Users** can access the shared library and manage their own profile and preferences.
 * <PlusBadge /> **Managers** can manage users and the shared library, but not settings.
-* <PlusBadge /> **Guests** can only play music shared by others — they have no library of their own and cannot upload, edit, or delete songs. Useful when you want to share a Koel Plus instance with friends or family without giving them a personal library.
+* <PlusBadge /> **Guests** can only play music shared by others — they have no library of their own and cannot upload, edit, or delete songs, subscribe to podcasts, add radio stations, or create embeds. Useful when you want to share a Koel Plus instance with friends or family without giving them a personal library.
 
 :::tip Multi-library support
 In the Community edition, all users share a common library (though playlists, favorites, and other stats are private).
@@ -40,8 +40,12 @@ php artisan koel:admin:change-password
 ## Adding More Users
 
 With the `manage users` permission (admin and manager roles), you can add more users and manage their profiles under
-Manage → Users. If Koel has been [configured](../guide/getting-started#configure-a-mailer) with a mailer, you can also invite a user via email.
+Settings → Users. If Koel has been [configured](../guide/getting-started#configure-a-mailer) with a mailer, you can also invite a user via email. An invitation expires after a week.
 You cannot add, invite, edit, or delete users whose roles are higher than yours.
+
+When you change a user's email address, it takes effect right away. If a mailer is configured, Koel lets the user know at both the old and the new address.
+
+Deleting a user also deletes the songs they uploaded, along with their playlists and radio stations. Songs that came from scanning your media folder stay in the library and pass to another admin.
 
 ## Changing User Roles
 

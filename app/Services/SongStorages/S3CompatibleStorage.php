@@ -3,38 +3,70 @@
 namespace App\Services\SongStorages;
 
 use App\Enums\SongStorageType;
+use App\Exceptions\SongUploadFailedException;
 use App\Models\User;
 use App\Services\SongStorages\Concerns\DeletesUsingFilesystem;
-use App\Values\UploadReference;
+use App\Services\SongStorages\Concerns\ReadsFileSizeUsingFilesystem;
+use App\Services\SongStorages\Contracts\IssuesPresignedUploadUrls;
+use App\Values\PresignedUpload;
 use Illuminate\Container\Attributes\Config;
-use Illuminate\Support\Facades\File;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
-class S3CompatibleStorage extends CloudStorage
+class S3CompatibleStorage extends CloudStorage implements IssuesPresignedUploadUrls
 {
     use DeletesUsingFilesystem;
+    use ReadsFileSizeUsingFilesystem;
+
+    private const string PENDING_UPLOAD_PREFIX = 'pending/';
 
     public function __construct(
+        private readonly S3UploadUrlSigner $uploadUrlSigner,
         #[Config('filesystems.disks.s3.bucket')]
         private readonly ?string $bucket = null,
     ) {}
 
-    public function storeUploadedFile(string $uploadedFilePath, User $uploader): UploadReference
+    public function presignUpload(string $fileName, int $fileSize, User $uploader): PresignedUpload
     {
-        $key = $this->generateStorageKey(basename($uploadedFilePath), $uploader);
-        $this->uploadToStorage($key, $uploadedFilePath);
-
-        return UploadReference::make(location: "s3://$this->bucket/$key", localPath: $uploadedFilePath);
+        return $this->uploadUrlSigner->sign(
+            key: self::PENDING_UPLOAD_PREFIX . $this->generateStorageKey($fileName, $uploader),
+            size: $fileSize,
+            expiresAt: Carbon::now()->addHour(),
+        );
     }
 
-    public function undoUpload(UploadReference $reference): void
+    public function ownsUploadKey(string $key, User $uploader): bool
     {
-        // Delete the temporary file
-        File::delete($reference->localPath);
+        if (!Str::startsWith($key, self::PENDING_UPLOAD_PREFIX)) {
+            return false;
+        }
 
-        // Delete the file from S3
-        $this->deleteFileWithKey(Str::after($reference->location, "s3://$this->bucket/"));
+        $storageKey = Str::after($key, self::PENDING_UPLOAD_PREFIX);
+
+        if (Str::contains($storageKey, ['/', '\\'])) {
+            return false;
+        }
+
+        return Str::startsWith($storageKey, "{$uploader->public_id}__");
+    }
+
+    public function moveUploadOutOfPending(string $key): void
+    {
+        $storageKey = Str::after($key, self::PENDING_UPLOAD_PREFIX);
+        $moved = rescue(static fn (): bool => Storage::disk('s3')->move($key, $storageKey), false);
+
+        throw_unless($moved, SongUploadFailedException::make('The uploaded file could not be stored.'));
+    }
+
+    public function sizeOfUpload(string $key): int
+    {
+        return Storage::disk('s3')->size($key);
+    }
+
+    public function locationFromKey(string $key): string
+    {
+        return $this->getLocationPrefix() . Str::after($key, self::PENDING_UPLOAD_PREFIX);
     }
 
     public function getPresignedUrl(string $key): string
@@ -52,6 +84,11 @@ class S3CompatibleStorage extends CloudStorage
         $this->deleteFileWithKey($location, $backup);
     }
 
+    public function getFileSize(string $path): ?int
+    {
+        return self::readFileSizeUsingFilesystem(Storage::disk('s3'), $path);
+    }
+
     public function uploadToStorage(string $key, string $path): void
     {
         Storage::disk('s3')->put($key, fopen($path, 'r'));
@@ -63,13 +100,13 @@ class S3CompatibleStorage extends CloudStorage
         Storage::disk('s3')->delete('test.txt');
     }
 
-    public function getLocalPath(string $location): string
-    {
-        return $this->copyToLocal(Str::after($location, "s3://$this->bucket/"));
-    }
-
     public function getStorageType(): SongStorageType
     {
         return SongStorageType::S3;
+    }
+
+    protected function getLocationPrefix(): string
+    {
+        return "s3://$this->bucket/";
     }
 }

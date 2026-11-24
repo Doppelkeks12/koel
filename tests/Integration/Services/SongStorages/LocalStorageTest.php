@@ -12,6 +12,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 use function Tests\create_user;
+use function Tests\sandbox_path;
 use function Tests\test_path;
 
 class LocalStorageTest extends TestCase
@@ -37,14 +38,29 @@ class LocalStorageTest extends TestCase
     #[Test]
     public function storeUploadedFile(): void
     {
-        Setting::set('media_path', public_path('sandbox/media'));
+        Setting::set('media_path', sandbox_path('media'));
         File::copy(test_path('songs/full.mp3'), artifact_path('tmp/random/full.mp3'));
 
         $user = create_user();
 
         $reference = $this->service->storeUploadedFile(artifact_path('tmp/random/full.mp3'), $user);
 
-        self::assertSame(public_path("sandbox/media/__KOEL_UPLOADS_\${$user->id}__/full.mp3"), $reference->location);
+        self::assertSame(sandbox_path("media/__KOEL_UPLOADS_\${$user->id}__/full.mp3"), $reference->location);
         self::assertSame($reference->location, $reference->localPath);
+    }
+
+    #[Test]
+    public function getFileSize(): void
+    {
+        self::assertSame(
+            File::size(test_path('songs/full.mp3')),
+            $this->service->getFileSize(test_path('songs/full.mp3')),
+        );
+    }
+
+    #[Test]
+    public function getFileSizeOfMissingFile(): void
+    {
+        self::assertNull($this->service->getFileSize(test_path('songs/missing.mp3')));
     }
 }

@@ -4,9 +4,11 @@ namespace App\Services\Concerns;
 
 use App\Models\Song;
 use App\Models\User;
+use App\Services\AudioAnalysis\AnalyzeAudioOnScan;
 use App\Services\Scanners\FileScanner;
 use App\Services\SongService;
 use App\Services\SongStorages\SongStorage;
+use App\Services\Transcoding\TranscodeOnScan;
 use App\Values\Scanning\ScanConfiguration;
 
 trait ScansAndStoresSong
@@ -14,10 +16,13 @@ trait ScansAndStoresSong
     private function scanAndStore(
         string $localFilePath,
         string $storageLocation,
+        string $originalFileName,
         User $owner,
         FileScanner $scanner,
         SongService $songService,
         SongStorage $storage,
+        TranscodeOnScan $transcodeOnScan,
+        AnalyzeAudioOnScan $analyzeAudioOnScan,
     ): Song {
         $config = ScanConfiguration::make(
             owner: $owner,
@@ -25,7 +30,7 @@ trait ScansAndStoresSong
             extractFolderStructure: $storage->getStorageType()->supportsFolderStructureExtraction(),
         );
 
-        $song = $songService->createOrUpdateSongFromScan($scanner->scan($localFilePath), $config);
+        $song = $songService->createOrUpdateSongFromScan($scanner->scan($localFilePath, $originalFileName), $config);
 
         if ($song->path !== $storageLocation || $song->storage !== $storage->getStorageType()) {
             $song->update([
@@ -33,6 +38,9 @@ trait ScansAndStoresSong
                 'storage' => $storage->getStorageType(),
             ]);
         }
+
+        $transcodeOnScan->transcodeSongIfNeeded($song, $localFilePath);
+        $analyzeAudioOnScan->analyzeSongIfEnabled($song);
 
         return $song;
     }

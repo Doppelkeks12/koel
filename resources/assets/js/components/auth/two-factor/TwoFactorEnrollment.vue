@@ -17,7 +17,7 @@
 
       <div class="flex gap-2 mt-6">
         <Btn :disabled="!provisioningUri" type="submit">Confirm</Btn>
-        <Btn type="button" variant="ghost" @click.prevent="$emit('cancel')">Cancel</Btn>
+        <Btn type="button" variant="neutral" @click.prevent="$emit('cancel')">Cancel</Btn>
       </div>
     </form>
   </div>
@@ -58,7 +58,6 @@ onMounted(async () => {
 
 const { data, handleSubmit } = useForm<{ code: string }>({
   initialValues: { code: '' },
-  useOverlay: false,
   onSubmit: async ({ code }) => await authService.confirmTwoFactor(code),
   onSuccess: result => {
     toastSuccess('Two-factor authentication enabled.')

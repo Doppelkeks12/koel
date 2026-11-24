@@ -138,7 +138,47 @@ class UserServiceTest extends PlusTestCase
     }
 
     #[Test]
-    public function updateSsoUserCannotChangeProfileDetails(): void
+    public function signingInViaSsoAcceptsPendingInvitation(): void
+    {
+        $prospect = User::factory()->prospect()->createOne(['email' => 'bruce@iron.com']);
+
+        $socialiteUser = Mockery::mock(SocialiteUser::class, [
+            'getId' => '123',
+            'getEmail' => 'bruce@iron.com',
+            'getName' => 'Bruce Dickinson',
+            'getAvatar' => null,
+        ]);
+
+        $this->service->createOrUpdateUserFromSso(SsoUser::fromSocialite($socialiteUser, 'Google'));
+        $prospect->refresh();
+
+        self::assertFalse($prospect->is_prospect);
+        self::assertNotNull($prospect->invitation_accepted_at);
+        self::assertSame('Bruce Dickinson', $prospect->name);
+    }
+
+    #[Test]
+    public function updateUserFromSsoKeepsUploadedAvatar(): void
+    {
+        $user = create_user([
+            'email' => 'bruce@iron.com',
+            'avatar' => 'uploaded.webp',
+        ]);
+
+        $socialiteUser = Mockery::mock(SocialiteUser::class, [
+            'getId' => '123',
+            'getEmail' => 'bruce@iron.com',
+            'getName' => 'Bruce Dickinson',
+            'getAvatar' => 'https://lh3.googleusercontent.com/a/vatar',
+        ]);
+
+        $this->service->createOrUpdateUserFromSso(SsoUser::fromSocialite($socialiteUser, 'Google'));
+
+        self::assertSame('uploaded.webp', $user->refresh()->getRawOriginal('avatar'));
+    }
+
+    #[Test]
+    public function updateSsoUserKeepsEmailButChangesPassword(): void
     {
         $user = create_user([
             'email' => 'bruce@iron.com',
@@ -156,7 +196,22 @@ class UserServiceTest extends PlusTestCase
         $user->refresh();
 
         self::assertSame('bruce@iron.com', $user->email);
-        self::assertFalse(Hash::check('TheTrooper', $user->password));
+        self::assertTrue(Hash::check('TheTrooper', $user->password));
         self::assertSame(Role::MANAGER, $user->role);
+    }
+
+    #[Test]
+    public function updateReverseProxyUserKeepsPassword(): void
+    {
+        $user = create_user(['sso_provider' => 'Reverse Proxy']);
+        $originalPassword = $user->password;
+
+        $this->service->updateUser($user, UserUpdateData::make(
+            name: 'Steve Harris',
+            email: 'steve@iron.com',
+            plainTextPassword: 'TheTrooper',
+        ));
+
+        self::assertSame($originalPassword, $user->refresh()->password);
     }
 }

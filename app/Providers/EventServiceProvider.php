@@ -12,12 +12,13 @@ use App\Events\SongFavoriteToggled;
 use App\Events\UserUnsubscribedFromPodcast;
 use App\Listeners\DeleteNonExistingRecordsPostScan;
 use App\Listeners\DeletePodcastIfNoSubscribers;
+use App\Listeners\InvalidateLibrarySummaries;
 use App\Listeners\LoveMultipleTracksOnLastfm;
 use App\Listeners\LoveTrackOnLastfm;
 use App\Listeners\MakePlaylistSongsPublic;
 use App\Listeners\PruneLibrary;
 use App\Listeners\UnloveMultipleTracksOnLastfm;
-use App\Listeners\UpdateLastfmNowPlaying;
+use App\Listeners\UpdateNowPlaying;
 use App\Listeners\WriteScanLog;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as BaseServiceProvider;
 
@@ -37,16 +38,18 @@ class EventServiceProvider extends BaseServiceProvider
         ],
 
         PlaybackStarted::class => [
-            UpdateLastfmNowPlaying::class,
+            UpdateNowPlaying::class,
         ],
 
         LibraryChanged::class => [
             PruneLibrary::class,
+            InvalidateLibrarySummaries::class,
         ],
 
         MediaScanCompleted::class => [
             DeleteNonExistingRecordsPostScan::class,
             WriteScanLog::class,
+            InvalidateLibrarySummaries::class,
         ],
 
         NewPlaylistCollaboratorJoined::class => [

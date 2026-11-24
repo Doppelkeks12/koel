@@ -51,10 +51,10 @@ describe('podcastListScreen.vue', () => {
     await renderComponent()
     expect(screen.getAllByTestId('podcast-item')).toHaveLength(9)
 
-    await h.user.click(screen.getByRole('button', { name: 'Show favorites only' }))
+    await h.user.click(screen.getByRole('button', { name: 'Favorites only' }))
     await waitFor(() => expect(screen.getAllByTestId('podcast-item')).toHaveLength(3))
 
-    await h.user.click(screen.getByRole('button', { name: 'Show all' }))
+    await h.user.click(screen.getByRole('button', { name: 'Favorites only' }))
     await waitFor(() => expect(screen.getAllByTestId('podcast-item')).toHaveLength(9))
   })
 
@@ -64,11 +64,20 @@ describe('podcastListScreen.vue', () => {
 
     await renderComponent()
 
-    await h.user.click(screen.getByRole('button', { name: 'Show favorites only' }))
+    await h.user.click(screen.getByRole('button', { name: 'Favorites only' }))
 
     await waitFor(() => {
       const emptyState = screen.getByTestId('screen-empty-state')
       expect(emptyState.textContent).toContain('No favorite podcasts')
     })
+  })
+
+  it('does not let guests add podcasts', async () => {
+    h.actingAsUser(h.factory('user').make({ role: 'guest' }) as CurrentUser)
+    h.mock(podcastStore, 'fetchAll')
+    podcastStore.state.podcasts = []
+    await renderComponent()
+
+    expect(screen.queryByRole('button', { name: 'Add a podcast' })).toBeNull()
   })
 })

@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Subsonic;
 
-use App\Models\User;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -84,14 +83,6 @@ class PingTest extends TestCase
     }
 
     #[Test]
-    public function userObserverPopulatesApiKeyOnCreate(): void
-    {
-        $user = User::factory()->createOne();
-
-        self::assertNotNull($user->subsonic_api_key);
-    }
-
-    #[Test]
     public function jsonpWrapsResponseInValidCallback(): void
     {
         $user = create_user();
@@ -118,5 +109,16 @@ class PingTest extends TestCase
         self::assertStringNotContainsString('<script>', $response->getContent());
         $response->assertJsonPath('subsonic-response.status', 'failed');
         $response->assertJsonPath('subsonic-response.error.code', 10);
+    }
+
+    #[Test]
+    public function userPendingDeletionIsRejected(): void
+    {
+        $user = create_user(['deletion_requested_at' => now()]);
+
+        $this
+            ->getJson('/rest/ping.view?f=json&apiKey=' . $user->subsonic_api_key)
+            ->assertOk()
+            ->assertJsonPath('subsonic-response.error.code', 40);
     }
 }

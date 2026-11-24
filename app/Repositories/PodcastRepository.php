@@ -44,6 +44,26 @@ class PodcastRepository extends Repository implements ScoutableRepository
             ->get();
     }
 
+    public function countSubscribedByUser(User $user): int
+    {
+        return Podcast::query()->setScopedUser($user)->subscribed()->count();
+    }
+
+    /** @return Collection<int, Podcast> */
+    public function getRecentlySubscribedByUser(int $count, ?User $user = null): Collection
+    {
+        $user ??= $this->auth->user();
+
+        return Podcast::query()
+            ->with(['subscribers' => static fn (Relation $query) => $query->where('users.id', $user->id)])
+            ->setScopedUser($user)
+            ->withUserContext($user)
+            ->subscribed()
+            ->orderByDesc('podcast_user.created_at')
+            ->limit($count)
+            ->get();
+    }
+
     /** @return Collection<int, Podcast> */
     public function getMany(array $ids, bool $preserveOrder = false, ?User $user = null): Collection
     {
@@ -54,9 +74,8 @@ class PodcastRepository extends Repository implements ScoutableRepository
             ->setScopedUser($user)
             ->withUserContext($user)
             ->subscribed()
-            ->whereIn('podcasts.id', $ids)
             ->distinct()
-            ->get();
+            ->getWhereInChunks('podcasts.id', $ids);
 
         return $preserveOrder ? $podcasts->orderByArray($ids) : $podcasts;
     }
@@ -64,9 +83,9 @@ class PodcastRepository extends Repository implements ScoutableRepository
     public function search(string $keywords, int $limit, ?User $user = null): Collection
     {
         return $this->getMany(
-            ids: Podcast::search($keywords)->take($limit)->get()->modelKeys(),
+            ids: Podcast::search($keywords)->take(self::SEARCH_CANDIDATE_LIMIT)->keys()->all(),
             preserveOrder: true,
             user: $user,
-        );
+        )->take($limit);
     }
 }

@@ -9,6 +9,11 @@ use InvalidArgumentException;
 use SimpleXMLElement;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
+// @mago-ignore lint:cyclomatic-complexity
+// The XML serializer must distinguish three shapes rather than two: scalars become attributes,
+// lists become repeated children, and everything else becomes a single child. That third case now
+// includes empty objects, which is how a required-but-empty element such as <albumInfo/> is
+// emitted at all. The extra guard puts the class one over the threshold.
 class SubsonicResponse implements Responsable
 {
     public const string API_VERSION = '1.16.1';
@@ -104,18 +109,30 @@ class SubsonicResponse implements Responsable
         }
     }
 
+    /**
+     * Elements whose fields the Subsonic XSD declares as child elements rather than attributes.
+     */
+    private const array ELEMENTS_WITH_SCALAR_CHILDREN = ['albumInfo', 'artistInfo', 'artistInfo2'];
+
     /** @param array<string, mixed> $data */
     private static function serializeTo(SimpleXMLElement $element, array $data): void
     {
+        $scalarsAsChildren = in_array($element->getName(), self::ELEMENTS_WITH_SCALAR_CHILDREN, true);
+
         foreach ($data as $key => $value) {
-            if (is_scalar($value) || $value === null) {
+            if ((is_scalar($value) || $value === null) && $scalarsAsChildren) {
+                self::appendChild($element, $key, ['value' => $value]);
+            } elseif (is_scalar($value) || $value === null) {
                 $element->addAttribute($key, self::formatScalar($value));
-            } elseif (Arr::isList($value)) {
+            } elseif (is_array($value) && Arr::isList($value)) {
                 foreach ($value as $item) {
                     self::appendChild($element, $key, is_array($item) ? $item : ['value' => $item]);
                 }
             } else {
-                self::appendChild($element, $key, $value);
+                // Objects land here too, which is how a required-but-empty element such as
+                // <albumInfo/> still gets emitted. An empty *array* would be a list and produce
+                // no element at all, so the no-data case is modelled as an empty object.
+                self::appendChild($element, $key, (array) $value);
             }
         }
     }

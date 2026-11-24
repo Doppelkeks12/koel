@@ -51,6 +51,17 @@ describe('encyclopediaService', () => {
     expect(hasCacheMock).toHaveBeenCalledWith(['album.info', album.id, album.name])
     expect(setCacheMock).toHaveBeenCalledWith(['album.info', album.id, album.name], albumInfo)
     expect(album.cover).toBe(albumInfo.cover)
+    expect(album.small_cover).toBe(albumInfo.cover)
+  })
+
+  it('leaves a partial album out of the store', async () => {
+    h.mock(http, 'get').mockResolvedValue(h.factory('album-info').make())
+    h.mock(cache, 'has', false)
+    const albumId = h.factory('album').make().id
+
+    await encyclopediaService.fetchForAlbum({ id: albumId } as Album)
+
+    expect(albumStore.byId(albumId)).toBeUndefined()
   })
 
   it('gets the album info from cache', async () => {

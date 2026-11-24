@@ -87,7 +87,7 @@ describe('artistListScreen.vue', () => {
   it('shows all or only favorites upon toggling the button', async () => {
     const { paginateMock } = await renderComponent()
 
-    await h.user.click(screen.getByRole('button', { name: 'Show favorites only' }))
+    await h.user.click(screen.getByRole('button', { name: 'Favorites only' }))
 
     await waitFor(() =>
       expect(paginateMock).toHaveBeenNthCalledWith(2, {
@@ -98,7 +98,7 @@ describe('artistListScreen.vue', () => {
       }),
     )
 
-    await h.user.click(screen.getByRole('button', { name: 'Show all' }))
+    await h.user.click(screen.getByRole('button', { name: 'Favorites only' }))
 
     await waitFor(() =>
       expect(paginateMock).toHaveBeenNthCalledWith(3, {
@@ -159,5 +159,29 @@ describe('artistListScreen.vue', () => {
       const emptyState = screen.getByTestId('screen-empty-state')
       expect(emptyState.textContent).toContain('No favorite artists')
     })
+  })
+
+  it('shows the server matches while filtering', async () => {
+    preferenceStore.temporary.artists_favorites_only = false
+    const matches = h.factory('artist').make(2)
+    const searchMock = h.mock(artistStore, 'search').mockResolvedValue(matches)
+    await renderComponent()
+
+    await h.user.click(screen.getByRole('button', { name: 'Search' }))
+    await h.user.type(screen.getByPlaceholderText('Keywords'), 'foo')
+
+    await waitFor(() => expect(searchMock).toHaveBeenCalledWith('foo', false))
+    await waitFor(() => expect(screen.getAllByTestId('artist-card')).toHaveLength(2))
+  })
+
+  it('shows loading skeletons while a search runs', async () => {
+    preferenceStore.temporary.artists_favorites_only = false
+    h.mock(artistStore, 'search').mockReturnValue(new Promise(() => {}))
+    await renderComponent()
+
+    await h.user.click(screen.getByRole('button', { name: 'Search' }))
+    await h.user.type(screen.getByPlaceholderText('Keywords'), 'foo')
+
+    await waitFor(() => screen.getByRole('status', { name: 'Loading' }))
   })
 })

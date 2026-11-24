@@ -5,7 +5,7 @@ import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import { http } from '@/services/http'
 import themes from '@/config/themes'
 import { cache } from '@/services/cache'
-import { isDarkColor } from '@/utils/color'
+import { pickReadableTextColor } from '@/utils/color'
 
 export interface ThemeData {
   name: string
@@ -16,6 +16,9 @@ export interface ThemeData {
   highlight_color: string
   bg_image: string
 }
+
+const setHighlightForeground = (highlight: string) =>
+  document.body.style.setProperty('--color-highlight-fg', pickReadableTextColor(highlight))
 
 export const themeStore = {
   defaultProperties: {
@@ -40,9 +43,7 @@ export const themeStore = {
     }
 
     // calculate and set the highlight foreground color
-    const observer = new StyleObserver(([{ value }]) => {
-      document.body.style.setProperty('--color-highlight-fg', isDarkColor(value) ? '#ffffff' : '#111111')
-    })
+    const observer = new StyleObserver(([{ value }]) => setHighlightForeground(value))
 
     observer.observe(document.body, '--color-highlight')
 
@@ -52,6 +53,12 @@ export const themeStore = {
     }
 
     this.setTheme(theme)
+
+    const initialHighlight = getComputedStyle(document.body).getPropertyValue('--color-highlight').trim()
+
+    if (initialHighlight) {
+      setHighlightForeground(initialHighlight)
+    }
   },
 
   get all() {
@@ -76,6 +83,14 @@ export const themeStore = {
     }
 
     preferences.theme = theme.id
+  },
+
+  setCoverColors(colors: { background: string; highlight: string } | null) {
+    document.body.style.setProperty('--color-bg', colors?.background ?? this.defaultProperties['--color-bg'] ?? '')
+    document.body.style.setProperty(
+      '--color-highlight',
+      colors?.highlight ?? this.defaultProperties['--color-highlight'] ?? '',
+    )
   },
 
   isCurrentTheme(theme: Theme | Theme['id']) {

@@ -3,16 +3,12 @@
     <MenuItem @click="play">Play All</MenuItem>
     <MenuItem @click="shuffle">Shuffle All</MenuItem>
     <Separator />
+    <template v-if="!isOnPodcastScreen">
+      <MenuItem @click="viewDetails">View Details</MenuItem>
+      <Separator />
+    </template>
     <MenuItem @click="toggleFavorite">{{ podcast.favorite ? 'Undo Favorite' : 'Favorite' }}</MenuItem>
-    <Separator />
-    <li
-      tabindex="-1"
-      class="px-4 py-2 focus:outline-hidden"
-      @mouseover="($event.currentTarget as HTMLLIElement).focus()"
-    >
-      <StarRating :rateable="podcast" @rate="closeContextMenu" />
-    </li>
-    <Separator />
+    <ContextMenuRatingItem :rateable="podcast" />
     <MenuItem @click="visitWebsite">Visit Website</MenuItem>
     <Separator />
     <MenuItem @click="unsubscribe">Unsubscribe</MenuItem>
@@ -20,45 +16,50 @@
 </template>
 
 <script lang="ts" setup>
-import { toRefs } from 'vue'
+import { computed, toRefs } from 'vue'
 import { playableStore } from '@/stores/playableStore'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useRouter } from '@/composables/useRouter'
 import { eventBus } from '@/utils/eventBus'
 import { podcastStore } from '@/stores/podcastStore'
-import { playback } from '@/services/playbackManager'
 import { useDialogBox } from '@/composables/useDialogBox'
 import { useMessageToaster } from '@/composables/useMessageToaster'
+import { usePlayCollection } from '@/composables/usePlayCollection'
 
-import StarRating from '@/components/ui/StarRating.vue'
+import ContextMenuRatingItem from '@/components/ui/context-menu/ContextMenuRatingItem.vue'
 
 const props = defineProps<{ podcast: Podcast }>()
 const { podcast } = toRefs(props)
 
-const { go, url } = useRouter()
-const { MenuItem, Separator, closeContextMenu, trigger } = useContextMenu()
+const { getRouteParam, go, isCurrentScreen, url } = useRouter()
+const { MenuItem, Separator, trigger } = useContextMenu()
 const { showConfirmDialog } = useDialogBox()
 const { toastSuccess } = useMessageToaster()
 
-const play = () =>
-  trigger(async () => {
-    playback().queueAndPlay(await playableStore.fetchEpisodesInPodcast(podcast.value))
-    go(url('queue'))
-  })
+const isOnPodcastScreen = computed(() => isCurrentScreen('Podcast') && getRouteParam('id') === podcast.value.id)
+const viewDetails = () => trigger(() => go(url('podcasts.show', { id: podcast.value.id })))
 
-const shuffle = () =>
-  trigger(async () => {
-    playback().queueAndPlay(await playableStore.fetchEpisodesInPodcast(podcast.value), true)
-    go(url('queue'))
-  })
+const { playCollection } = usePlayCollection()
 
-const unsubscribe = async () => {
-  if (await showConfirmDialog('Unsubscribe from podcast?')) {
-    await podcastStore.unsubscribe(podcast.value)
-    toastSuccess('Podcast unsubscribed.')
-    eventBus.emit('PODCAST_UNSUBSCRIBED', podcast.value)
-  }
-}
+const playEpisodes = (shuffle: boolean) =>
+  trigger(() =>
+    playCollection(() => playableStore.fetchEpisodesInPodcast(podcast.value), {
+      shuffle,
+      emptyMessage: 'The podcast has no episodes.',
+    }),
+  )
+
+const play = () => playEpisodes(false)
+const shuffle = () => playEpisodes(true)
+
+const unsubscribe = () =>
+  trigger(async () => {
+    if (await showConfirmDialog('Unsubscribe from podcast?')) {
+      await podcastStore.unsubscribe(podcast.value)
+      toastSuccess('Podcast unsubscribed.')
+      eventBus.emit('PODCAST_UNSUBSCRIBED', podcast.value)
+    }
+  })
 
 const visitWebsite = () => trigger(() => window.open(podcast.value?.link))
 

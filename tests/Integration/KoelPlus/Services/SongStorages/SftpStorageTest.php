@@ -5,8 +5,11 @@ namespace Tests\Integration\KoelPlus\Services\SongStorages;
 use App\Helpers\Ulid;
 use App\Services\SongStorages\SftpStorage;
 use App\Values\UploadReference;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\PlusTestCase;
@@ -38,7 +41,7 @@ class SftpStorageTest extends PlusTestCase
 
         Storage::disk('sftp')->assertExists(Str::after($reference->location, 'sftp://'));
 
-        self::assertSame("sftp://{$user->id}__random__song.mp3", $reference->location);
+        self::assertSame("sftp://{$user->public_id}__random__song.mp3", $reference->location);
         self::assertSame(artifact_path('tmp/random/song.mp3'), $reference->localPath);
     }
 
@@ -48,7 +51,11 @@ class SftpStorageTest extends PlusTestCase
         Storage::disk('sftp')->put('123__random__song.mp3', 'fake content');
         File::expects('delete')->with('/tmp/random/song.mp3');
 
-        $reference = UploadReference::make(location: 'sftp://123__random__song.mp3', localPath: '/tmp/random/song.mp3');
+        $reference = UploadReference::make(
+            location: 'sftp://123__random__song.mp3',
+            localPath: '/tmp/random/song.mp3',
+            originalFileName: 'song.mp3',
+        );
 
         $this->service->undoUpload($reference);
     }
@@ -74,5 +81,51 @@ class SftpStorageTest extends PlusTestCase
         $localPath = $this->service->copyToLocal('music/test-song.mp3');
 
         self::assertStringEqualsFile($localPath, 'fake mp3 content');
+    }
+
+    #[Test]
+    public function downloadARemoteFileOnceForRepeatedStreaming(): void
+    {
+        Storage::disk('sftp')->put('music/reused-song.mp3', 'fake mp3 content');
+
+        $firstCopy = $this->service->getReusableLocalCopy('music/reused-song.mp3');
+        touch($firstCopy, now()->subDays(2)->getTimestamp());
+        Storage::disk('sftp')->put('music/reused-song.mp3', 'changed content');
+        $secondCopy = $this->service->getReusableLocalCopy('music/reused-song.mp3');
+
+        self::assertSame($firstCopy, $secondCopy);
+        self::assertStringEqualsFile($secondCopy, 'fake mp3 content');
+        clearstatcache();
+        self::assertGreaterThan(now()->subHour()->getTimestamp(), filemtime($secondCopy));
+
+        File::delete($secondCopy);
+    }
+
+    #[Test]
+    public function waitForAnotherRequestDownloadingTheSameFile(): void
+    {
+        $this->freezeTime();
+        Sleep::fake(syncWithCarbon: true);
+
+        Storage::disk('sftp')->put('music/locked-song.mp3', 'fake mp3 content');
+        Cache::lock(cache_key('reusable local copy', 'sftp', 'music/locked-song.mp3'), 600)->get();
+
+        $this->expectException(LockTimeoutException::class);
+
+        $this->service->getReusableLocalCopy('music/locked-song.mp3');
+    }
+
+    #[Test]
+    public function getFileSize(): void
+    {
+        Storage::disk('sftp')->put('song.mp3', 'fake content');
+
+        self::assertSame(12, $this->service->getFileSize('song.mp3'));
+    }
+
+    #[Test]
+    public function getFileSizeOfMissingFile(): void
+    {
+        self::assertNull($this->service->getFileSize('missing.mp3'));
     }
 }

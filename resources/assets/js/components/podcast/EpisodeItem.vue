@@ -18,13 +18,14 @@
         alt="Episode thumbnail"
         class="w-[128px] aspect-square object-cover"
         loading="lazy"
+        decoding="async"
       />
       <span class="absolute top-0 left-0 w-full h-full group-hover:bg-black/40 z-10" />
       <span
         class="absolute flex opacity-0 items-center justify-center w-[48px] aspect-square rounded-full top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-k-highlight group-hover:opacity-100 duration-500 transition z-20"
       >
         <Icon v-if="isPlaying" :icon="faPause" class="text-white" size="2xl" />
-        <Icon v-else :icon="faPlay" class="ml-1 text-white" size="2xl" />
+        <Icon v-else :icon="faPlay" class="play-icon-centered text-white" size="2xl" />
       </span>
       <span class="sr-only">Play/Pause</span>
     </button>
@@ -37,7 +38,7 @@
         {{ publicationDateForHumans }}
       </time>
 
-      <h3 class="text-xl" :title="episode.title">
+      <h3 class="text-xl">
         {{ episode.title }}
 
         <FavoriteButton v-if="episode.favorite" :favorite="episode.favorite" class="ml-2" @toggle="toggleFavorite" />
@@ -54,8 +55,29 @@
   </a>
 </template>
 
-<script setup lang="ts">
+<script lang="ts">
 import DOMPurify from 'dompurify'
+import { toRaw } from 'vue'
+
+const sanitizedDescriptions = new WeakMap<Episode, { source: string; sanitized: string }>()
+
+const getSanitizedDescription = (episode: Episode) => {
+  const rawEpisode = toRaw(episode)
+  const source = episode.episode_description
+  const cached = sanitizedDescriptions.get(rawEpisode)
+
+  if (cached?.source === source) {
+    return cached.sanitized
+  }
+
+  const sanitized = DOMPurify.sanitize(source)
+  sanitizedDescriptions.set(rawEpisode, { source, sanitized })
+
+  return sanitized
+}
+</script>
+
+<script setup lang="ts">
 import { orderBy } from 'lodash-es'
 import { faBookmark, faPause, faPlay } from '@fortawesome/free-solid-svg-icons'
 import { computed, toRefs } from 'vue'
@@ -107,7 +129,7 @@ const timeLeft = computed(() => {
 
 const shouldShowProgress = computed(() => timeLeft.value !== 0 && episode.value.length && currentPosition.value)
 const isCurrentEpisode = computed(() => podcast.value.state.current_episode === episode.value.id)
-const description = computed(() => DOMPurify.sanitize(episode.value.episode_description))
+const description = computed(() => getSanitizedDescription(episode.value))
 
 const onDragStart = (event: DragEvent) => startDragging(event, episode.value)
 

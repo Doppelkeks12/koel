@@ -21,8 +21,9 @@
       @input="onInput"
     />
 
-    <button class="block md:hidden py-0 px-4 bg-k-fg-5 rounded-none" title="Search" type="submit">
+    <button class="block md:hidden py-0 px-4 bg-k-fg-5 rounded-none" type="submit">
       <Icon :icon="faSearch" />
+      <span class="sr-only">Search</span>
     </button>
 
     <span class="hidden md:flex items-center px-3 text-k-fg-30 pointer-events-none">
@@ -37,6 +38,7 @@ import { faSearch } from '@fortawesome/free-solid-svg-icons'
 import { ref } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { eventBus } from '@/utils/eventBus'
+import { searchStore } from '@/stores/searchStore'
 import { useRouter } from '@/composables/useRouter'
 
 import TextInput from '@/components/ui/form/TextInput.vue'
@@ -52,7 +54,11 @@ const q = ref('')
 
 let onInput = () => {
   const trimmed = q.value.trim()
-  trimmed && eventBus.emit('SEARCH_KEYWORDS_CHANGED', trimmed)
+
+  if (trimmed) {
+    searchStore.state.keywords = trimmed
+    eventBus.emit('SEARCH_KEYWORDS_CHANGED', trimmed)
+  }
 }
 
 if (!window.RUNNING_UNIT_TESTS) {

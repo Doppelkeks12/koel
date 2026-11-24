@@ -1,5 +1,9 @@
 <template>
-  <article class="w-[650px]" :class="(loading || encryptingOptions) && 'pointer-events-none opacity-70'">
+  <article
+    class="w-[650px]"
+    :class="(loading || encryptingOptions) && 'pointer-events-none opacity-70'"
+    @keydown.esc="emit('close')"
+  >
     <header>
       <h1>Embed {{ typeLabel }}</h1>
     </header>
@@ -27,9 +31,9 @@
       </div>
     </main>
     <footer class="flex items-center">
-      <div class="flex-1">
+      <div class="flex-1 flex gap-2">
         <Btn type="submit" @click.prevent="copyCode">Copy Code</Btn>
-        <Btn variant="ghost" @click="emit('close')">Close</Btn>
+        <Btn variant="neutral" @click="emit('close')">Close</Btn>
       </div>
       <label>
         <CheckBox v-model="showCode" />
@@ -48,6 +52,7 @@ import { copyText } from '@/utils/helpers'
 import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { useForm } from '@/composables/useForm'
+import { clientUrl } from '@/utils/clientUrl'
 
 import Btn from '@/components/ui/form/Btn.vue'
 import EmbedOptionsPanel from '@/components/embed/EmbedOptionsPanel.vue'
@@ -79,7 +84,6 @@ const {
     preview: false,
   },
   onSubmit: async data => (encryptedOptions.value = await embedService.encryptOptions(data)),
-  useOverlay: false,
 })
 
 watch(options, async () => await encryptOptions(), { immediate: true })
@@ -89,7 +93,7 @@ const embedSrc = computed(() => {
     return null
   }
 
-  return `${window.KOEL.base_url}#/embed/${embed.value.id}/${encryptedOptions.value}`
+  return clientUrl(`/embed/${embed.value.id}/${encryptedOptions.value}`)
 })
 
 const code = computed(() => {
@@ -130,6 +134,9 @@ switch (embeddable.type) {
     break
   case 'episodes':
     typeLabel = 'Podcast Episode'
+    break
+  case 'favorites':
+    typeLabel = 'Favorites'
     break
   default:
     throw new Error('Unknown embeddable type')

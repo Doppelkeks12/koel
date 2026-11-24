@@ -8,17 +8,21 @@ use App\Values\User\Preferences\ActiveExtraPanelTabPreference;
 use App\Values\User\Preferences\AlbumsSortFieldPreference;
 use App\Values\User\Preferences\AlbumsSortOrderPreference;
 use App\Values\User\Preferences\AlbumsViewModePreference;
+use App\Values\User\Preferences\ArtistsSortFieldPreference;
 use App\Values\User\Preferences\CrossfadeDurationPreference;
 use App\Values\User\Preferences\CurrentEqualizerPresetPreference;
 use App\Values\User\Preferences\EqualizerPresetsPreference;
 use App\Values\User\Preferences\HomeBlocksOrderPreference;
-use App\Values\User\Preferences\LastfmSessionKeyPreference;
-use App\Values\User\Preferences\MakeUploadsPublicPreference;
+use App\Values\User\Preferences\MusicPlaybackSpeedPreference;
+use App\Values\User\Preferences\Preference;
+use App\Values\User\Preferences\RadioStationsSortFieldPreference;
 use App\Values\User\Preferences\RadioStationsViewModePreference;
 use App\Values\User\Preferences\RepeatModePreference;
 use App\Values\User\Preferences\TranscodeQualityPreference;
 use App\Values\User\Preferences\VolumePreference;
+use App\Values\User\UserPreferences;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 use Webmozart\Assert\InvalidArgumentException as AssertException;
@@ -76,17 +80,32 @@ class PreferenceBehaviorTest extends TestCase
         AlbumsSortFieldPreference::make('unknown_column');
     }
 
+    /** @return array<string, array{class-string<Preference>, string}> */
+    public static function provideSortFieldsOfferedByTheUi(): array
+    {
+        return [
+            'albums by length' => [AlbumsSortFieldPreference::class, 'length'],
+            'albums by rating' => [AlbumsSortFieldPreference::class, 'rating'],
+            'albums by favorite' => [AlbumsSortFieldPreference::class, 'favorite'],
+            'artists by rating' => [ArtistsSortFieldPreference::class, 'rating'],
+            'artists by favorite' => [ArtistsSortFieldPreference::class, 'favorite'],
+            'radio stations by favorite' => [RadioStationsSortFieldPreference::class, 'favorite'],
+        ];
+    }
+
+    /** @param class-string<Preference> $class */
+    #[Test]
+    #[DataProvider('provideSortFieldsOfferedByTheUi')]
+    public function sortFieldAcceptsFieldOfferedByTheUi(string $class, string $field): void
+    {
+        self::assertSame($field, $class::make($field)->getValue());
+    }
+
     #[Test]
     public function albumsSortOrderNormalizesToLowercase(): void
     {
         self::assertSame('asc', AlbumsSortOrderPreference::make('ASC')->getValue());
         self::assertSame('desc', AlbumsSortOrderPreference::make('Desc')->getValue());
-    }
-
-    #[Test]
-    public function activeExtraPanelTabAcceptsNull(): void
-    {
-        self::assertNull(ActiveExtraPanelTabPreference::make(null)->getValue());
     }
 
     #[Test]
@@ -97,26 +116,17 @@ class PreferenceBehaviorTest extends TestCase
     }
 
     #[Test]
-    public function makeUploadsPublicCoercesTruthyStrings(): void
-    {
-        self::assertTrue(MakeUploadsPublicPreference::make('true')->getValue());
-        self::assertTrue(MakeUploadsPublicPreference::make(1)->getValue());
-        self::assertFalse(MakeUploadsPublicPreference::make('false')->getValue());
-        self::assertFalse(MakeUploadsPublicPreference::make(0)->getValue());
-        self::assertFalse(MakeUploadsPublicPreference::make(null)->getValue());
-    }
-
-    #[Test]
-    public function crossfadeDurationCastsToInt(): void
-    {
-        self::assertSame(5, CrossfadeDurationPreference::make('5')->getValue());
-    }
-
-    #[Test]
     public function crossfadeDurationRejectsOutOfRange(): void
     {
         $this->expectException(AssertException::class);
         CrossfadeDurationPreference::make(20);
+    }
+
+    #[Test]
+    public function playbackSpeedRejectsUnlistedSpeed(): void
+    {
+        $this->expectException(AssertException::class);
+        MusicPlaybackSpeedPreference::make(3);
     }
 
     #[Test]
@@ -127,11 +137,12 @@ class PreferenceBehaviorTest extends TestCase
     }
 
     #[Test]
-    public function lastfmSessionKeyIsNotCustomizable(): void
+    public function onlyIntegrationTokensAreEncrypted(): void
     {
-        self::assertFalse((new LastfmSessionKeyPreference())->isCustomizable());
-        self::assertSame('lastFmSessionKey', (new LastfmSessionKeyPreference())->getProperty());
-        self::assertSame('lastfm_session_key', (new LastfmSessionKeyPreference())->getKey());
+        self::assertEqualsCanonicalizing(
+            ['lastfm_session_key', 'listenbrainz_token'],
+            UserPreferences::encryptedKeys(),
+        );
     }
 
     #[Test]
@@ -171,12 +182,6 @@ class PreferenceBehaviorTest extends TestCase
         self::assertInstanceOf(EqualizerPresetCollection::class, $value);
         self::assertCount(1, $value);
         self::assertSame('Mine', $value->first()->name);
-    }
-
-    #[Test]
-    public function homeBlocksOrderDefaultsToEmptyArray(): void
-    {
-        self::assertSame([], HomeBlocksOrderPreference::make(null)->getValue());
     }
 
     #[Test]

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Enums\Acl\Permission;
 use App\Facades\License;
+use App\Hooks\Filter;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PlaylistFolderResource;
 use App\Http\Resources\PlaylistResource;
@@ -12,9 +13,9 @@ use App\Http\Resources\ThemeResource;
 use App\Http\Resources\UserResource;
 use App\Models\Setting;
 use App\Models\User;
+use App\Providers\SongStorageServiceProvider;
 use App\Repositories\PlaylistRepository;
 use App\Repositories\SettingRepository;
-use App\Repositories\SongRepository;
 use App\Repositories\ThemeRepository;
 use App\Services\ApplicationInformationService;
 use App\Services\Integrations\ITunesService;
@@ -23,9 +24,12 @@ use App\Services\Integrations\MusicBrainzService;
 use App\Services\Integrations\SpotifyService;
 use App\Services\Integrations\TicketmasterService;
 use App\Services\Integrations\YouTubeService;
+use App\Services\LibrarySummaryService;
 use App\Services\License\Contracts\LicenseServiceInterface;
 use App\Services\MediaBrowser;
 use App\Services\QueueService;
+use App\Services\SettingService;
+use App\Services\SongStorages\Contracts\IssuesPresignedUploadUrls;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 class FetchInitialDataController extends Controller
@@ -34,23 +38,37 @@ class FetchInitialDataController extends Controller
     public function __invoke(
         ITunesService $iTunesService,
         SettingRepository $settingRepository,
-        SongRepository $songRepository,
+        LibrarySummaryService $librarySummaryService,
         PlaylistRepository $playlistRepository,
         ApplicationInformationService $applicationInformationService,
         QueueService $queueService,
         ThemeRepository $themeRepository,
         LicenseServiceInterface $licenseService,
+        SettingService $settingService,
+        YouTubeService $youTubeService,
         Authenticatable $user,
     ) {
         $licenseStatus = $licenseService->getStatus();
+        $aiSettings = $settingService->getAiSettings($user->organization);
+        $managesSettings = $user->hasPermissionTo(Permission::MANAGE_SETTINGS);
+        $youTubeSettings = ['has_api_key' => $youTubeService->hasStoredApiKey($user->organization)];
         $theme = $licenseStatus->isValid()
             ? $themeRepository->findUserThemeById($user->preferences->theme, $user)
             : null;
 
-        return response()->json([
-            'settings' => $user->hasPermissionTo(Permission::MANAGE_SETTINGS)
-                ? $settingRepository->getAllAsKeyValueArray()
-                : [],
+        return response()->json(apply_filters(Filter::INITIAL_DATA_FETCHED, [
+            'settings' => match (true) {
+                !$managesSettings => [],
+                License::isPlus() => [
+                    ...$settingRepository->getInstallWideAsKeyValueArray(),
+                    'ai' => $aiSettings->toArrayWithoutApiKey(),
+                    'youtube' => $youTubeSettings,
+                ],
+                default => [
+                    ...$settingRepository->getInstallWideAsKeyValueArray(),
+                    'youtube' => $youTubeSettings,
+                ],
+            },
             'playlists' => PlaylistResource::collection($playlistRepository->getAllAccessibleByUser($user)),
             'playlist_folders' => PlaylistFolderResource::collection($user->playlistFolders),
             'current_user' => UserResource::make($user),
@@ -58,25 +76,26 @@ class FetchInitialDataController extends Controller
             'uses_musicbrainz' => MusicBrainzService::enabled(),
             'uses_last_fm' => LastfmService::used(),
             'uses_spotify' => SpotifyService::enabled(),
-            'uses_you_tube' => YouTubeService::enabled(),
+            'uses_you_tube' => $youTubeService->enabled($user->organization),
             'uses_i_tunes' => ITunesService::used(),
             'uses_ticketmaster' => TicketmasterService::used(),
             'allows_download' => config('koel.download.allow'),
-            'download_limit' => (int) config('koel.download.limit'),
             'uses_media_browser' => MediaBrowser::used(),
-            'uses_ai' => License::isPlus() && config('koel.ai.enabled'),
+            'uses_ai' => License::isPlus() && $aiSettings->isUsable(),
             'allows_embedding' => (bool) config('koel.embed.enabled'),
+            'uses_podcasts' => (bool) config('koel.podcasts.enabled'),
+            'uses_radio' => (bool) config('koel.radio.enabled'),
             'supports_batch_downloading' => extension_loaded('zip'),
             'media_path_set' => (bool) Setting::get('media_path'),
             'supports_transcoding' =>
                 config('koel.streaming.ffmpeg_path') && is_executable(config('koel.streaming.ffmpeg_path')),
             'cdn_url' => static_url(),
             'current_version' => koel_version(),
-            'latest_version' => $user->hasPermissionTo(Permission::MANAGE_SETTINGS)
+            'latest_version' => $managesSettings
                 ? $applicationInformationService->getLatestVersionNumber()
                 : koel_version(),
-            'song_count' => $songRepository->countSongs(),
-            'song_length' => $songRepository->getTotalSongLength(),
+            'song_count' => $librarySummaryService->getSongCount($user),
+            'song_length' => $librarySummaryService->getTotalSongLength($user),
             'queue_state' => QueueStateResource::make($queueService->getQueueState($user)),
             'koel_plus' => [
                 'active' => $licenseStatus->isValid(),
@@ -86,8 +105,13 @@ class FetchInitialDataController extends Controller
                 'product_id' => config('lemonsqueezy.product_id'),
             ],
             'storage_driver' => config('koel.storage_driver'),
+            'supports_presigned_uploads' => is_a(
+                SongStorageServiceProvider::configuredStorageClass(),
+                IssuesPresignedUploadUrls::class,
+                allow_string: true,
+            ),
             'dir_separator' => DIRECTORY_SEPARATOR,
             'current_theme' => $theme ? ThemeResource::make($theme) : null,
-        ]);
+        ]));
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services\Podcast;
 
 use App\Events\UserUnsubscribedFromPodcast;
+use App\Exceptions\ApplePodcastsFeedNotFoundException;
 use App\Exceptions\FailedToParsePodcastFeedException;
 use App\Exceptions\UserAlreadySubscribedToPodcastException;
 use App\Helpers\Uuid;
@@ -12,6 +13,7 @@ use App\Models\Song as Episode;
 use App\Models\User;
 use App\Repositories\PodcastRepository;
 use App\Repositories\SongRepository;
+use App\Services\Integrations\ITunesService;
 use App\Services\Network\Network;
 use App\Services\Network\SafeHttp;
 use Carbon\Carbon;
@@ -21,6 +23,8 @@ use GuzzleHttp\RequestOptions;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Support\Uri;
 use PhanAn\Poddle\Poddle;
 use PhanAn\Poddle\Values\Episode as EpisodeValue;
 use PhanAn\Poddle\Values\EpisodeCollection;
@@ -36,6 +40,7 @@ class PodcastService
         private readonly SongRepository $songRepository,
         private readonly Network $network,
         private readonly SafeHttp $http,
+        private readonly ITunesService $iTunesService,
         private readonly ?ClientInterface $client = null,
     ) {}
 
@@ -45,6 +50,7 @@ class PodcastService
         // @mago-ignore lint:no-ini-set,no-error-control-operator
         @ini_set('max_execution_time', 300);
 
+        $url = $this->resolveFeedUrl($url);
         $podcast = $this->podcastRepository->findOneByUrl($url);
 
         if ($podcast) {
@@ -91,6 +97,28 @@ class PodcastService
         }
     }
 
+    /**
+     * Turn an Apple Podcasts link (podcasts.apple.com/…/id123) into its RSS feed URL; other URLs pass through as-is.
+     */
+    private function resolveFeedUrl(string $url): string
+    {
+        $uri = Uri::of($url);
+
+        if (!in_array($uri->host(), ['podcasts.apple.com', 'itunes.apple.com'], true)) {
+            return $url;
+        }
+
+        $applePodcastsId = Str::match('/\/id(\d+)/', $uri->path());
+
+        throw_if($applePodcastsId === '', ApplePodcastsFeedNotFoundException::create($url));
+
+        return (
+            $this->iTunesService->getPodcastFeedUrl(
+                $applePodcastsId,
+            ) ?? throw ApplePodcastsFeedNotFoundException::create($url)
+        );
+    }
+
     public function refreshPodcast(Podcast $podcast): Podcast
     {
         $parser = $this->createParser($podcast->url);
@@ -129,19 +157,26 @@ class PodcastService
 
     private function synchronizeEpisodes(Podcast $podcast, EpisodeCollection $episodeCollection): void
     {
-        $existingEpisodeGuids = $this->songRepository->getEpisodeGuidsByPodcast($podcast);
+        $existingEpisodeGuids = array_flip(array_filter(
+            $this->songRepository->getEpisodeGuidsByPodcast($podcast),
+            static fn (?string $guid): bool => $guid !== null,
+        ));
+        $enclosureSafetyByOrigin = [];
         $records = [];
-        $ids = [];
 
         /** @var EpisodeValue $episodeValue */
         foreach ($episodeCollection as $episodeValue) {
-            if (in_array($episodeValue->guid->value, $existingEpisodeGuids, true)) {
+            if (isset($existingEpisodeGuids[$episodeValue->guid->value])) {
                 continue;
             }
 
             $enclosureUrl = (string) $episodeValue->enclosure->url;
+            $enclosureUri = rescue(static fn (): Uri => Uri::of($enclosureUrl), report: false);
+            $enclosureOrigin = $enclosureUri ? $enclosureUri->scheme() . '://' . $enclosureUri->host() : $enclosureUrl;
 
-            if (!$this->network->isSafeUrl($enclosureUrl)) {
+            $enclosureSafetyByOrigin[$enclosureOrigin] ??= $this->network->isSafeUrl($enclosureUrl);
+
+            if (!$enclosureSafetyByOrigin[$enclosureOrigin]) {
                 Log::warning(sprintf(
                     'Skipping podcast episode "%s" with unsafe enclosure URL: %s',
                     $episodeValue->title,
@@ -151,16 +186,20 @@ class PodcastService
                 continue;
             }
 
-            $id = Uuid::generate();
-            $ids[] = $id;
+            $existingEpisodeGuids[$episodeValue->guid->value] = true;
+
+            $publishedAt = $episodeValue->metadata->pubDate
+                ? Carbon::instance($episodeValue->metadata->pubDate)->setTimezone(now()->getTimezone())
+                : now();
+
             $records[] = [
-                'id' => $id,
+                'id' => Uuid::generate(),
                 'podcast_id' => $podcast->id,
                 'title' => $episodeValue->title,
                 'lyrics' => '',
                 'path' => $enclosureUrl,
-                'created_at' => $episodeValue->metadata->pubDate ?: now(),
-                'updated_at' => $episodeValue->metadata->pubDate ?: now(),
+                'created_at' => $publishedAt,
+                'updated_at' => $publishedAt,
                 'episode_metadata' => $episodeValue->metadata->toJson(),
                 'episode_guid' => $episodeValue->guid,
                 'length' => $episodeValue->metadata->duration ?? 0,
@@ -169,13 +208,19 @@ class PodcastService
             ];
         }
 
-        // We use insert() instead of $podcast->episodes()->createMany() for better performance,
-        // as the latter would trigger a separate query for each episode.
-        Episode::query()->insert($records);
+        DB::transaction(static function () use ($records): void {
+            foreach (array_chunk($records, 500) as $recordChunk) {
+                // We use insert() instead of $podcast->episodes()->createMany() for better performance,
+                // as the latter would trigger a separate query for each episode.
+                Episode::query()->insert($recordChunk);
 
-        // Since insert() doesn't trigger model events, Scout operations will not be called.
-        // We have to manually update the search index.
-        Episode::query()->whereIn('id', $ids)->searchable(); // @phpstan-ignore-line
+                // Since insert() doesn't trigger model events, Scout operations will not be called.
+                // We have to manually update the search index, once the episodes are committed.
+                DB::afterCommit(
+                    static fn () => Episode::query()->whereIn('id', array_column($recordChunk, 'id'))->searchable(), // @phpstan-ignore-line
+                );
+            }
+        });
     }
 
     public function subscribeUserToPodcast(User $user, Podcast $podcast): void
@@ -209,6 +254,13 @@ class PodcastService
     {
         $user->podcasts()->detach($podcast);
         event(new UserUnsubscribedFromPodcast($user, $podcast));
+    }
+
+    public function unsubscribeUserFromAllPodcasts(User $user): void
+    {
+        $user
+            ->loadMissing('podcasts')
+            ->podcasts->each(fn (Podcast $podcast) => $this->unsubscribeUserFromPodcast($user, $podcast));
     }
 
     public function isPodcastObsolete(Podcast $podcast): bool
@@ -255,7 +307,7 @@ class PodcastService
         try {
             $response = $client->request($method, $url, [
                 RequestOptions::HEADERS => [
-                    'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
+                    'User-Agent' => http_user_agent(),
                     'Origin' => '*',
                 ],
                 RequestOptions::HTTP_ERRORS => false,

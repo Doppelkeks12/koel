@@ -1,14 +1,8 @@
-import { describe, expect, it, vi } from 'vite-plus/test'
-import type { Mock } from 'vite-plus/test'
+import { describe, expect, it } from 'vite-plus/test'
 import { screen } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
-import { useContextMenu } from '@/composables/useContextMenu'
 import Router from '@/router'
-import { assertOpenContextMenu } from '@/__tests__/assertions'
-import AlbumContextMenu from './AlbumContextMenu.vue'
 import Component from './AlbumRow.vue'
-
-vi.mock('@/composables/useContextMenu')
 
 describe('albumRow.vue', () => {
   const h = createHarness()
@@ -30,14 +24,21 @@ describe('albumRow.vue', () => {
     return { album, ...h.render(Component, { props: { album } }) }
   }
 
+  it('shows a compilation album artist without a link', () => {
+    renderComponent({ artist_id: 'various', artist_name: 'Various Artists' })
+
+    expect(screen.getAllByText('Various Artists')).not.toHaveLength(0)
+    expect(screen.queryByRole('link', { name: 'Various Artists' })).toBeNull()
+  })
+
   it('renders the album name and artist link', () => {
     renderComponent()
 
     screen.getByText('IV')
-    expect(screen.getByRole('link', { name: 'Led Zeppelin' })).toHaveProperty(
-      'href',
-      expect.stringContaining('/artists/led-zeppelin'),
-    )
+    const artistLinks = screen.getAllByRole('link', { name: 'Led Zeppelin' })
+
+    expect(artistLinks).toHaveLength(2)
+    artistLinks.forEach(link => expect(link).toHaveProperty('href', expect.stringContaining('/artists/led-zeppelin')))
   })
 
   it('emits toggle-favorite when the favorite button is clicked', async () => {
@@ -57,12 +58,11 @@ describe('albumRow.vue', () => {
     expect(goMock).toHaveBeenCalledWith(expect.stringContaining('/albums/iv'))
   })
 
-  it('opens the context menu on right-click', async () => {
-    const { openContextMenu } = useContextMenu()
-    const { album } = renderComponent()
+  it('emits open-context-menu on right-click', async () => {
+    const { emitted } = renderComponent()
 
     await h.trigger(screen.getByTestId('album-row'), 'contextMenu')
 
-    await assertOpenContextMenu(openContextMenu as Mock, AlbumContextMenu, { album })
+    expect(emitted('open-context-menu')).toHaveLength(1)
   })
 })

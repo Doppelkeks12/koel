@@ -1,5 +1,10 @@
 <template>
-  <form class="md:w-[420px] min-w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form
+    name="create-playlist-folder"
+    class="md:w-[420px] min-w-full"
+    @submit.prevent="handleSubmit"
+    @keydown.esc="maybeClose"
+  >
     <header>
       <h1>New Playlist Folder</h1>
     </header>
@@ -11,16 +16,14 @@
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
 
 <script lang="ts" setup>
 import { playlistFolderStore } from '@/stores/playlistFolderStore'
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useForm } from '@/composables/useForm'
 
 import Btn from '@/components/ui/form/Btn.vue'
@@ -32,26 +35,19 @@ const props = withDefaults(defineProps<{ parent?: PlaylistFolder | null }>(), {
   parent: null,
 })
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
-
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<Pick<PlaylistFolder, 'name'>>({
+const { data, loading, handleSubmit, maybeClose } = useForm<Pick<PlaylistFolder, 'name'>>({
   initialValues: {
     name: '',
   },
+  toast: {
+    loading: 'Creating folder…',
+    success: (folder: PlaylistFolder) => `Playlist folder "${folder.name}" created.`,
+  },
   onSubmit: async ({ name }) =>
     props.parent ? await playlistFolderStore.store(name, props.parent) : await playlistFolderStore.store(name),
-  onSuccess: (folder: PlaylistFolder) => {
-    close()
-    toastSuccess(`Playlist folder "${folder.name}" created.`)
-  },
+  onSuccess: close,
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

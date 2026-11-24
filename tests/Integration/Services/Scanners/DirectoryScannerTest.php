@@ -7,13 +7,18 @@ use App\Facades\Dispatcher;
 use App\Jobs\ExtractSongFolderStructureJob;
 use App\Models\Album;
 use App\Models\Artist;
+use App\Models\ScannedFile;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Services\Scanners\DirectoryScanner;
+use App\Services\Scanners\Strategies\ParallelScanStrategy;
 use App\Values\Scanning\ScanConfiguration;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Event;
+use Laravel\Scout\EngineManager;
 use PHPUnit\Framework\Attributes\Test;
+use RuntimeException;
+use Tests\Fakes\RecordingSearchEngine;
 use Tests\TestCase;
 
 use function Tests\create_admin;
@@ -258,5 +263,72 @@ class DirectoryScannerTest extends TestCase
         config(['koel.ignore_dot_files' => false]);
         $this->scanner->scan($this->mediaPath, $config);
         $this->assertDatabaseHas(Album::class, ['name' => 'Hidden Album']);
+    }
+
+    #[Test]
+    public function parallelScanLeavesNoTemporaryFilesBehind(): void
+    {
+        $pathList = null;
+
+        $this
+            ->mock(ParallelScanStrategy::class)
+            ->expects('scan')
+            ->andReturnUsing(static function (string $scannedPathList) use (&$pathList): never {
+                $pathList = $scannedPathList;
+
+                throw new RuntimeException('Parallel scan worker failed');
+            });
+
+        rescue(fn () => app(DirectoryScanner::class)->scan(
+            $this->mediaPath,
+            ScanConfiguration::make(owner: create_admin()),
+            jobs: 2,
+        ), report: false);
+
+        self::assertNotNull($pathList);
+        self::assertFileDoesNotExist($pathList);
+        $this->assertDatabaseEmpty(ScannedFile::class);
+    }
+
+    #[Test]
+    public function scanReportsWhatItFoundAndLeavesNoScannedFilesBehind(): void
+    {
+        Event::fake([MediaScanCompleted::class]);
+        Dispatcher::shouldReceive('dispatch')->with(ExtractSongFolderStructureJob::class)->atLeast();
+
+        $summary = $this->scanner->scan($this->mediaPath, ScanConfiguration::make(owner: create_admin()));
+
+        self::assertSame(Song::query()->count(), $summary->successCount);
+        self::assertSame(0, $summary->skippedCount);
+        self::assertGreaterThan(0, $summary->errorCount);
+        $this->assertDatabaseEmpty(ScannedFile::class);
+        Event::assertDispatched(
+            MediaScanCompleted::class,
+            static fn (MediaScanCompleted $event): bool => $event->summary === $summary,
+        );
+    }
+
+    #[Test]
+    public function sequentialScanIndexesEachSavedSongOnceAfterScanning(): void
+    {
+        Event::fake([MediaScanCompleted::class]);
+        Dispatcher::shouldReceive('dispatch')->with(ExtractSongFolderStructureJob::class)->atLeast();
+
+        $engine = new RecordingSearchEngine();
+        $manager = $this->app->make(EngineManager::class);
+        // @mago-ignore lint:prefer-static-closure
+        $manager->extend('meilisearch', fn () => $engine);
+        $manager->forgetDrivers();
+        config(['scout.driver' => 'meilisearch']);
+
+        app(DirectoryScanner::class)->scan($this->mediaPath, ScanConfiguration::make(owner: create_admin()));
+
+        self::assertEqualsCanonicalizing(
+            Song::query()
+                ->pluck('id')
+                ->map(strval(...))
+                ->all(),
+            $engine->updated[Song::class],
+        );
     }
 }

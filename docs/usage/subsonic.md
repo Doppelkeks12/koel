@@ -38,6 +38,20 @@ Any client that speaks Subsonic or OpenSubsonic will work. A few popular ones:
 * [substreamer](https://substreamer.org/) — iOS, Android, Web
 * [play:Sub](https://michaelsapps.dk/playsubapp/) — iOS
 
+## AudioMuse-AI
+
+[AudioMuse-AI](https://github.com/NeptuneHub/AudioMuse-AI) analyzes how your songs sound and makes playlists from it. It connects to Koel over the Subsonic API:
+
+1. In AudioMuse-AI's setup, pick **OpenSubsonic** as the media server.
+2. Enter your Koel URL.
+3. Enter your Koel email as the user and your Subsonic API key as the password. If you choose the API key option instead, enter just the key.
+
+Playlists it creates show up in Koel.
+
+::: tip
+AudioMuse-AI's connection test may warn that no file paths are returned. That's expected — Koel doesn't share file paths with Subsonic clients.
+:::
+
 ## Regenerate Your Key
 
 If you think your key has been exposed, regenerate it from the same Subsonic tab. Click **Regenerate Key** and confirm.
@@ -48,9 +62,9 @@ Regenerating the key invalidates the old one straight away. Any client still usi
 
 ## What Koel Supports
 
-Koel implements the OpenSubsonic API for browsing, streaming, search, playlists, favorites, ratings, internet radio stations, podcasts, and lyrics.
+Koel implements the OpenSubsonic API for browsing, streaming, search, playlists, favorites, ratings, internet radio stations, podcasts, lyrics, and play-queue sync.
 
-Sharing, bookmarks, chat, and play-queue sync endpoints are not implemented.
+Sharing, bookmarks, and chat endpoints are not implemented.
 
 <script lang="ts" setup>
 import feishin from '../assets/img/interface/feishin.avif'

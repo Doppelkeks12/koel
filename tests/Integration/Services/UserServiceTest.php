@@ -4,7 +4,9 @@ namespace Tests\Integration\Services;
 
 use App\Enums\Acl\Role;
 use App\Exceptions\UserProspectUpdateDeniedException;
+use App\Models\Organization;
 use App\Services\UserService;
+use App\Values\User\AvatarUpdateData;
 use App\Values\User\UserCreateData;
 use App\Values\User\UserUpdateData;
 use Illuminate\Support\Facades\Hash;
@@ -25,6 +27,53 @@ class UserServiceTest extends TestCase
         parent::setUp();
 
         $this->service = app(UserService::class);
+    }
+
+    #[Test]
+    public function theFirstUserOwnsTheOrganization(): void
+    {
+        $organization = Organization::factory()->createOne();
+        self::assertNull($organization->owner_id);
+
+        $owner = $this->service->createUser(
+            UserCreateData::make(
+                name: 'Bruce Dickinson',
+                email: 'bruce@dickinson.test',
+                plainTextPassword: 'FearOfTheDark',
+                role: Role::ADMIN,
+            ),
+            $organization,
+        );
+
+        self::assertTrue($organization->refresh()->owner->is($owner));
+    }
+
+    #[Test]
+    public function laterUsersDoNotTakeOverTheOrganization(): void
+    {
+        $organization = Organization::factory()->createOne();
+
+        $owner = $this->service->createUser(
+            UserCreateData::make(
+                name: 'Bruce Dickinson',
+                email: 'bruce@dickinson.test',
+                plainTextPassword: 'FearOfTheDark',
+                role: Role::ADMIN,
+            ),
+            $organization,
+        );
+
+        $this->service->createUser(
+            UserCreateData::make(
+                name: 'Steve Harris',
+                email: 'steve@harris.test',
+                plainTextPassword: 'TheTrooper',
+                role: Role::USER,
+            ),
+            $organization,
+        );
+
+        self::assertTrue($organization->refresh()->owner->is($owner));
     }
 
     #[Test]
@@ -82,7 +131,7 @@ class UserServiceTest extends TestCase
             email: 'steve@iron.com',
             plainTextPassword: 'TheTrooper',
             role: Role::ADMIN,
-            avatar: minimal_base64_encoded_image(),
+            avatar: AvatarUpdateData::make(minimal_base64_encoded_image()),
         ));
 
         $user->refresh();
@@ -92,6 +141,30 @@ class UserServiceTest extends TestCase
         self::assertTrue(Hash::check('TheTrooper', $user->password));
         self::assertSame(Role::ADMIN, $user->role);
         self::assertFileExists(image_storage_path($user->getRawOriginal('avatar')));
+    }
+
+    #[Test]
+    public function updateUserKeepingAvatar(): void
+    {
+        $user = create_user(['avatar' => 'foo.jpg']);
+
+        $this->service->updateUser($user, UserUpdateData::make(name: 'Steve Harris', email: 'steve@iron.com'));
+
+        self::assertSame('foo.jpg', $user->refresh()->getRawOriginal('avatar'));
+    }
+
+    #[Test]
+    public function updateUserRemovingAvatar(): void
+    {
+        $user = create_user(['avatar' => 'foo.jpg']);
+
+        $this->service->updateUser($user, UserUpdateData::make(
+            name: 'Steve Harris',
+            email: 'steve@iron.com',
+            avatar: AvatarUpdateData::make(),
+        ));
+
+        self::assertNull($user->refresh()->getRawOriginal('avatar'));
     }
 
     #[Test]
@@ -111,6 +184,33 @@ class UserServiceTest extends TestCase
     }
 
     #[Test]
+    public function updateUserPasswordRevokesTheUserTokens(): void
+    {
+        $user = create_user();
+        $user->createToken('koel');
+        $user->createToken('koel', ['audio']);
+
+        $this->service->updateUser($user, UserUpdateData::make(
+            name: $user->name,
+            email: $user->email,
+            plainTextPassword: 'TheTrooper',
+        ));
+
+        self::assertSame(0, $user->tokens()->count());
+    }
+
+    #[Test]
+    public function updateUserWithoutPasswordKeepsTheUserTokens(): void
+    {
+        $user = create_user();
+        $user->createToken('koel');
+
+        $this->service->updateUser($user, UserUpdateData::make(name: 'Steve Harris', email: 'steve@iron.com'));
+
+        self::assertSame(1, $user->tokens()->count());
+    }
+
+    #[Test]
     public function updateProspectUserIsNotAllowed(): void
     {
         $this->expectException(UserProspectUpdateDeniedException::class);
@@ -119,5 +219,20 @@ class UserServiceTest extends TestCase
             name: 'Steve Harris',
             email: 'steve@iron.com',
         ));
+    }
+
+    #[Test]
+    public function savePreferenceKeepsPreferencesSavedAfterTheUserWasLoaded(): void
+    {
+        $user = create_user();
+        $sameUserLoadedEarlier = $user->fresh();
+
+        $this->service->savePreference($user, 'albums_sort_field', 'year');
+        $this->service->savePreference($sameUserLoadedEarlier, 'albums_sort_order', 'desc');
+
+        $user->refresh();
+
+        self::assertSame('year', $user->preferences->albumsSortField);
+        self::assertSame('desc', $user->preferences->albumsSortOrder);
     }
 }

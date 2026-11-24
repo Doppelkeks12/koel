@@ -1,7 +1,9 @@
+import { defineComponent } from 'vue'
 import { screen, waitFor } from '@testing-library/vue'
 import { afterEach, describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { authService } from '@/services/authService'
+import { addToHookSlot, removeFilter } from '@/hooks'
 import Component from './Auth.vue'
 
 describe('auth.vue', () => {
@@ -9,7 +11,10 @@ describe('auth.vue', () => {
     authenticated: false,
   })
 
-  afterEach(() => (window.KOEL.sso_providers = []))
+  afterEach(() => {
+    window.KOEL.sso_providers = []
+    delete window.KOEL.two_factor_login_token
+  })
 
   const renderAndSubmitCredentials = async () => {
     const rendered = h.render(Component)
@@ -82,5 +87,26 @@ describe('auth.vue', () => {
     })
 
     await waitFor(() => screen.getByTestId('google-login-button'))
+  })
+
+  it('renders what is added below the login form', async () => {
+    const handle = addToHookSlot(
+      'login-form.footer',
+      defineComponent({ template: '<button data-testid="extra-login-button" type="button" />' }),
+    )
+
+    h.render(Component)
+
+    await screen.findByTestId('extra-login-button')
+
+    removeFilter(handle)
+  })
+
+  it('opens on the two-factor challenge when the page carries a pending one', async () => {
+    window.KOEL.two_factor_login_token = 'login-token-abc'
+    h.render(Component)
+
+    await screen.findByTestId('two-factor-challenge-form')
+    expect(screen.queryByTestId('login-form')).toBeNull()
   })
 })

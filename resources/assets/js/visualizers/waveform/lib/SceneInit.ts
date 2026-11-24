@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { getRenderPixelRatio } from '@/visualizers/pixelRatio'
 
 export default class SceneInit {
   public scene: THREE.Scene
@@ -37,6 +38,7 @@ export default class SceneInit {
       antialias: true,
     })
 
+    this.renderer.setPixelRatio(getRenderPixelRatio())
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight)
     container.appendChild(this.renderer.domElement)
 
@@ -52,6 +54,7 @@ export default class SceneInit {
     this.onWindowResize = () => {
       this.camera.aspect = this.container.clientWidth / this.container.clientHeight
       this.camera.updateProjectionMatrix()
+      this.renderer.setPixelRatio(getRenderPixelRatio())
       this.renderer.setSize(this.container.clientWidth, this.container.clientHeight)
     }
 
@@ -64,11 +67,6 @@ export default class SceneInit {
     document.addEventListener('wheel', this.onDocumentWheel, false)
   }
 
-  animate () {
-    requestAnimationFrame(this.animate.bind(this))
-    this.render()
-  }
-
   render () {
     this.uniforms.u_time.value += this.clock.getDelta()
     this.renderer.render(this.scene, this.camera)
@@ -79,5 +77,6 @@ export default class SceneInit {
     document.removeEventListener('wheel', this.onDocumentWheel, false)
     this.renderer.domElement.remove()
     this.renderer.dispose()
+    this.renderer.forceContextLoss()
   }
 }

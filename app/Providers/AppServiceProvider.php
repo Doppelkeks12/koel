@@ -3,9 +3,13 @@
 namespace App\Providers;
 
 use App\Enums\Acl\Role;
+use App\Hooks\Action;
+use App\Hooks\HookRegistry;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Genre;
+use App\Models\Passkey;
+use App\Models\PersonalAccessToken;
 use App\Models\Playlist;
 use App\Models\Podcast;
 use App\Models\RadioStation;
@@ -29,10 +33,13 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder;
 use Illuminate\Database\SQLiteConnection;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Passkeys\Passkeys;
+use Laravel\Sanctum\Sanctum;
 use SpotifyWebAPI\Session as SpotifySession;
 
 class AppServiceProvider extends ServiceProvider
@@ -49,7 +56,13 @@ class AppServiceProvider extends ServiceProvider
         // disable wrapping JSON resource in a `data` key
         JsonResource::withoutWrapping();
 
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+
+        DevCommands::register('vp dev', 'vite');
+
         self::grantAllPermissionsToSuperAdminRole();
+
+        do_action(Action::APPLICATION_BOOTED);
 
         $this->app->bind(SpotifySession::class, static function () {
             return SpotifyService::enabled()
@@ -109,6 +122,12 @@ class AppServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->singleton(HookRegistry::class);
+
+        Passkeys::ignoreRoutes();
+        Passkeys::useUserModel(User::class);
+        Passkeys::usePasskeyModel(Passkey::class);
+
         if (class_exists('Laravel\Tinker\TinkerServiceProvider')) {
             $this->app->register('Laravel\Tinker\TinkerServiceProvider');
         }

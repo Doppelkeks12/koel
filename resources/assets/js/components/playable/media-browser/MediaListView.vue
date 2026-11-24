@@ -1,6 +1,7 @@
 <template>
   <VirtualScroller
-    v-slot="{ item: row }: { item: MediaRow }"
+    ref="scroller"
+    carries-screen-header
     tabindex="0"
     class="focus-visible:outline-hidden"
     :item-height="40"
@@ -8,26 +9,31 @@
     @scrolled-to-end="$emit('scrolled-to-end')"
     @keydown.enter.prevent.stop="handleEnter"
     @keydown.a.prevent="selectAllWithKeyboard"
+    @keydown.up.down.prevent.stop="onArrowKey"
+    @keydown.alt.up="$emit('open-parent-folder')"
+    @keydown.backspace.prevent="$emit('open-parent-folder')"
   >
-    <MediaListItem
-      :key="row.item.id"
-      :class="{ selected: row.selected }"
-      :item="row.item"
-      draggable="true"
-      @click="onClick(row, $event)"
-      @dragstart="onDragStart(row, $event)"
-      @dblclick.prevent.stop="onDblclick(row)"
-      @contextmenu.prevent="onContextMenu(row, $event)"
-      @play-song="playSong(row.item as Song)"
-      @open-folder="openFolder(row.item as Folder)"
-    />
+    <template #default="{ item: row }: { item: MediaRow }">
+      <MediaListItem
+        :key="row.item.id"
+        :class="{ selected: row.selected }"
+        :item="row.item"
+        draggable="true"
+        @click="onClick(row, $event)"
+        @dragstart="onDragStart(row, $event)"
+        @dblclick.prevent.stop="onDblclick(row)"
+        @contextmenu.prevent="onContextMenu(row, $event)"
+        @play-song="playSong(row.item as Song)"
+        @open-folder="openFolder(row.item as Folder)"
+      />
+    </template>
   </VirtualScroller>
 </template>
 
 <script setup lang="ts">
 import isMobile from 'ismobilejs'
 import { unionBy } from 'lodash-es'
-import { computed, nextTick, reactive, toRefs, watch } from 'vue'
+import { computed, nextTick, reactive, ref, toRefs, watch } from 'vue'
 import { defineAsyncComponent } from '@/utils/helpers'
 import { useRouter } from '@/composables/useRouter'
 import { useDraggable } from '@/composables/useDragAndDrop'
@@ -47,6 +53,7 @@ const props = defineProps<{ items: (Folder | Song)[]; folderId: string | null }>
 defineEmits<{
   (e: 'press:enter', event: KeyboardEvent): void
   (e: 'scrolled-to-end'): void
+  (e: 'open-parent-folder'): void
 }>()
 const MediaBrowserContextMenu = defineAsyncComponent(
   () => import('@/components/media-browser/MediaBrowserContextMenu.vue'),
@@ -54,6 +61,8 @@ const MediaBrowserContextMenu = defineAsyncComponent(
 const PlayableContextMenu = defineAsyncComponent(() => import('@/components/playable/PlayableContextMenu.vue'))
 
 const { items, folderId } = toRefs(props)
+
+const scroller = ref<InstanceType<typeof VirtualScroller>>()
 
 const { go, url } = useRouter()
 const { startDragging } = useDraggable('browser-media')
@@ -71,6 +80,7 @@ const rows = computed(() => {
 const {
   select,
   selectAllWithKeyboard,
+  moveSelectionWithArrowKey,
   selectBetween,
   clearSelection,
   toggleSelected,
@@ -80,7 +90,7 @@ const {
   reapplySelection,
 } = useListSelection(rows, () => 'item.id')
 
-watch(items, () => reapplySelection(), { deep: true })
+watch(rows, () => reapplySelection())
 
 const selectedItems = computed(() => selected.value.map(row => row.item))
 const onlySongsSelected = computed(() => selectedItems.value.every(isSong))
@@ -110,6 +120,22 @@ const handleEnter = async (event: KeyboardEvent) => {
   }
 
   go('queue')
+}
+
+const hasFocus = () => Boolean(scroller.value?.getScrollerElement()?.contains(document.activeElement))
+const focus = () => scroller.value?.getScrollerElement()?.focus({ preventScroll: true })
+
+defineExpose({ hasFocus, focus })
+
+const onArrowKey = (event: KeyboardEvent) => {
+  const index = moveSelectionWithArrowKey(event)
+
+  if (index === null) {
+    return
+  }
+
+  focus()
+  scroller.value?.scrollToIndexIfHidden(index)
 }
 
 const onDragStart = async (row: MediaRow, event: DragEvent) => {

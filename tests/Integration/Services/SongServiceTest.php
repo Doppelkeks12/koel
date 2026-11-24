@@ -2,20 +2,27 @@
 
 namespace Tests\Integration\Services;
 
+use App\Events\LibraryChanged;
 use App\Facades\Dispatcher;
 use App\Jobs\DeleteSongFilesJob;
 use App\Jobs\DeleteTranscodeFilesJob;
 use App\Jobs\ExtractSongFolderStructureJob;
 use App\Models\Album;
 use App\Models\Artist;
+use App\Models\Folder;
+use App\Models\Genre;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Models\Transcode;
 use App\Services\AlbumService;
+use App\Services\LibrarySummaryService;
 use App\Services\Scanners\FileScanner;
 use App\Services\SongService;
 use App\Values\Scanning\ScanConfiguration;
+use App\Values\Scanning\ScanInformation;
 use App\Values\Song\SongUpdateData;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\File;
 use Mockery;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -23,6 +30,7 @@ use Tests\TestCase;
 
 use function Tests\create_admin;
 use function Tests\create_user;
+use function Tests\sandbox_path;
 use function Tests\test_path;
 
 class SongServiceTest extends TestCase
@@ -195,6 +203,107 @@ class SongServiceTest extends TestCase
     }
 
     #[Test]
+    public function deleteSongsRemovesThemFromTheSearchIndex(): void
+    {
+        File::ensureDirectoryExists(sandbox_path('search-indexes'));
+
+        config([
+            'scout.driver' => 'tntsearch',
+            'scout.tntsearch.storage' => sandbox_path('search-indexes'),
+        ]);
+
+        Dispatcher::shouldReceive('dispatch');
+        $songs = Song::factory()->state(['title' => 'Bohemian Rhapsody'])->createMany(2);
+
+        self::assertEqualsCanonicalizing($songs->modelKeys(), Song::search('Bohemian')->keys()->all());
+
+        $this->service->deleteSongs($songs->modelKeys());
+
+        self::assertEmpty(Song::search('Bohemian')->keys());
+    }
+
+    #[Test]
+    public function deleteSongsByUserPrunesTheLibraryOnce(): void
+    {
+        Event::fake(LibraryChanged::class);
+        Dispatcher::shouldReceive('dispatch');
+
+        $album = Album::factory()->createOne();
+        Song::factory()->for($album)->createMany(501);
+
+        $this->service->deleteSongsByUser($album->user);
+
+        self::assertSame(0, Song::query()->count());
+        Event::assertDispatchedTimes(LibraryChanged::class, 1);
+    }
+
+    #[Test]
+    public function deleteSongsRemovesTheirEmptyAlbumsAndArtistsRightAway(): void
+    {
+        Event::fake(LibraryChanged::class);
+        Dispatcher::shouldReceive('dispatch');
+
+        $emptiedAlbum = Album::factory()->createOne();
+        $deletedSong = Song::factory()->for($emptiedAlbum)->for($emptiedAlbum->artist)->createOne();
+        $keptAlbum = Album::factory()->createOne();
+        $deletedSongWithSibling = Song::factory()->for($keptAlbum)->for($keptAlbum->artist)->createOne();
+        Song::factory()->for($keptAlbum)->for($keptAlbum->artist)->createOne();
+
+        $this->service->deleteSongs([$deletedSong->id, $deletedSongWithSibling->id]);
+
+        $this->assertModelMissing($emptiedAlbum);
+        $this->assertModelMissing($emptiedAlbum->artist);
+        $this->assertModelExists($keptAlbum);
+        $this->assertModelExists($keptAlbum->artist);
+    }
+
+    #[Test]
+    public function deleteSongsRemovesTheEmptyAlbumArtistOfACompilation(): void
+    {
+        Event::fake(LibraryChanged::class);
+        Dispatcher::shouldReceive('dispatch');
+
+        $compilation = Album::factory()->createOne();
+        $albumArtist = $compilation->artist;
+        $trackArtist = Artist::factory()->createOne();
+        $song = Song::factory()->for($compilation)->for($trackArtist)->createOne();
+
+        $this->service->deleteSongs([$song->id]);
+
+        $this->assertModelMissing($albumArtist);
+        $this->assertModelMissing($trackArtist);
+    }
+
+    #[Test]
+    public function deleteSongsRefreshesTheSongCount(): void
+    {
+        $user = create_user();
+        $songs = Song::factory()->createMany(2);
+        $librarySummaryService = app(LibrarySummaryService::class);
+        Dispatcher::shouldReceive('dispatch');
+
+        self::assertSame(2, $librarySummaryService->getSongCount($user));
+
+        $this->service->deleteSongs($songs->modelKeys());
+
+        self::assertSame(0, $librarySummaryService->getSongCount($user));
+    }
+
+    #[Test]
+    public function updatingGenreRefreshesTheGenreSummaries(): void
+    {
+        $user = create_user();
+        $song = Song::factory()->createOne();
+        $librarySummaryService = app(LibrarySummaryService::class);
+
+        self::assertSame(Genre::NO_GENRE_NAME, $librarySummaryService->getGenreSummaries($user)->sole()->name);
+
+        $this->service->updateSongs([$song->id], SongUpdateData::make(genre: 'Rock'));
+
+        self::assertSame('Rock', $librarySummaryService->getGenreSummaries($user)->sole()->name);
+    }
+
+    #[Test]
     public function deleteSongsWithTranscodes(): void
     {
         $transcodes = Transcode::factory()->createMany(2);
@@ -227,6 +336,78 @@ class SongServiceTest extends TestCase
     }
 
     #[Test]
+    public function rescanDoesNotExtractFolderStructureForSongAlreadyInFolder(): void
+    {
+        Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class)->never();
+
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = Song::factory()->for(Folder::factory())->createOne(['path' => $info->path]);
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $song->owner, force: true));
+    }
+
+    #[Test]
+    public function createFromScanStoresMusicBrainzIds(): void
+    {
+        Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
+
+        $info = app(FileScanner::class)->scan(test_path('songs/full-vorbis-comments.flac'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: create_admin()));
+
+        self::assertSame('11111111-1111-1111-1111-111111111111', $song->mbid);
+        self::assertSame('22222222-2222-2222-2222-222222222222', $song->album->mbid);
+        self::assertSame('33333333-3333-3333-3333-333333333333', $song->artist->mbid);
+    }
+
+    #[Test]
+    public function createFromScanKeepsExistingAlbumAndArtistMusicBrainzIds(): void
+    {
+        Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
+
+        $owner = create_admin();
+
+        $artist = Artist::getOrCreate($owner, 'Koel');
+        $artist->update(['mbid' => 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']);
+
+        $album = Album::getOrCreate($artist, 'Koel Testing Vol. 1');
+        $album->update(['mbid' => 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb']);
+
+        $info = app(FileScanner::class)->scan(test_path('songs/full-vorbis-comments.flac'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+
+        self::assertSame('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', $song->artist->mbid);
+        self::assertSame('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', $song->album->mbid);
+        self::assertSame('11111111-1111-1111-1111-111111111111', $song->mbid);
+    }
+
+    #[Test]
+    public function createFromScanDoesNotStampTheAlbumArtistIdOnTheSongArtist(): void
+    {
+        Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
+
+        // The file credits the same name as both artist and album artist, so both resolve to one row.
+        // Its artist identifier must win over the album artist's.
+        $info = app(FileScanner::class)->scan(test_path('songs/full-vorbis-comments.flac'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: create_admin()));
+
+        self::assertTrue($song->artist->is($song->album_artist));
+        self::assertSame('33333333-3333-3333-3333-333333333333', $song->artist->mbid);
+    }
+
+    #[Test]
+    public function createFromScanLeavesMusicBrainzIdsEmptyForUntaggedFile(): void
+    {
+        Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
+
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: create_admin()));
+
+        self::assertNull($song->mbid);
+        self::assertNull($song->album->mbid);
+        self::assertNull($song->artist->mbid);
+    }
+
+    #[Test]
     public function createOrUpdateFromScan(): void
     {
         Dispatcher::expects('dispatch')->with(ExtractSongFolderStructureJob::class);
@@ -251,6 +432,86 @@ class SongServiceTest extends TestCase
         );
 
         self::assertSame(2015, $song->album->year);
+    }
+
+    #[Test]
+    public function createFromScanNumbersVinylTracksInLabelOrder(): void
+    {
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+
+        $songs = collect(['B1', 'A10', 'A2'])->mapWithKeys(function (string $label) use ($info, $owner): array {
+            $info->path = "/vinyl/$label.mp3";
+            $info->trackLabel = $label;
+            $info->track = 99;
+
+            return [$label => $this->service->createOrUpdateSongFromScan(
+                $info,
+                ScanConfiguration::make(owner: $owner),
+            )];
+        });
+
+        self::assertSame(1, $songs['A2']->track);
+        self::assertSame(2, $songs['A10']->refresh()->track);
+        self::assertSame(3, $songs['B1']->refresh()->track);
+    }
+
+    #[Test]
+    public function rescanIgnoringTrackKeepsTheCurrentTrackLabel(): void
+    {
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+        $song->update(['track_label' => 'A1']);
+
+        $info->trackLabel = 'B2';
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['track'],
+            force: true,
+        ));
+
+        self::assertSame('A1', $song->refresh()->track_label);
+    }
+
+    #[Test]
+    public function rescanIgnoringTrackKeepsTheCurrentTrackNumberOfAVinylTrack(): void
+    {
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $info->trackLabel = 'A2';
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+        $song->update(['track' => 5]);
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['track'],
+            force: true,
+        ));
+
+        self::assertSame(5, $song->refresh()->track);
+    }
+
+    #[Test]
+    public function updatingTheTrackNumberClearsTheVinylTrackLabel(): void
+    {
+        $song = Song::factory()->createOne(['track' => 2, 'track_label' => 'A2']);
+
+        $this->service->updateSongs([$song->id], SongUpdateData::make(track: 5));
+
+        self::assertSame(5, $song->refresh()->track);
+        self::assertNull($song->track_label);
+    }
+
+    #[Test]
+    public function updatingOtherFieldsKeepsTheVinylTrackLabel(): void
+    {
+        $song = Song::factory()->createOne(['track' => 2, 'track_label' => 'A2']);
+
+        $this->service->updateSongs([$song->id], SongUpdateData::make(track: 2, year: 1999));
+
+        self::assertSame('A2', $song->refresh()->track_label);
     }
 
     #[Test]
@@ -434,23 +695,153 @@ class SongServiceTest extends TestCase
     }
 
     #[Test]
-    public function updateNonCompilationSongArtistAlsoUpdatesAlbumArtist(): void
+    public function rescanIgnoringArtistKeepsTheCurrentArtist(): void
     {
-        $song = Song::factory()->createOne();
-        $originalAlbumArtist = $song->album_artist;
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
 
-        // Verify non-compilation: album artist === song artist
-        self::assertTrue($originalAlbumArtist->is($song->artist));
+        $editedArtist = Artist::getOrCreate($owner, 'Edited Artist');
+        $song->update(['artist_id' => $editedArtist->id, 'artist_name' => $editedArtist->name]);
 
-        // Change artist without specifying album artist
-        $data = SongUpdateData::make(artistName: 'New Artist');
-        $result = $this->service->updateSongs([$song->id], $data);
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['artist'],
+            force: true,
+        ));
 
-        /** @var Song $updatedSong */
-        $updatedSong = $result->updatedSongs->first();
+        self::assertTrue($song->refresh()->artist->is($editedArtist));
+    }
 
-        // For non-compilation songs, album artist should follow the song artist
-        self::assertSame('New Artist', $updatedSong->artist->name);
-        self::assertSame('New Artist', $updatedSong->album_artist->name);
+    #[Test]
+    public function rescanIgnoringGenreKeepsTheCurrentGenre(): void
+    {
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+        $song->syncGenres('Edited Genre');
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['genre'],
+            force: true,
+        ));
+
+        self::assertSame('Edited Genre', $song->refresh()->genre);
+    }
+
+    #[Test]
+    public function rescanByAnotherUserKeepsTheSongsOwnLibraryAndVisibility(): void
+    {
+        $uploader = create_user();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $uploader,
+            makePublic: false,
+        ));
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: create_admin(),
+            makePublic: true,
+            force: true,
+        ));
+
+        $song->refresh();
+
+        self::assertTrue($song->artist->user->is($uploader));
+        self::assertTrue($song->album->user->is($uploader));
+        self::assertFalse($song->is_public);
+    }
+
+    #[Test]
+    public function rescanIgnoringAlbumKeepsTheCurrentAlbum(): void
+    {
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+
+        $editedAlbum = Album::getOrCreate($song->album->artist, 'Edited Album');
+        $song->update(['album_id' => $editedAlbum->id, 'album_name' => $editedAlbum->name]);
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['album'],
+            force: true,
+        ));
+
+        self::assertTrue($song->refresh()->album->is($editedAlbum));
+    }
+
+    #[Test]
+    public function rescanIgnoringAlbumArtistKeepsTheCurrentAlbumArtist(): void
+    {
+        $owner = create_admin();
+        $info = app(FileScanner::class)->scan(test_path('songs/full.mp3'));
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+
+        $variousArtists = Artist::getOrCreate($owner, Artist::VARIOUS_NAME);
+        $compilation = Album::getOrCreate($variousArtists, $song->album->name);
+        $song->update(['album_id' => $compilation->id]);
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['albumartist'],
+            force: true,
+        ));
+
+        self::assertTrue($song->refresh()->album->is($compilation));
+    }
+
+    #[Test]
+    public function rescanIgnoringArtistLeavesTheFilesArtistMbidOut(): void
+    {
+        $owner = create_admin();
+        $path = test_path('songs/full.mp3');
+        $info = ScanInformation::make(
+            title: 'Song',
+            albumName: 'Album',
+            artistName: 'Original Artist',
+            artistMbid: 'original-artist-mbid',
+            track: 1,
+            disc: 1,
+            genre: '',
+            lyrics: '',
+            length: 10,
+            path: $path,
+            hash: 'hash',
+            mTime: get_mtime($path),
+            mimeType: 'audio/mpeg',
+            fileSize: 1_024,
+        );
+        $song = $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(owner: $owner));
+
+        $editedArtist = Artist::getOrCreate($owner, 'Edited Artist');
+        $song->update(['artist_id' => $editedArtist->id, 'artist_name' => $editedArtist->name]);
+
+        $this->service->createOrUpdateSongFromScan($info, ScanConfiguration::make(
+            owner: $owner,
+            ignores: ['artist'],
+            force: true,
+        ));
+
+        self::assertNull($editedArtist->refresh()->mbid);
+    }
+
+    #[Test]
+    public function fillMissingFileSizeOfExistingFile(): void
+    {
+        $song = Song::factory()->createOne(['file_size' => null, 'path' => test_path('songs/full.mp3')]);
+
+        self::assertTrue($this->service->fillMissingFileSize($song));
+        self::assertSame(File::size(test_path('songs/full.mp3')), $song->refresh()->file_size);
+    }
+
+    #[Test]
+    public function leaveFileSizeEmptyWhenTheFileIsMissing(): void
+    {
+        $song = Song::factory()->createOne(['file_size' => null, 'path' => test_path('songs/missing.mp3')]);
+
+        self::assertFalse($this->service->fillMissingFileSize($song));
+        self::assertNull($song->refresh()->file_size);
     }
 }

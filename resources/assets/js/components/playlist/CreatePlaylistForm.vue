@@ -1,5 +1,5 @@
 <template>
-  <form class="md:w-[480px] w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="create-playlist" class="md:w-[480px] w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header>
       <h1>
         New Playlist
@@ -7,32 +7,20 @@
       </h1>
     </header>
 
-    <main>
-      <div class="grid grid-cols-2 gap-4">
-        <FormRow>
-          <template #label>Name *</template>
-          <TextInput v-model="data.name" v-koel-focus name="name" placeholder="Playlist name" required />
-        </FormRow>
-        <FormRow>
-          <template #label>Folder</template>
-          <FolderSelect v-model:folder-id="data.folder_id" v-model:folder-name="data.folder_name" />
-        </FormRow>
-        <FormRow class="col-span-2">
-          <template #label>Description</template>
-          <TextArea
-            v-model="data.description"
-            class="h-20"
-            name="description"
-            placeholder="Some optional description"
-          />
-        </FormRow>
-        <ArtworkField v-model="data.cover">Pick or paste a cover (optional)</ArtworkField>
-      </div>
+    <main class="flex flex-col">
+      <PlaylistDetailsFields
+        class="flex-1"
+        v-model:name="data.name"
+        v-model:folder-id="data.folder_id"
+        v-model:folder-name="data.folder_name"
+        v-model:description="data.description"
+        v-model:cover="data.cover"
+      />
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -44,16 +32,10 @@ import { playlistStore } from '@/stores/playlistStore'
 import { getPlayableCollectionContentType } from '@/utils/typeGuards'
 import { pluralize } from '@/utils/formatters'
 import { useRouter } from '@/composables/useRouter'
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useForm } from '@/composables/useForm'
 
 import Btn from '@/components/ui/form/Btn.vue'
-import TextInput from '@/components/ui/form/TextInput.vue'
-import FormRow from '@/components/ui/form/FormRow.vue'
-import FolderSelect from '@/components/ui/form/FolderSelect.vue'
-import TextArea from '@/components/ui/form/TextArea.vue'
-import ArtworkField from '@/components/ui/form/ArtworkField.vue'
+import PlaylistDetailsFields from '@/components/playlist/PlaylistDetailsFields.vue'
 
 const props = withDefaults(defineProps<{ playables?: Playable[]; folder?: PlaylistFolder | null }>(), {
   playables: () => [],
@@ -63,13 +45,11 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { playables, folder: targetFolder } = props
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
 const { go, url } = useRouter()
 
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<CreatePlaylistData>({
+const { data, loading, handleSubmit, maybeClose } = useForm<CreatePlaylistData>({
   initialValues: {
     name: '',
     description: '',
@@ -77,12 +57,16 @@ const { data, isPristine, handleSubmit } = useForm<CreatePlaylistData>({
     folder_name: null,
     cover: null,
   },
+  toast: {
+    loading: 'Creating playlist…',
+    success: (playlist: Playlist) => `Playlist "${playlist.name}" created.`,
+  },
   onSubmit: async data => await playlistStore.store(data, playables),
   onSuccess: (playlist: Playlist) => {
     close()
-    toastSuccess(`Playlist "${playlist.name}" created.`)
     go(url('playlists.show', { id: playlist.id }))
   },
+  onClose: close,
 })
 
 const entityName = computed(() => {
@@ -90,15 +74,9 @@ const entityName = computed(() => {
     case 'songs':
       return 'song'
     case 'episodes':
-      return 'song'
+      return 'episode'
     default:
       return 'item'
   }
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

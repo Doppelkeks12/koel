@@ -14,6 +14,8 @@ export interface AlbumUpdateData {
   name: Album['name']
   year: Album['year']
   cover?: Album['cover'] | null
+  description?: string
+  merge?: boolean
 }
 
 interface AlbumListPaginateParams extends CursorPaginateParams<AlbumListSortField> {
@@ -39,6 +41,14 @@ export const albumStore = {
     })
   },
 
+  syncArtistProperties(artist: Artist) {
+    this.vault.forEach(album => {
+      if (album.artist_id === artist.id) {
+        album.artist_name = artist.name
+      }
+    })
+  },
+
   isUnknown: (album: Album | Album['name']) => {
     if (typeof album === 'string') {
       return album === UNKNOWN_ALBUM_NAME
@@ -48,10 +58,28 @@ export const albumStore = {
   },
 
   async update(album: Album, data: AlbumUpdateData) {
-    const updated = await http.put<Album>(`albums/${album.id}`, data)
-    this.state.albums = unionBy(this.state.albums, this.syncWithVault(updated), 'id')
+    const [updated] = this.syncWithVault(await http.put<Album>(`albums/${album.id}`, data))
+    cache.remove(['album.info', album.id, album.name])
+    this.state.albums = unionBy(this.state.albums, [updated], 'id')
 
-    songStore.syncAlbumProperties(album)
+    if (updated.id === album.id) {
+      songStore.syncAlbumProperties(album)
+    } else {
+      this.syncMergedAlbum(album, updated)
+    }
+
+    return updated
+  },
+
+  syncMergedAlbum(source: Album, target: Album) {
+    songStore.byAlbum(source).forEach(song => (song.album_id = target.id))
+    songStore.syncAlbumProperties(target)
+
+    cache.remove(['album.songs', source.id])
+    cache.remove(['album.songs', target.id])
+    cache.remove(['artist-albums', target.artist_id])
+
+    this.removeByIds([source.id])
   },
 
   /**
@@ -77,6 +105,11 @@ export const albumStore = {
     return album
   },
 
+  async search(keywords: string, favoritesOnly = false) {
+    const query = new URLSearchParams({ q: keywords, favorites_only: favoritesOnly ? '1' : '0' })
+    return this.syncWithVault(await http.get<Album[]>(`search/albums?${query}`))
+  },
+
   async paginate(params: AlbumListPaginateParams) {
     const query = new URLSearchParams(flattenParams(params))
     query.set('cursor', params.cursor ?? '')
@@ -93,6 +126,18 @@ export const albumStore = {
     return this.syncWithVault(
       await cache.remember(['artist-albums', id], async () => await http.get<Album[]>(`artists/${id}/albums`)),
     )
+  },
+
+  async favorite(albums: Reactive<Album>[]) {
+    albums.forEach(album => (album.favorite = true))
+
+    await http.post('favorites', { type: 'album', ids: albums.map(({ id }) => id) })
+  },
+
+  async undoFavorite(albums: Reactive<Album>[]) {
+    albums.forEach(album => (album.favorite = false))
+
+    await http.delete('favorites', { type: 'album', ids: albums.map(({ id }) => id) })
   },
 
   async toggleFavorite(album: Reactive<Album>) {

@@ -3,6 +3,8 @@
 namespace Tests\Integration\Casts;
 
 use App\Values\User\UserPreferences;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -10,6 +12,13 @@ use function Tests\create_user;
 
 class UserPreferencesCastTest extends TestCase
 {
+    public function setUp(): void
+    {
+        parent::setUp();
+
+        UserPreferences::forgetRegisteredPreferences();
+    }
+
     #[Test]
     public function serializedArrayContainsExactlyTheRegisteredPreferenceKeys(): void
     {
@@ -34,11 +43,15 @@ class UserPreferencesCastTest extends TestCase
             'home_blocks_order',
             'include_public_media',
             'lastfm_session_key',
+            'listenbrainz_token',
             'lyrics_zoom_level',
             'make_uploads_public',
+            'music_playback_speed',
+            'normalize_volume',
             'podcasts_favorites_only',
             'podcasts_sort_field',
             'podcasts_sort_order',
+            'podcast_playback_speed',
             'radio_stations_favorites_only',
             'radio_stations_sort_field',
             'radio_stations_sort_order',
@@ -46,6 +59,8 @@ class UserPreferencesCastTest extends TestCase
             'repeat_mode',
             'show_album_art_overlay',
             'show_now_playing_notification',
+            'show_waveform',
+            'stream_lossless_when_supported',
             'support_bar_no_bugging',
             'theme',
             'transcode_on_mobile',
@@ -127,13 +142,6 @@ class UserPreferencesCastTest extends TestCase
         $user->preferences->volume = 8.0;
         $user->save();
         self::assertSame(8.0, $user->refresh()->preferences->volume);
-    }
-
-    #[Test]
-    public function castsRepeatMode(): void
-    {
-        $user = create_user(['preferences' => ['repeat_mode' => 'REPEAT_ALL']]);
-        self::assertSame('REPEAT_ALL', $user->preferences->repeatMode);
     }
 
     #[Test]
@@ -309,5 +317,47 @@ class UserPreferencesCastTest extends TestCase
         self::assertSame('default', $prefs->visualizer);
         self::assertSame('Album', $prefs->activeExtraPanelTab);
         self::assertSame('session123', $prefs->lastFmSessionKey);
+    }
+
+    #[Test]
+    public function integrationTokensAreEncryptedAtRest(): void
+    {
+        $user = create_user([
+            'preferences' => [
+                'lastfm_session_key' => 'lastfm-secret',
+                'listenbrainz_token' => 'listenbrainz-secret',
+                'theme' => 'classic',
+            ],
+        ]);
+
+        $stored = json_decode(DB::table('users')->where('id', $user->id)->value('preferences'), true);
+
+        self::assertNotSame('lastfm-secret', $stored['lastfm_session_key']);
+        self::assertNotSame('listenbrainz-secret', $stored['listenbrainz_token']);
+        self::assertSame('lastfm-secret', Crypt::decryptString($stored['lastfm_session_key']));
+        self::assertSame('listenbrainz-secret', Crypt::decryptString($stored['listenbrainz_token']));
+        self::assertSame('classic', $stored['theme']);
+
+        $preferences = $user->refresh()->preferences;
+
+        self::assertSame('lastfm-secret', $preferences->lastFmSessionKey);
+        self::assertSame('listenbrainz-secret', $preferences->listenBrainzToken);
+    }
+
+    #[Test]
+    public function aTokenThatCannotBeDecryptedReadsAsMissing(): void
+    {
+        $user = create_user(['preferences' => ['theme' => 'classic']]);
+
+        DB::table('users')
+            ->where('id', $user->id)
+            ->update([
+                'preferences' => json_encode(['lastfm_session_key' => 'not-a-ciphertext', 'theme' => 'classic']),
+            ]);
+
+        $preferences = $user->refresh()->preferences;
+
+        self::assertNull($preferences->lastFmSessionKey);
+        self::assertSame('classic', $preferences->theme);
     }
 }

@@ -36,7 +36,7 @@
         </a>
       </p>
 
-      <p v-if="!hasCustomBranding" class="author">
+      <p v-if="!hasCustomBranding" class="author" data-testid="about-author">
         Made with ❤️ by
         <a href="https://github.com/phanan" rel="noopener" target="_blank">Phan An</a>
         and quite a few awesome
@@ -54,7 +54,7 @@
     </main>
 
     <footer>
-      <Btn variant="destructive" data-testid="close-modal-btn" rounded @click.prevent="close">Close</Btn>
+      <Btn variant="neutral" data-testid="close-modal-btn" rounded @click.prevent="close">Close</Btn>
     </footer>
   </div>
 </template>

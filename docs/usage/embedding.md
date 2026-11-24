@@ -1,5 +1,5 @@
 ---
-description: Embedding tracks, playlists, albums, and artists via iframe with layout and theme options.
+description: Embedding tracks, playlists, albums, artists, and favorites via iframe with layout and theme options.
 ---
 
 # Embedding
@@ -7,6 +7,8 @@ description: Embedding tracks, playlists, albums, and artists via iframe with la
 Koel supports embedding tracks, playlists (including smart playlists), albums, and artists. To create a new embed,
 right-click on the track/playlist/album/artist to bring up the context menu and select "Embed…". The Create Embed dialog
 will appear.
+
+You can embed your favorites too: on the Favorites screen, click the "More Actions" (⋯) button and select "Embed…".
 
 <img alt="Create Embed dialog" src="../assets/img/interface/create-embed-dialog.avif" style="width: 100%; max-width: 650px;"/>
 
@@ -19,6 +21,12 @@ Preview mode, which plays a 30-second sample instead of the full track.
 Once you're happy with the embed, click the "Copy Code" button to copy the embed code to your clipboard. Now you can
 paste it anywhere you want, e.g., in a blog post, and visitors will see the embed and be able to play the included
 track(s) without having to log in.
+
+:::tip Previews <PlusBadge />
+By default, Preview mode still sends the full song and stops playback after 30 seconds. To send only a 30-second clip,
+set `PREVIEWS_ON_SCAN=true` in your `.env` file. Koel then makes a clip of each song as it's scanned or uploaded. For
+songs already in your library, run [`koel:create-song-previews`](../cli-commands#koel-create-song-previews) once.
+:::
 
 :::warning Legal Notice
 Embedded tracks are available publicly by nature, so make sure you have the rights to distribute them.

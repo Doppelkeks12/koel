@@ -1,5 +1,5 @@
 <template>
-  <form class="max-w-[540px]" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="edit-song" class="max-w-[540px]" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header class="gap-4">
       <img :src="coverUrl" alt="" class="w-[84px] aspect-square object-cover object-center rounded-md" />
       <div class="flex-1 flex flex-col justify-center overflow-hidden">
@@ -13,7 +13,7 @@
       </div>
     </header>
 
-    <Tabs class="mt-4">
+    <Tabs class="flex-1 mt-4">
       <TabList v-if="editingOnlyOneSong">
         <TabButton
           id="editSongTabDetails"
@@ -34,7 +34,7 @@
         </TabButton>
       </TabList>
 
-      <TabPanelContainer>
+      <TabPanelContainer class="flex-1 flex flex-col">
         <TabPanel
           v-show="currentTab === 'details'"
           id="editSongPanelDetails"
@@ -43,7 +43,7 @@
         >
           <FormRow v-if="editingOnlyOneSong">
             <template #label>Title</template>
-            <TextInput v-model="data.title" v-koel-focus data-testid="title-input" name="title" title="Title" />
+            <TextInput v-model="data.title" v-koel-focus data-testid="title-input" name="title" />
           </FormRow>
 
           <FormRow :cols="2">
@@ -104,19 +104,16 @@
           </FormRow>
 
           <FormRow :cols="2">
-            <FormRow>
-              <template #label>Genre</template>
-              <TextInput
-                v-model="data.genre"
+            <div class="flex flex-col gap-1.5 text-k-fg">
+              <label for="editSongGenre">Genre</label>
+              <TagInput
+                id="editSongGenre"
+                v-model="genreTags"
                 :placeholder="inputPlaceholder"
-                data-testid="genre-input"
-                list="genres"
+                :suggestions="genres"
                 name="genre"
               />
-              <datalist id="genres">
-                <option v-for="genre in genres" :key="genre" :value="genre" />
-              </datalist>
-            </FormRow>
+            </div>
             <FormRow>
               <template #label>Year</template>
               <TextInput
@@ -135,17 +132,22 @@
           v-show="currentTab === 'lyrics'"
           id="editSongPanelLyrics"
           aria-labelledby="editSongTabLyrics"
+          class="flex-1 flex flex-col"
         >
-          <FormRow>
-            <TextArea v-model="data.lyrics" v-koel-focus data-testid="lyrics-input" name="lyrics" title="Lyrics" />
-          </FormRow>
+          <TextArea
+            v-model="data.lyrics"
+            v-koel-focus
+            class="grow shrink-0 min-h-48"
+            data-testid="lyrics-input"
+            name="lyrics"
+          />
         </TabPanel>
       </TabPanelContainer>
     </Tabs>
 
     <footer>
-      <Btn type="submit">Update</Btn>
-      <Btn variant="ghost" class="btn-cancel" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Update</Btn>
+      <Btn variant="neutral" class="btn-cancel" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -156,14 +158,13 @@ import { pluralize } from '@/utils/formatters'
 import { eventBus } from '@/utils/eventBus'
 import type { SongUpdateData, SongUpdateResult } from '@/stores/playableStore'
 import { playableStore as songStore } from '@/stores/playableStore'
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { genres } from '@/config/genres'
 import { useForm } from '@/composables/useForm'
 import { useBranding } from '@/composables/useBranding'
 
 import Btn from '@/components/ui/form/Btn.vue'
 import TextInput from '@/components/ui/form/TextInput.vue'
+import TagInput from '@/components/ui/form/TagInput.vue'
 import TextArea from '@/components/ui/form/TextArea.vue'
 import FormRow from '@/components/ui/form/FormRow.vue'
 import Tabs from '@/components/ui/tabs/Tabs.vue'
@@ -182,8 +183,6 @@ const currentTab = ref(props.initialTab)
 
 const close = () => emit('close')
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
 const { cover: defaultCover } = useBranding()
 
 const editingOnlyOneSong = songs.length === 1
@@ -221,13 +220,33 @@ if (allSongsAreInSameAlbum && allSongsAreFromSameArtist && songs[0].album_artist
   initialValues.album_artist_name = allSongsShareSameValue('album_artist_name') ? songs[0].album_artist_name : ''
 }
 
-const { data, isPristine, handleSubmit } = useForm<SongUpdateData>({
+const initialAlbumArtistName = initialValues.album_artist_name
+
+const withoutUntouchedAlbumArtist = ({ album_artist_name, ...otherData }: SongUpdateData): SongUpdateData =>
+  album_artist_name === initialAlbumArtistName ? otherData : { ...otherData, album_artist_name }
+
+const { data, loading, handleSubmit, maybeClose } = useForm<SongUpdateData>({
   initialValues,
-  onSubmit: async data => await songStore.updateSongs(songs, data),
+  toast: {
+    loading: 'Updating…',
+    success: `Updated ${pluralize(songs, 'song')}.`,
+  },
+  onSubmit: async data => await songStore.updateSongs(songs, withoutUntouchedAlbumArtist(data)),
   onSuccess: (result: SongUpdateResult) => {
-    toastSuccess(`Updated ${pluralize(songs, 'song')}.`)
     eventBus.emit('SONGS_UPDATED', result)
     close()
+  },
+  onClose: close,
+})
+
+const genreTags = computed({
+  get: () =>
+    (data.genre ?? '')
+      .split(',')
+      .map(genre => genre.trim())
+      .filter(Boolean),
+  set: (tags: string[]) => {
+    data.genre = tags.join(', ')
   },
 })
 
@@ -240,12 +259,6 @@ const displayedArtistName = computed(() => {
 const displayedAlbumName = computed(() =>
   allSongsAreInSameAlbum || data.album_name ? data.album_name : 'Mixed Albums',
 )
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>
 
 <style lang="postcss" scoped>

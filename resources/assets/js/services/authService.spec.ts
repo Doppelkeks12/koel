@@ -6,21 +6,10 @@ import { http } from '@/services/http'
 import { useLocalStorage } from '@/composables/useLocalStorage'
 import { userStore } from '@/stores/userStore'
 
-const originalLocation = window.location
-
 describe('authService', () => {
   const h = createHarness({
-    beforeEach: () => {
-      Object.defineProperty(window, 'location', {
-        value: {
-          ...window.location, // eslint-disable-line typescript-eslint/no-misused-spread -- intentional shallow copy for test
-        },
-        writable: true,
-      })
-    },
     afterEach: () => {
-      // @ts-ignore
-      window.location = originalLocation
+      history.replaceState(null, '', '/')
       useLocalStorage(false).remove('redirect')
     },
   })
@@ -62,7 +51,7 @@ describe('authService', () => {
     expect(postMock).toHaveBeenCalledWith('me', { email: 'john@doe.com', password: 'curry-wurst' })
     expect(result).toBeNull()
     expect(lsGet('api-token')).toBe('bar')
-    expect(lsGet('audio-token')).toBe('foo')
+    expect(lsGet('audio-token')).toBeNull()
   })
 
   it('returns the two-factor challenge payload from login without stashing a token', async () => {
@@ -92,7 +81,7 @@ describe('authService', () => {
       code: '123456',
     })
     expect(lsGet('api-token')).toBe('bar')
-    expect(lsGet('audio-token')).toBe('foo')
+    expect(lsGet('audio-token')).toBeNull()
   })
 
   it('enrolls in two-factor authentication', async () => {
@@ -200,9 +189,9 @@ describe('authService', () => {
   })
 
   it('sets redirect url to the current URL', () => {
-    h.mock(location, 'toString').mockReturnValue('http://localhost:3000/foo/bar')
+    history.replaceState(null, '', '/#/foo/bar')
     authService.setRedirect()
-    expect(lsGet('redirect')).toBe('http://localhost:3000/foo/bar')
+    expect(lsGet('redirect')).toBe('http://localhost:3000/#/foo/bar')
   })
 
   it('checks if redirect url exists', () => {
@@ -211,22 +200,20 @@ describe('authService', () => {
   })
 
   it('redirects to the stored URL', () => {
-    const assignMock = h.mock(location, 'assign')
-    lsSet('redirect', 'http://localhost:3000/foo/bar')
+    lsSet('redirect', 'http://localhost:3000/#/foo/bar')
 
     authService.maybeRedirect()
 
-    expect(assignMock).toHaveBeenCalledWith('http://localhost:3000/foo/bar')
+    expect(location.href).toBe('http://localhost:3000/#/foo/bar')
     expect(lsGet('redirect')).toBeNull()
   })
 
   it('does not redirect if no redirect url is stored', () => {
-    const assignMock = h.mock(location, 'assign')
     expect(lsGet('redirect')).toBeNull()
 
     authService.maybeRedirect()
 
-    expect(assignMock).not.toHaveBeenCalled()
+    expect(location.href).toBe('http://localhost:3000/')
     expect(lsGet('redirect')).toBeNull()
   })
 })

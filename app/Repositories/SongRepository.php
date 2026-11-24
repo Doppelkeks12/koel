@@ -3,20 +3,19 @@
 namespace App\Repositories;
 
 use App\Builders\SongBuilder;
-use App\Enums\EmbeddableType;
 use App\Enums\PlayableType;
-use App\Exceptions\EmbeddableNotFoundException;
 use App\Exceptions\NonSmartPlaylistException;
 use App\Facades\License;
 use App\Models\Album;
 use App\Models\Artist;
-use App\Models\Embed;
 use App\Models\Folder;
 use App\Models\Genre;
+use App\Models\Organization;
 use App\Models\Playlist;
 use App\Models\Podcast;
 use App\Models\Song;
 use App\Models\User;
+use App\Providers\MacroProvider;
 use App\Repositories\Contracts\PaginationStrategy;
 use App\Repositories\Contracts\ScoutableRepository;
 use App\Values\SmartPlaylist\SmartPlaylistQueryModifier as QueryModifier;
@@ -26,7 +25,11 @@ use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Database\Query\JoinClause;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\LazyCollection;
 use LogicException;
 
 /**
@@ -49,12 +52,79 @@ class SongRepository extends Repository implements ScoutableRepository
 
     public function findOneByPath(string $path): ?Song
     {
-        return Song::query()->where('path', $path)->first();
+        return Song::query()->wherePath($path)->first();
     }
 
-    public function findByHash(string $hash, User $owner): ?Song
+    public function findMtimeByPath(string $path): ?int
     {
-        return Song::query()->where('hash', $hash)->where('owner_id', $owner->id)->first();
+        return Song::query()
+            ->withoutEagerLoads()
+            ->wherePath($path)
+            ->select('songs.mtime')
+            ->first()
+            ?->mtime;
+    }
+
+    /** @return LazyCollection<int, string> */
+    public function lazyGetIdsByOwner(User $owner): LazyCollection
+    {
+        return Song::query()
+            ->withoutEagerLoads()
+            ->whereBelongsTo($owner, 'owner')
+            ->select('songs.id')
+            ->lazyById(column: 'songs.id', alias: 'id')
+            ->map(static fn (Song $song): string => $song->id);
+    }
+
+    /**
+     * @param array<string> $ids
+     *
+     * @return Collection<int, Song>
+     */
+    public function getManyForFileRemoval(array $ids): Collection
+    {
+        return Song::query()
+            ->withoutEagerLoads()
+            ->whereKey($ids)
+            ->select('songs.id', 'songs.path', 'songs.storage', 'songs.album_id', 'songs.artist_id')
+            ->get();
+    }
+
+    /**
+     * @param array<string> $ids
+     *
+     * @return Collection<int, Song>
+     */
+    public function getManyRegardlessOfAccess(array $ids): Collection
+    {
+        return Song::query()->findMany($ids);
+    }
+
+    /**
+     * @param array<string> $paths
+     *
+     * @return Collection<int, Song>
+     */
+    public function getManyByPaths(array $paths): Collection
+    {
+        return Song::query()->wherePathIn($paths)->get();
+    }
+
+    /** @return Collection<int, Song> */
+    public function getLabeledTracksOnDisc(Album $album, int $disc): Collection
+    {
+        return Song::query()
+            ->withoutEagerLoads()
+            ->whereBelongsTo($album)
+            ->where('disc', $disc)
+            ->whereNotNull('track_label')
+            ->get();
+    }
+
+    /** @param array<string> $hashes */
+    public function findByAnyHash(array $hashes, User $owner): ?Song
+    {
+        return Song::query()->whereIn('hash', $hashes)->where('owner_id', $owner->id)->first();
     }
 
     public function findOneByArtistAndTitle(?string $artist, ?string $title, ?User $scopedUser = null): ?Song
@@ -76,18 +146,23 @@ class SongRepository extends Repository implements ScoutableRepository
             ->first();
     }
 
-    public function getAllStoredOnCloud(): Collection
+    public function hasLocallyStoredSongs(): bool
     {
-        return Song::query()->storedOnCloud()->get();
+        return Song::query()->storedLocally()->exists();
     }
 
     public function getRecentlyAdded(int $count = 8, ?User $scopedUser = null): Collection
     {
-        return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
-            ->withUserContext()
-            ->latest()
+        $scopedUser ??= $this->auth->user();
+
+        $ids = Song::query(type: PlayableType::SONG, user: $scopedUser)
+            ->select('songs.id')
+            ->accessible()
+            ->orderByDesc('songs.created_at')
             ->limit($count)
-            ->get();
+            ->pluck('songs.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, scopedUser: $scopedUser);
     }
 
     public function getMostPlayed(int $count = 8, ?User $scopedUser = null, ?PlayableType $type = null): Collection
@@ -102,11 +177,42 @@ class SongRepository extends Repository implements ScoutableRepository
 
     public function getLeastPlayed(int $count = 50, ?User $scopedUser = null, ?PlayableType $type = null): Collection
     {
-        return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
-            ->withUserContext()
-            ->orderBy('play_count')
+        $scopedUser ??= $this->auth->user();
+
+        $unplayedIds = Song::query(type: $type, user: $scopedUser)
+            ->select('songs.id')
+            ->accessible()
+            ->whereNotExists(static function (QueryBuilder $query) use ($scopedUser): void {
+                $query
+                    ->select(DB::raw(1))
+                    ->from('interactions')
+                    ->whereColumn('interactions.song_id', 'songs.id')
+                    ->where('interactions.user_id', $scopedUser->id)
+                    ->where('interactions.play_count', '>', 0);
+            })
             ->limit($count)
-            ->get();
+            ->pluck('songs.id');
+
+        $remainingCount = $count - $unplayedIds->count();
+
+        $leastPlayedIds = $remainingCount > 0
+            ? Song::query(type: $type, user: $scopedUser)
+                ->select('songs.id')
+                ->accessible()
+                ->join('interactions', static function (JoinClause $join) use ($scopedUser): void {
+                    $join->on('interactions.song_id', 'songs.id')->where('interactions.user_id', $scopedUser->id);
+                })
+                ->where('interactions.play_count', '>', 0)
+                ->orderBy('interactions.play_count')
+                ->limit($remainingCount)
+                ->pluck('songs.id')
+            : collect();
+
+        return $this->getMany(
+            [...$unplayedIds->all(), ...$leastPlayedIds->all()],
+            preserveOrder: true,
+            scopedUser: $scopedUser,
+        );
     }
 
     public function getRecentlyPlayed(int $count = 8, ?User $scopedUser = null, ?PlayableType $type = null): Collection
@@ -114,7 +220,6 @@ class SongRepository extends Repository implements ScoutableRepository
         return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
             ->where('interactions.play_count', '>', 0)
-            ->addSelect('interactions.last_played_at')
             ->orderByDesc('interactions.last_played_at')
             ->limit($count)
             ->get();
@@ -153,7 +258,7 @@ class SongRepository extends Repository implements ScoutableRepository
                     'genres.id',
                     $genre->id,
                 ))
-                ->when(!$genre, static fn (Builder $builder) => $builder->whereDoesntHave('genres'))
+                ->when(!$genre, static fn (SongBuilder $builder) => $builder->genreless())
                 ->sort($sortColumns, $sortDirection),
             idColumn: 'songs.id',
             perPage: 50,
@@ -168,26 +273,27 @@ class SongRepository extends Repository implements ScoutableRepository
     ): Collection {
         return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
+            ->whereNotHidden()
             ->sort($sortColumns, $sortDirection)
             ->limit($limit)
             ->get();
     }
 
     /** @return Collection<int, Song> */
-    public function getOrdered(
-        array $sortColumns,
-        string $sortDirection,
-        int $limit,
-        int $offset = 0,
-        ?User $scopedUser = null,
-    ): Collection {
-        return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
-            ->withUserContext()
-            ->sort($sortColumns, $sortDirection)
+    public function getOrderedById(int $limit, int $offset = 0, ?User $scopedUser = null): Collection
+    {
+        $scopedUser ??= $this->auth->user();
+
+        $ids = Song::query(type: PlayableType::SONG, user: $scopedUser)
+            ->select('songs.id')
+            ->accessible()
             ->orderBy('songs.id')
             ->offset($offset)
             ->limit($limit)
-            ->get();
+            ->pluck('songs.id')
+            ->all();
+
+        return $this->getMany(ids: $ids, preserveOrder: true, scopedUser: $scopedUser);
     }
 
     /** @return Collection<int, Song> */
@@ -196,6 +302,17 @@ class SongRepository extends Repository implements ScoutableRepository
         return Song::query(type: $type, user: $scopedUser ?? $this->auth->user())
             ->withUserContext(favoritesOnly: true)
             ->orderBy('favorites.position')
+            ->get();
+    }
+
+    /** @return Collection<int, Song> */
+    public function getHidden(User $user): Collection
+    {
+        return Song::query(type: PlayableType::SONG, user: $user)
+            ->withUserContext()
+            ->join('hidden_songs', 'hidden_songs.song_id', 'songs.id')
+            ->where('hidden_songs.user_id', $user->id)
+            ->orderByDesc('hidden_songs.created_at')
             ->get();
     }
 
@@ -229,12 +346,19 @@ class SongRepository extends Repository implements ScoutableRepository
     {
         $artist = $this->artistRepository->resolveOne($artist);
 
+        $songsOnArtistAlbums = DB::table('songs')
+            ->select('songs.id')
+            ->join('albums', 'albums.id', 'songs.album_id')
+            ->where('albums.artist_id', $artist->id);
+
+        $songIds = DB::table('songs')
+            ->select('songs.id')
+            ->where('songs.artist_id', $artist->id)
+            ->union($songsOnArtistAlbums);
+
         return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
-            ->leftJoin('albums as albums_by_artist', 'songs.album_id', 'albums_by_artist.id')
-            ->where(static function (SongBuilder $query) use ($artist): void {
-                $query->where('songs.artist_id', $artist->id)->orWhere('albums_by_artist.artist_id', $artist->id);
-            })
+            ->whereIn('songs.id', $songIds)
             ->orderBy('songs.album_name')
             ->orderBy('songs.disc')
             ->orderBy('songs.track')
@@ -285,41 +409,124 @@ class SongRepository extends Repository implements ScoutableRepository
     {
         throw_unless($playlist->is_smart, NonSmartPlaylistException::create($playlist));
 
-        $query = Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())->withUserContext();
+        $query = Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
+            ->withUserContext()
+            ->whereNotHidden();
 
-        $playlist->rule_groups->each(static function (RuleGroup $group, int $index) use ($query): void {
-            $whereClosure = static function (SongBuilder $subQuery) use ($group): void {
-                $group->rules->each(static function (Rule $rule) use ($subQuery): void {
-                    QueryModifier::applyRule($rule, $subQuery);
+        return self::limitToSmartPlaylistRules($query, $playlist)
+            ->orderBy('songs.title')
+            ->orderBy('songs.id')
+            ->limit(self::LIST_SIZE_LIMIT)
+            ->get();
+    }
+
+    /**
+     * Count and total the length of the songs a smart playlist returns, without loading them.
+     *
+     * @return array{count: int, length: float}
+     */
+    public function getSmartPlaylistStats(Playlist $playlist, User $user): array
+    {
+        throw_unless($playlist->is_smart, NonSmartPlaylistException::create($playlist));
+
+        $matchingSongs = self::limitToSmartPlaylistRules(
+            Song::query(type: PlayableType::SONG, user: $user)
+                ->withUserContext(includeFavoriteStatus: false)
+                ->whereNotHidden(),
+            $playlist,
+        )
+            ->select('songs.length')
+            ->orderBy('songs.title')
+            ->orderBy('songs.id')
+            ->limit(self::LIST_SIZE_LIMIT);
+
+        $stats = DB::query()
+            ->fromSub($matchingSongs, 'matching_songs')
+            ->selectRaw('COUNT(*) as song_count, COALESCE(SUM(length), 0) as total_length')
+            ->first();
+
+        return [
+            'count' => (int) $stats->song_count,
+            'length' => (float) $stats->total_length,
+        ];
+    }
+
+    private static function limitToSmartPlaylistRules(SongBuilder $query, Playlist $playlist): SongBuilder
+    {
+        return $query->where(static function (SongBuilder $anyGroupQuery) use ($playlist): void {
+            $playlist->rule_groups->each(static function (RuleGroup $group) use ($anyGroupQuery): void {
+                $anyGroupQuery->orWhere(static function (SongBuilder $groupQuery) use ($group): void {
+                    $group->rules->each(static fn (Rule $rule) => QueryModifier::applyRule($rule, $groupQuery));
                 });
-            };
-
-            $query->when(
-                $index === 0,
-                static fn (SongBuilder $query) => $query->where($whereClosure),
-                static fn (SongBuilder $query) => $query->orWhere($whereClosure),
-            );
+            });
         });
+    }
 
-        return $query->orderBy('songs.title')->limit(self::LIST_SIZE_LIMIT)->get();
+    /** @return Collection<int, Song> */
+    public function getRandomInGenreAndYears(
+        int $limit,
+        ?Genre $genre,
+        ?int $fromYear,
+        ?int $toYear,
+        ?User $scopedUser = null,
+    ): Collection {
+        $scopedUser ??= $this->auth->user();
+
+        $ids = Song::query(type: PlayableType::SONG, user: $scopedUser)
+            ->select('songs.id')
+            ->accessible()
+            ->whereNotHidden()
+            ->when($genre, static fn (SongBuilder $query) => $query->whereIn(
+                'songs.id',
+                $genre->songs()->newPivotQuery()->select('song_id'),
+            ))
+            ->when($fromYear !== null, static fn (SongBuilder $query) => $query->where('songs.year', '>=', $fromYear))
+            ->when($toYear !== null, static fn (SongBuilder $query) => $query->where('songs.year', '<=', $toYear))
+            ->inRandomOrder()
+            ->limit($limit)
+            ->pluck('songs.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, scopedUser: $scopedUser);
     }
 
     /** @return Collection<int, Song> */
     public function getRandom(int $limit, ?User $scopedUser = null): Collection
     {
-        return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
-            ->withUserContext()
-            ->inRandomOrder()
-            ->limit($limit)
-            ->get();
+        $scopedUser ??= $this->auth->user();
+
+        $ids = self::pluckFromRandomHash(
+            Song::query(type: PlayableType::SONG, user: $scopedUser)
+                ->select('songs.id')
+                ->accessible()
+                ->whereNotHidden(),
+            hashColumn: 'songs.path_hash',
+            idColumn: 'songs.id',
+            limit: $limit,
+        );
+
+        return $this->getMany($ids->shuffle()->all(), preserveOrder: true, scopedUser: $scopedUser);
+    }
+
+    /**
+     * IDs of the user's songs that came from a library scan rather than an upload.
+     *
+     * @return array<string>
+     */
+    public function getIdsOfScannedSongsOwnedBy(User $user): array
+    {
+        return Song::query()
+            ->where('owner_id', $user->id)
+            ->storedLocally()
+            ->whereNot('path', 'like', '%__KOEL_UPLOADS_%')
+            ->pluck('id')
+            ->all();
     }
 
     public function getMany(array $ids, bool $preserveOrder = false, ?User $scopedUser = null): Collection
     {
         $songs = Song::query(user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
-            ->whereIn('songs.id', $ids)
-            ->get();
+            ->getWhereInChunks('songs.id', $ids);
 
         return $preserveOrder ? $songs->orderByArray($ids) : $songs; // @phpstan-ignore-line
     }
@@ -329,31 +536,35 @@ class SongRepository extends Repository implements ScoutableRepository
     {
         return Song::query(user: $scopedUser ?? $this->auth->user())
             ->accessible()
-            ->whereIn('songs.id', $ids)
-            ->count();
+            ->countWhereInChunks('songs.id', $ids);
     }
 
     /**
      * Gets several songs, but also includes collaborative information.
      */
-    public function getManyInCollaborativeContext(array $ids, ?User $scopedUser = null): Collection
+    public function getManyInCollaborativeContext(Playlist $playlist, array $ids, ?User $scopedUser = null): Collection
     {
         return Song::query(user: $scopedUser ?? $this->auth->user())
             ->withUserContext()
-            ->when(License::isPlus(), static function (SongBuilder $query): SongBuilder {
+            ->when(License::isPlus(), static function (SongBuilder $query) use ($playlist): SongBuilder {
                 return $query
-                    ->leftJoin('playlist_song', 'songs.id', '=', 'playlist_song.song_id')
+                    ->leftJoin('playlist_song', static function (JoinClause $join) use ($playlist): void {
+                        $join->on('songs.id', '=', 'playlist_song.song_id')->where(
+                            'playlist_song.playlist_id',
+                            $playlist->id,
+                        );
+                    })
                     ->leftJoin('playlists', 'playlists.id', '=', 'playlist_song.playlist_id')
                     ->join('users as collaborators', 'playlist_song.user_id', '=', 'collaborators.id')
                     ->addSelect(
                         'collaborators.public_id as collaborator_public_id',
                         'collaborators.name as collaborator_name',
                         'collaborators.email as collaborator_email',
+                        'collaborators.avatar as collaborator_avatar',
                         'playlist_song.created_at as added_at',
                     );
             })
-            ->whereIn('songs.id', $ids)
-            ->get();
+            ->getWhereInChunks('songs.id', $ids);
     }
 
     /** @param string $id */
@@ -361,6 +572,19 @@ class SongRepository extends Repository implements ScoutableRepository
     {
         return Song::query(user: $user ?? $this->auth->user())
             ->withUserContext()
+            ->findOrFail($id);
+    }
+
+    public function getOneWithoutRelations(string $id): Song
+    {
+        return Song::query()->withoutEagerLoads()->findOrFail($id);
+    }
+
+    public function getOneAccessibleWithoutRelations(string $id, ?User $user = null): Song
+    {
+        return Song::query(user: $user ?? $this->auth->user())
+            ->accessible()
+            ->withoutEagerLoads()
             ->findOrFail($id);
     }
 
@@ -397,15 +621,85 @@ class SongRepository extends Repository implements ScoutableRepository
         ?User $scopedUser = null,
         int $offset = 0,
     ): Collection {
-        return Song::query(type: PlayableType::SONG, user: $scopedUser ?? $this->auth->user())
+        $scopedUser ??= $this->auth->user();
+
+        if ($random) {
+            return $genre
+                ? $this->getRandomByGenre($genre, $limit, $scopedUser)
+                : $this->getRandomGenreless($limit, $scopedUser);
+        }
+
+        return Song::query(type: PlayableType::SONG, user: $scopedUser)
             ->withUserContext()
             ->when($genre, static fn (Builder $builder) => $builder->whereRelation('genres', 'genres.id', $genre->id))
-            ->when(!$genre, static fn (Builder $builder) => $builder->whereDoesntHave('genres'))
-            ->when($random, static fn (Builder $builder) => $builder->inRandomOrder())
-            ->when(!$random, static fn (Builder $builder) => $builder->orderBy('songs.title'))
+            ->when(!$genre, static fn (SongBuilder $builder) => $builder->genreless())
+            ->orderBy('songs.title')
+            ->orderBy('songs.id')
             ->when($offset > 0, static fn (Builder $builder) => $builder->offset($offset))
             ->limit($limit)
             ->get();
+    }
+
+    /** @return Collection<int, Song> */
+    private function getRandomByGenre(Genre $genre, int $limit, User $scopedUser): Collection
+    {
+        $ids = Song::query(type: PlayableType::SONG, user: $scopedUser)
+            ->select('songs.id')
+            ->accessible()
+            ->whereNotHidden()
+            ->whereIn('songs.id', $genre->songs()->newPivotQuery()->select('song_id'))
+            ->inRandomOrder()
+            ->limit($limit)
+            ->pluck('songs.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, scopedUser: $scopedUser);
+    }
+
+    /** @return Collection<int, Song> */
+    private function getRandomGenreless(int $limit, User $scopedUser): Collection
+    {
+        $ids = $this->pickGenrelessIdsFromRandomWindow($limit, $scopedUser);
+
+        if ($ids->count() < $limit) {
+            $ids = Song::query(type: PlayableType::SONG, user: $scopedUser)
+                ->select('songs.id')
+                ->accessible()
+                ->whereNotHidden()
+                ->genreless()
+                ->inRandomOrder()
+                ->limit($limit)
+                ->pluck('songs.id');
+        }
+
+        return $this->getMany($ids->all(), preserveOrder: true, scopedUser: $scopedUser);
+    }
+
+    /** @return SupportCollection<int, string> */
+    private function pickGenrelessIdsFromRandomWindow(int $limit, User $scopedUser): SupportCollection
+    {
+        $candidateIds = self::pluckFromRandomHash(
+            Song::query(type: PlayableType::SONG, user: $scopedUser)
+                ->select('songs.id')
+                ->accessible()
+                ->whereNotHidden(),
+            hashColumn: 'songs.path_hash',
+            idColumn: 'songs.id',
+            limit: $limit * 20,
+        );
+
+        $genrelessSongs = Song::query()->select('songs.id')->genreless();
+
+        return $candidateIds
+            ->lazy()
+            ->chunk(MacroProvider::WHERE_IN_CHUNK_SIZE)
+            ->flatMap(
+                static fn (LazyCollection $chunk): SupportCollection => (clone $genrelessSongs)
+                    ->whereIn('songs.id', $chunk)
+                    ->pluck('songs.id'),
+            )
+            ->take($limit)
+            ->collect()
+            ->shuffle();
     }
 
     /** @return array<string> */
@@ -421,6 +715,50 @@ class SongRepository extends Repository implements ScoutableRepository
             ->whereBelongsTo($podcast)
             ->orderByDesc('songs.created_at')
             ->get();
+    }
+
+    public function countEpisodesSubscribedByUser(User $user): int
+    {
+        return Song::query(type: PlayableType::PODCAST_EPISODE)
+            ->whereHas('podcast.subscribers', static fn (Builder $query) => $query->where('users.id', $user->id))
+            ->count();
+    }
+
+    public function getTotalSongFileSize(Organization $organization): int
+    {
+        $ownerInOrganization = static fn (Builder $owner) => $owner->whereBelongsTo($organization);
+
+        return (int) Song::query(type: PlayableType::SONG)->whereHas('owner', $ownerInOrganization)->sum(
+            'songs.file_size',
+        );
+    }
+
+    /** @return LazyCollection<int, Song> */
+    public function lazyGetSongsWithoutFileSize(): LazyCollection
+    {
+        return Song::query(type: PlayableType::SONG)
+            ->withoutEagerLoads()
+            ->whereNull('songs.file_size')
+            ->lazyById(column: 'songs.id', alias: 'id');
+    }
+
+    public function countSongsWithoutFileSize(): int
+    {
+        return Song::query(type: PlayableType::SONG)->whereNull('songs.file_size')->count();
+    }
+
+    /** @return LazyCollection<int, Song> */
+    public function lazyGetSongsWithoutPreview(): LazyCollection
+    {
+        return Song::query(type: PlayableType::SONG)
+            ->withoutEagerLoads()
+            ->whereDoesntHave('preview')
+            ->lazyById(column: 'songs.id', alias: 'id');
+    }
+
+    public function countSongsWithoutPreview(): int
+    {
+        return Song::query(type: PlayableType::SONG)->whereDoesntHave('preview')->count();
     }
 
     /** @return Collection<int, Song> */
@@ -456,7 +794,10 @@ class SongRepository extends Repository implements ScoutableRepository
             // if the root path is included, we don't need to filter by folder
             ->when(!$hasRootPath, function (SongBuilder $query) use ($paths, $scopedUser): void {
                 $folders = $this->folderRepository->getByPaths($paths, $scopedUser);
-                $query->whereIn('songs.folder_id', $folders->pluck('id'));
+                $query->whereIn(
+                    'songs.folder_id',
+                    $this->folderRepository->getIdsIncludingDescendants($folders->modelKeys()),
+                );
             })
             ->when(!$random, static fn (SongBuilder $query): SongBuilder => $query->orderBy('songs.path'))
             ->when($random, static fn (SongBuilder $query): SongBuilder => $query->inRandomOrder())
@@ -518,8 +859,12 @@ class SongRepository extends Repository implements ScoutableRepository
             ->unique()
             ->all();
 
-        return Song::query(type: PlayableType::SONG, user: $user ?? $this->auth->user())
-            ->withUserContext()
+        $user ??= $this->auth->user();
+
+        $similarSongsQuery = Song::query(type: PlayableType::SONG, user: $user)
+            ->select('songs.id')
+            ->accessible()
+            ->whereNotHidden()
             ->whereNotIn('songs.id', $songIds)
             ->where(static function (SongBuilder $query) use ($artistIds, $genreIds): void {
                 $query->whereIn(
@@ -529,30 +874,31 @@ class SongRepository extends Repository implements ScoutableRepository
                     'genres.id',
                     $genreIds,
                 )));
-            })
-            ->inRandomOrder()
-            ->limit($limit)
-            ->get();
+            });
+
+        $similarSongIds = self::pluckFromRandomHash(
+            $similarSongsQuery,
+            hashColumn: 'songs.path_hash',
+            idColumn: 'songs.id',
+            limit: $limit,
+        );
+
+        return $this->getMany($similarSongIds->shuffle()->all(), preserveOrder: true, scopedUser: $user);
     }
 
     public function search(string $keywords, int $limit, ?User $user = null): Collection
     {
-        return $this->getMany(
-            ids: Song::search($keywords)->take($limit)->get()->modelKeys(),
-            preserveOrder: true,
-            scopedUser: $user,
-        );
-    }
+        $user ??= $this->auth->user();
+        $candidateIds = Song::search($keywords)->take(self::SEARCH_CANDIDATE_LIMIT)->keys();
 
-    public function getForEmbed(Embed $embed): Collection
-    {
-        throw_unless((bool) $embed->embeddable, new EmbeddableNotFoundException());
+        $accessibleCandidateIds = Song::query(user: $user)
+            ->select('songs.id')
+            ->accessible()
+            ->whereIn('songs.id', $candidateIds)
+            ->pluck('songs.id');
 
-        return match (EmbeddableType::from($embed->embeddable_type)) {
-            EmbeddableType::ALBUM => $this->getByAlbum($embed->embeddable, $embed->user),
-            EmbeddableType::ARTIST => $this->getByArtist($embed->embeddable, $embed->user),
-            EmbeddableType::PLAYLIST => $this->getByPlaylist($embed->embeddable, $embed->user),
-            EmbeddableType::PLAYABLE => $this->getMany(ids: [$embed->embeddable->getKey()], scopedUser: $embed->user),
-        };
+        $resultIds = $candidateIds->intersect($accessibleCandidateIds)->take($limit)->values()->all();
+
+        return $this->getMany(ids: $resultIds, preserveOrder: true, scopedUser: $user);
     }
 }

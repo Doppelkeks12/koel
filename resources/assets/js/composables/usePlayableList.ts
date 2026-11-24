@@ -1,7 +1,7 @@
 import { differenceBy, orderBy } from 'lodash-es'
 import { useThrottleFn } from '@vueuse/core'
 import type { Ref } from 'vue'
-import { computed, provide, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, provide, reactive, ref } from 'vue'
 import { commonStore } from '@/stores/commonStore'
 import { queueStore } from '@/stores/queueStore'
 import { playableStore } from '@/stores/playableStore'
@@ -37,6 +37,7 @@ export const usePlayableList = (
     collaborative: false,
     hasCustomOrderSort: false,
     hasHeader: true,
+    sortedOnServer: false,
   }
 
   config = reactive({ ...defaultConfig, ...config })
@@ -60,7 +61,6 @@ export const usePlayableList = (
   const playableList = ref<InstanceType<typeof PlayableList>>()
 
   const selectedPlayables = ref<Playable[]>([])
-  const headerLayout = ref<ScreenHeaderLayout>('expanded')
 
   const sortField = ref<MaybeArray<PlayableListSortField> | null>(
     (() => {
@@ -83,19 +83,19 @@ export const usePlayableList = (
   /**
    * Extends the sort fields based on the current field(s) to cater to relevant fields.
    * For example, sorting by track should take into account the disc number and the title.
-   * Similarly, sorting by album name should also include the artist name, disc number, track number, and title, etc.
+   * Similarly, sorting by album name should also include the album, disc number, track number, and title, etc.
    */
   const extendedSortFields = computed(() => {
     if (!sortField.value) {
       return null
     }
 
-    let extended: PlayableListSortField[] = arrayify(sortField.value)
+    let extended: Array<PlayableListSortField | keyof Pick<Song, 'album_id'>> = arrayify(sortField.value)
 
     if (sortField.value === 'track') {
       extended = ['disc', 'track', 'title']
     } else if (sortField.value.includes('album_name') && !sortField.value.includes('disc')) {
-      extended.push('artist_name', 'disc', 'track', 'title')
+      extended.push('album_id', 'disc', 'track', 'title')
     } else if (sortField.value.includes('artist_name') && !sortField.value.includes('disc')) {
       extended.push('album_name', 'disc', 'track', 'title')
     }
@@ -104,10 +104,6 @@ export const usePlayableList = (
   })
 
   const sortOrder = ref<SortOrder>('asc')
-
-  const onSwipe = (direction: 'up' | 'down') => {
-    headerLayout.value = direction === 'down' ? 'collapsed' : 'expanded'
-  }
 
   const duration = computed(() => playableStore.getFormattedLength(playables.value))
 
@@ -131,7 +127,7 @@ export const usePlayableList = (
     return Array.from(new Set(sampleCovers)).slice(0, 4)
   })
 
-  const getPlayablesToPlay = () => playableList.value!.getAllPlayablesWithSort()
+  const getPlayablesToPlay = () => playableList.value?.getAllPlayablesWithSort() ?? filteredPlayables.value
 
   const playAll = (shuffle: boolean) => {
     playback().queueAndPlay(getPlayablesToPlay(), shuffle)
@@ -148,7 +144,7 @@ export const usePlayableList = (
     const filtered = fuzzy && filterKeywords.value ? fuzzy.search(filterKeywords.value) : items
 
     const collectSortFields = () => {
-      if (!sortField.value) {
+      if (!sortField.value || config.sortedOnServer) {
         return null
       }
 
@@ -162,7 +158,7 @@ export const usePlayableList = (
         // If we're sorting by disc and there's only one disc, we remove `disc` from the sort fields.
         // Otherwise, the tracks will be sorted by disc number first, and since there's only one disc,
         // the track order will remain the same through alternating between asc and desc.
-        fields.shift()
+        return fields.slice(1)
       }
 
       return fields
@@ -199,7 +195,12 @@ export const usePlayableList = (
     sortOrder.value = order
   }
 
-  eventBus.on('SONGS_DELETED', deletedSongs => (playables.value = differenceBy(playables.value, deletedSongs, 'id')))
+  const removeDeletedSongs = (deletedSongs: Song[]) => {
+    playables.value = differenceBy(playables.value, deletedSongs, 'id')
+  }
+
+  eventBus.on('SONGS_DELETED', removeDeletedSongs)
+  onBeforeUnmount(() => eventBus.off('SONGS_DELETED', removeDeletedSongs))
 
   provideReadonly(PlayablesKey, playables, false)
   provideReadonly(FilteredPlayablesKey, filteredPlayables, false)
@@ -219,7 +220,6 @@ export const usePlayableList = (
     config,
     context,
     downloadable,
-    headerLayout,
     sortField,
     sortOrder,
     duration,
@@ -231,7 +231,6 @@ export const usePlayableList = (
     playAll,
     playSelected,
     applyFilter,
-    onSwipe,
     sort,
   }
 }

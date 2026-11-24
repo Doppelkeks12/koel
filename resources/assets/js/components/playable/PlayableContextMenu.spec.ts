@@ -27,15 +27,13 @@ vi.mock('@/composables/useModal', () => ({
   }),
 }))
 
-const makeAvailableOfflineMock = vi.fn()
-const removeOfflineCacheMock = vi.fn()
+const togglePlayablesOfflineMock = vi.fn()
 const isCachedMock = vi.fn().mockReturnValue(false)
 
 vi.mock('@/composables/useOfflinePlayback', () => ({
   useOfflinePlayback: () => ({
     swReady: ref(true),
-    makeAvailableOffline: makeAvailableOfflineMock,
-    removeOfflineCache: removeOfflineCacheMock,
+    togglePlayablesOffline: togglePlayablesOfflineMock,
     isCached: isCachedMock,
   }),
 }))
@@ -54,8 +52,7 @@ describe('playableContextMenu.vue', () => {
     beforeEach: () => {
       queueStore.state.playables = []
       openModalMock.mockClear()
-      makeAvailableOfflineMock.mockClear()
-      removeOfflineCacheMock.mockClear()
+      togglePlayablesOfflineMock.mockClear()
       isCachedMock.mockReturnValue(false)
     },
   })
@@ -93,6 +90,24 @@ describe('playableContextMenu.vue', () => {
     await h.user.click(screen.getByText('Play'))
 
     expect(playMock).toHaveBeenCalledWith(song)
+  })
+
+  it('plays multiple', async () => {
+    const queueAndPlayMock = h.mock(playbackService, 'queueAndPlay')
+    const { playables } = await renderComponent()
+
+    await h.user.click(screen.getByText('Play'))
+
+    expect(queueAndPlayMock).toHaveBeenCalledWith(playables)
+  })
+
+  it('shuffles multiple', async () => {
+    const queueAndPlayMock = h.mock(playbackService, 'queueAndPlay')
+    const { playables } = await renderComponent()
+
+    await h.user.click(screen.getByText('Shuffle'))
+
+    expect(queueAndPlayMock).toHaveBeenCalledWith(playables, true)
   })
 
   it('pauses playback', async () => {
@@ -226,20 +241,33 @@ describe('playableContextMenu.vue', () => {
     expect(screen.queryByText('Remove from Queue')).toBeNull()
   })
 
-  it('adds to favorites', async () => {
-    const likeMock = h.mock(playableStore, 'favorite')
-    const { playables } = await renderComponent()
+  it('favorites', async () => {
+    const favoriteMock = h.mock(playableStore, 'favorite')
+    const playables = h.factory('song').make({ favorite: false }, 3)
+    playables[0].favorite = true
+    await renderComponent(playables)
 
-    await h.user.click(screen.getByText('Favorites'))
+    await h.user.click(screen.getByText('Favorite'))
 
-    expect(likeMock).toHaveBeenCalledWith(playables)
+    expect(favoriteMock).toHaveBeenCalledWith(playables)
   })
 
-  it('does not have an option to add to favorites for Favorites screen', async () => {
+  it('undoes favorite when all are favorites', async () => {
+    const undoFavoriteMock = h.mock(playableStore, 'undoFavorite')
+    const playables = h.factory('song').make({ favorite: true }, 3)
+    await renderComponent(playables)
+
+    await h.user.click(screen.getByText('Undo Favorite'))
+
+    expect(undoFavoriteMock).toHaveBeenCalledWith(playables)
+  })
+
+  it('does not have a favorite toggle on Favorites screen', async () => {
     h.visit('/favorites')
     await renderComponent()
 
-    expect(screen.queryByText('Favorites')).toBeNull()
+    expect(screen.queryByText('Favorite')).toBeNull()
+    expect(screen.queryByText('Undo Favorite')).toBeNull()
   })
 
   it('removes from favorites', async () => {
@@ -259,7 +287,7 @@ describe('playableContextMenu.vue', () => {
     h.mock(MessageToasterStub.value, 'success')
     const { playables } = await renderComponent()
 
-    playlistStore.state.playlists.forEach(playlist => screen.queryByText(playlist.name))
+    playlistStore.state.playlists.forEach(playlist => screen.getByText(playlist.name))
 
     await h.user.click(screen.getByText(playlistStore.state.playlists[0].name))
 
@@ -334,10 +362,35 @@ describe('playableContextMenu.vue', () => {
     })
   })
 
+  it('hides songs in Plus edition', async () => {
+    await h.withPlusEdition(async () => {
+      const songs = h.factory('song').make(2)
+      const hideMock = h.mock(playableStore, 'hideSongs').mockResolvedValue(undefined)
+      await renderComponent(songs)
+
+      await h.user.click(screen.getByText('Hide'))
+
+      expect(hideMock).toHaveBeenCalledWith(songs)
+    })
+  })
+
+  it('unhides songs that are all hidden in Plus edition', async () => {
+    await h.withPlusEdition(async () => {
+      const songs = h.factory('song').make({ hidden: true }, 2)
+      const unhideMock = h.mock(playableStore, 'unhideSongs').mockResolvedValue(undefined)
+      await renderComponent(songs)
+
+      await h.user.click(screen.getByText('Unhide'))
+
+      expect(unhideMock).toHaveBeenCalledWith(songs)
+    })
+  })
+
   it('deletes song', async () => {
     const confirmMock = h.mock(DialogBoxStub.value, 'confirm', true)
-    const toasterMock = h.mock(MessageToasterStub.value, 'success')
-    const deleteMock = h.mock(playableStore, 'deleteSongsFromFilesystem')
+    const toastMock = h.mock(MessageToasterStub.value, 'promise')
+    const deleting = Promise.resolve()
+    const deleteMock = h.mock(playableStore, 'deleteSongsFromFilesystem').mockReturnValue(deleting)
     h.actingAsAdmin()
     const { playables } = await renderComponent()
 
@@ -348,7 +401,7 @@ describe('playableContextMenu.vue', () => {
     await waitFor(() => {
       expect(confirmMock).toHaveBeenCalled()
       expect(deleteMock).toHaveBeenCalledWith(playables)
-      expect(toasterMock).toHaveBeenCalledWith('Deleted 5 songs from the filesystem.')
+      expect(toastMock).toHaveBeenCalledWith(deleting, expect.anything())
       expect(emitMock).toHaveBeenCalledWith('SONGS_DELETED', playables)
     })
   })
@@ -368,12 +421,6 @@ describe('playableContextMenu.vue', () => {
     await assertOpenModal(openModalMock, CreatePlaylistForm, { folder: null, playables })
   })
 
-  it('does not have the options to mark song as private or public in Community edition', async () => {
-    await renderComponent(h.factory('song').make())
-    expect(screen.queryByText('Mark as Private')).toBeNull()
-    expect(screen.queryByText('Unmark as Private')).toBeNull()
-  })
-
   it('makes songs private', async () =>
     await h.withPlusEdition(async () => {
       const user = h.factory('user').state('current').make() as CurrentUser
@@ -387,12 +434,14 @@ describe('playableContextMenu.vue', () => {
 
       h.actingAsUser(user)
 
+      const toastMock = h.mock(MessageToasterStub.value, 'promise')
       await renderComponent(songs)
       const privatizeMock = h.mock(playableStore, 'privatizeSongs').mockResolvedValue(songs.map(song => song.id))
 
       await h.user.click(screen.getByText('Mark as Private'))
 
       expect(privatizeMock).toHaveBeenCalledWith(songs)
+      expect(toastMock).toHaveBeenCalledWith(privatizeMock.mock.results[0].value, expect.anything())
     }))
 
   it('makes songs public', async () =>
@@ -408,12 +457,14 @@ describe('playableContextMenu.vue', () => {
 
       h.actingAsUser(user)
 
+      const toastMock = h.mock(MessageToasterStub.value, 'promise')
       await renderComponent(songs)
       const publicizeMock = h.mock(playableStore, 'publicizeSongs').mockResolvedValue(songs.map(song => song.id))
 
       await h.user.click(screen.getByText('Unmark as Private'))
 
       expect(publicizeMock).toHaveBeenCalledWith(songs)
+      expect(toastMock).toHaveBeenCalledWith(publicizeMock.mock.results[0].value, expect.anything())
     }))
 
   it('does not have an option to make songs public or private if current user is not owner', async () => {
@@ -503,9 +554,7 @@ describe('playableContextMenu.vue', () => {
 
     await h.user.click(screen.getByText('Make Available Offline'))
 
-    for (const playable of playables) {
-      expect(makeAvailableOfflineMock).toHaveBeenCalledWith(playable)
-    }
+    expect(togglePlayablesOfflineMock).toHaveBeenCalledWith(playables)
   })
 
   it('does not show offline option for episodes', async () => {
@@ -519,9 +568,39 @@ describe('playableContextMenu.vue', () => {
 
     await h.user.click(screen.getByText('Remove Offline Versions'))
 
-    for (const playable of playables) {
-      expect(removeOfflineCacheMock).toHaveBeenCalledWith(playable)
-    }
+    expect(togglePlayablesOfflineMock).toHaveBeenCalledWith(playables)
+  })
+
+  it('links to MusicBrainz', async () => {
+    commonStore.state.uses_musicbrainz = true
+    const openMock = h.mock(window, 'open')
+    const song = h.factory('song').make()
+
+    await renderComponent(song)
+    await h.user.click(screen.getByText('View on MusicBrainz'))
+
+    expect(openMock).toHaveBeenCalledWith(`https://musicbrainz.org/recording/${song.mbid}`, '_blank')
+  })
+
+  it('does not link to MusicBrainz when MusicBrainz is disabled', async () => {
+    commonStore.state.uses_musicbrainz = false
+    await renderComponent(h.factory('song').make())
+
+    expect(screen.queryByText('View on MusicBrainz')).toBeNull()
+  })
+
+  it('does not link to MusicBrainz when the song has no identifier', async () => {
+    commonStore.state.uses_musicbrainz = true
+    await renderComponent(h.factory('song').make({ mbid: null }))
+
+    expect(screen.queryByText('View on MusicBrainz')).toBeNull()
+  })
+
+  it('does not link to MusicBrainz when multiple playables are selected', async () => {
+    commonStore.state.uses_musicbrainz = true
+    await renderComponent(h.factory('song').make(3))
+
+    expect(screen.queryByText('View on MusicBrainz')).toBeNull()
   })
 
   it('closes the menu after rating', async () => {

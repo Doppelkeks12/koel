@@ -22,28 +22,21 @@ to rephrase your request if the result isn't what you expected.
 
 ## Setup
 
-To enable the AI assistant, you need to configure an AI provider. Set the following environment variables in your `.env` file:
+An admin turns the assistant on under **Settings → AI**:
 
-```dotenv
-AI_ENABLED=true
-AI_PROVIDER=openai
-OPENAI_API_KEY=your-openai-api-key
-```
+1. Tick **Use AI assistant**.
+2. Pick a provider.
+3. Paste the provider's API key and save.
 
-Or, if you prefer Anthropic:
+Koel stores the key encrypted and never shows it again; to change it, paste a new one. Switching providers needs a new key.
 
-```dotenv
-AI_ENABLED=true
-AI_PROVIDER=anthropic
-ANTHROPIC_API_KEY=your-anthropic-api-key
-```
+To turn the assistant off, untick **Use AI assistant**. It's off right away, and your provider and key are kept, so ticking it again turns it back on.
 
-`AI_PROVIDER` must match one of the provider keys defined in `config/ai.php` (e.g., `openai`, `anthropic`, `gemini`, `ollama`).
+:::tip Upgrading from an earlier version
+If you had set up the assistant with `AI_ENABLED`, `AI_PROVIDER` and a provider key in `.env`, upgrading moves that setup into Settings, as long as Settings offers that provider. Afterwards those `.env` variables are no longer read and can be removed.
+:::
 
-The AI assistant is powered by [Laravel's AI SDK](https://laravel.com/docs/12.x/ai-sdk),
-which supports a wide range of providers including Anthropic, Gemini, DeepSeek, Mistral, Groq, Ollama, and more.
-For the full list of supported providers and their configuration options,
-refer to the [Laravel AI SDK documentation](https://laravel.com/docs/12.x/ai-sdk).
+The AI assistant is powered by [Laravel's AI SDK](https://laravel.com/docs/12.x/ai-sdk).
 
 ## Using the Assistant
 
@@ -74,6 +67,11 @@ The assistant understands a wide range of requests. Here are some examples to ge
 - "Tell me about the album Dark Side of the Moon"
 - "Show me the lyrics of this song"
 - "Find the lyrics for this song if there are none"
+- "How many songs do I have?"
+- "What did I listen to most in the last 30 days?"
+- "Who were my top artists over the past year?"
+- "Do I have anything by Björk?"
+- "Which albums do I have from 1997?"
 
 ### Managing Playlists
 
@@ -93,6 +91,14 @@ The assistant understands a wide range of requests. Here are some examples to ge
 ### Radio Stations
 
 - "Stream some classical music" (if you have a matching radio station)
+
+### Podcasts
+
+- "Subscribe to https://www.deutschlandfunk.de/marktplatz-102.xml"
+- "Play the latest episode of Marktplatz"
+- "Continue Marktplatz where I left off"
+
+To subscribe, give the assistant the podcast's feed URL or its Apple Podcasts link. It can't find a podcast by name.
 
 :::tip
 The assistant is context-aware. If a song is currently playing, you can refer to it with "this song" or "this"

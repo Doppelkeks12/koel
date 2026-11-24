@@ -1,5 +1,6 @@
 import { reactive, ref } from 'vue'
 import { http } from '@/services/http'
+import { lastWriteWins } from '@/utils/lastWriteWins'
 
 export const defaultPreferences: UserPreferences = {
   volume: 7,
@@ -36,6 +37,7 @@ export const defaultPreferences: UserPreferences = {
   radio_stations_favorites_only: false,
   transcode_on_mobile: false,
   transcode_quality: 128,
+  stream_lossless_when_supported: true,
   support_bar_no_bugging: false,
   show_album_art_overlay: true,
   lyrics_zoom_level: 1,
@@ -47,8 +49,14 @@ export const defaultPreferences: UserPreferences = {
   include_public_media: true,
   continuous_playback: false,
   crossfade_duration: 0,
+  music_playback_speed: 1,
+  podcast_playback_speed: 1,
+  normalize_volume: true,
+  show_waveform: true,
   home_blocks_order: [],
 }
+
+const preferenceSavers = new Map<keyof UserPreferences, (value: any) => Promise<boolean>>()
 
 const preferenceStore = {
   isTemporary: false,
@@ -108,9 +116,16 @@ const preferenceStore = {
   },
 
   async update(key: keyof UserPreferences, value: any) {
-    await http.silently.patch('me/preferences', { key, value })
+    if (!preferenceSavers.has(key)) {
+      preferenceSavers.set(
+        key,
+        lastWriteWins(latestValue => http.silently.withRetries.patch('me/preferences', { key, value: latestValue })),
+      )
+    }
 
-    if (key === 'include_public_media') {
+    const saved = await preferenceSavers.get(key)!(value)
+
+    if (saved && key === 'include_public_media') {
       window.location.reload()
     }
   },

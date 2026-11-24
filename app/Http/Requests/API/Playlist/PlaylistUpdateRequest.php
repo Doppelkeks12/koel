@@ -2,9 +2,9 @@
 
 namespace App\Http\Requests\API\Playlist;
 
+use App\Http\Requests\API\Concerns\ValidatesOptionalImage;
+use App\Http\Requests\API\Playlist\Concerns\ValidatesPlaylistFolder;
 use App\Http\Requests\API\Request;
-use App\Models\PlaylistFolder;
-use App\Rules\ValidImageData;
 use App\Rules\ValidSmartPlaylistRulePayload;
 use App\Values\Playlist\PlaylistUpdateData;
 use App\Values\SmartPlaylist\SmartPlaylistRuleGroupCollection;
@@ -21,21 +21,18 @@ use Illuminate\Validation\Rule;
  */
 class PlaylistUpdateRequest extends Request
 {
+    use ValidatesPlaylistFolder;
+    use ValidatesOptionalImage;
+
     /** @inheritdoc */
     public function rules(): array
     {
         return [
-            'name' => 'required',
-            'description' => ['string', 'sometimes', 'nullable'],
-            'rules' => ['array', 'nullable', new ValidSmartPlaylistRulePayload()],
-            'folder_id' => [
-                'nullable',
-                'sometimes',
-                'prohibits:folder_name',
-                Rule::exists(PlaylistFolder::class, 'id')->where('user_id', $this->user()->id),
-            ],
-            'folder_name' => ['nullable', 'sometimes', 'prohibits:folder_id', 'string', 'max:191'],
-            'cover' => ['string', 'sometimes', 'nullable', new ValidImageData()],
+            'name' => [Rule::required()],
+            'description' => [Rule::string(), Rule::sometimes(), Rule::nullable()],
+            'rules' => [Rule::array(), Rule::nullable(), new ValidSmartPlaylistRulePayload()],
+            ...$this->playlistFolderRules(),
+            'cover' => self::optionalImageRules(),
         ];
     }
 
@@ -46,7 +43,7 @@ class PlaylistUpdateRequest extends Request
             description: (string) $this->description,
             folderId: $this->folder_id,
             folderName: $this->folder_name,
-            cover: $this->has('cover') ? $this->string('cover') : null,
+            cover: $this->optionalImageInput('cover'),
             ruleGroups: $this->rules ? SmartPlaylistRuleGroupCollection::create(Arr::wrap($this->rules)) : null,
         );
     }

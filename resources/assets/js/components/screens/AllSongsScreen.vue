@@ -1,7 +1,7 @@
 <template>
   <ScreenBase>
     <template #header>
-      <ScreenHeader :disabled="loading" :layout="songs.length ? headerLayout : 'collapsed'">
+      <ScreenHeader :disabled="loading" :layout="songs.length ? 'expanded' : 'collapsed'">
         All Songs
 
         <template #thumbnail>
@@ -15,7 +15,13 @@
 
         <template #controls>
           <div class="controls w-full flex justify-between items-center gap-4">
-            <SongListControls v-if="totalSongCount" :config @play-all="playAll" @play-selected="playSelected" />
+            <SongListControls
+              v-if="totalSongCount"
+              :config
+              @play-all="playAll"
+              @play-selected="playSelected"
+              @refresh="refetchFromStart"
+            />
           </div>
         </template>
       </ScreenHeader>
@@ -28,7 +34,6 @@
         ref="songList"
         class="-m-6"
         @sort="sort"
-        @swipe="onSwipe"
         @press:enter="onPressEnter"
         @scrolled-to-end="fetchSongs"
       />
@@ -37,6 +42,7 @@
           <Icon :icon="faVolumeOff" />
         </template>
         Your library is empty.
+        <LinkButton v-if="totalSongCount" variant="highlight" @click.prevent="refetchFromStart">Reload</LinkButton>
       </ScreenEmptyState>
     </template>
   </ScreenBase>
@@ -53,13 +59,15 @@ import { useRouter } from '@/composables/useRouter'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { usePersistedSort } from '@/composables/usePersistedSort'
 import { playback } from '@/services/playbackManager'
+import { eventBus } from '@/utils/eventBus'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
 import SongListSkeleton from '@/components/playable/playable-list/PlayableListSkeleton.vue'
 import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
 import ScreenBase from '@/components/screens/ScreenBase.vue'
+import LinkButton from '@/components/ui/form/LinkButton.vue'
 
 const totalSongCount = toRef(commonStore.state, 'song_count')
 const totalDuration = computed(() => secondsToHumanReadable(commonStore.state.song_length))
@@ -67,33 +75,39 @@ const totalDuration = computed(() => secondsToHumanReadable(commonStore.state.so
 const {
   PlayableList: SongList,
   ThumbnailStack,
-  headerLayout,
   thumbnails,
   playables: songs,
   playableList: songList,
+  selectedPlayables,
   onPressEnter,
   playSelected,
-  onSwipe,
   sort: composableSort,
-} = usePlayableList(toRef(playableStore.state, 'playables'), { type: 'Songs' }, { filterable: false, sortable: true })
+} = usePlayableList(
+  toRef(playableStore.state, 'playables'),
+  { type: 'Songs' },
+  { filterable: false, sortable: true, sortedOnServer: true },
+)
 
 const { PlayableListControls: SongListControls, config } = usePlayableListControls('Songs')
-const { go, url } = useRouter()
-const { get: lsGet, set: lsSet } = useLocalStorage()
+const { go, url, onScreenActivated } = useRouter()
+const { getSavedSort, saveSort } = usePersistedSort('all-songs', 'title')
 
 const loading = ref(false)
-let sortField: MaybeArray<PlayableListSortField> = lsGet<PlayableListSortField>('all-songs-sort-field', 'title')!
-let sortOrder: SortOrder = lsGet<SortOrder>('all-songs-sort-order', 'asc')!
+let { sortField, sortOrder } = getSavedSort()
 
 const cursor = ref<string | null>('')
 const moreSongsAvailable = computed(() => cursor.value !== null)
 const showSkeletons = computed(() => loading.value && songs.value.length === 0)
+
+let listVersion = 0
+let listOutdated = false
 
 const fetchSongs = async () => {
   if (!moreSongsAvailable.value || loading.value) {
     return
   }
 
+  const requestedListVersion = listVersion
   loading.value = true
 
   try {
@@ -107,6 +121,19 @@ const fetchSongs = async () => {
   } finally {
     loading.value = false
   }
+
+  if (requestedListVersion !== listVersion) {
+    await refetchFromStart()
+  }
+}
+
+const refetchFromStart = async () => {
+  listVersion++
+  cursor.value = ''
+  playableStore.state.playables = []
+  selectedPlayables.value = []
+
+  await fetchSongs()
 }
 
 const playAll = async (shuffle: boolean) => {
@@ -121,20 +148,30 @@ const playAll = async (shuffle: boolean) => {
 }
 
 const sort = async (field: MaybeArray<PlayableListSortField>, order: SortOrder) => {
-  cursor.value = ''
-  playableStore.state.playables = []
   sortField = field
   sortOrder = order
 
-  lsSet('all-songs-sort-field', field)
-  lsSet('all-songs-sort-order', order)
+  saveSort(field, order)
 
-  await fetchSongs()
+  await refetchFromStart()
 }
 
 onMounted(async () => {
   composableSort(sortField, sortOrder)
   await fetchSongs()
+})
+
+eventBus.on('SONG_UPLOADED', () => {
+  listOutdated = true
+})
+
+onScreenActivated('Songs', async () => {
+  if (!listOutdated) {
+    return
+  }
+
+  listOutdated = false
+  await refetchFromStart()
 })
 </script>
 

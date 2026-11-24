@@ -45,7 +45,7 @@ return new class extends Migration {
 
         if (!isset($extToMimeMap[$extension])) {
             try {
-                $mimeType = strtolower((new Extension($extension))->getDefaultType());
+                $mimeType = strtolower(( new Extension($extension) )->getDefaultType());
             } catch (Throwable) {
                 $mimeType = self::DEFAULT_MIME_TYPE;
             }

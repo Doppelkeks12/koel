@@ -5,14 +5,15 @@ namespace App\Services\Streamer;
 use App\Enums\SongStorageType;
 use App\Exceptions\KoelPlusRequiredException;
 use App\Models\Song;
+use App\Services\SongStorages\SftpStorage;
+use App\Services\SongStorages\WebDAVStorage;
 use App\Services\Streamer\Adapters\DropboxStreamerAdapter;
 use App\Services\Streamer\Adapters\LocalStreamerAdapter;
 use App\Services\Streamer\Adapters\PodcastStreamerAdapter;
+use App\Services\Streamer\Adapters\RemoteDiskStreamerAdapter;
 use App\Services\Streamer\Adapters\S3CompatibleStreamerAdapter;
-use App\Services\Streamer\Adapters\SftpStreamerAdapter;
 use App\Services\Streamer\Adapters\StreamerAdapter;
 use App\Services\Streamer\Adapters\TranscodingStreamerAdapter;
-use App\Services\Streamer\Adapters\WebDAVStreamerAdapter;
 use App\Values\RequestedStreamingConfig;
 
 class Streamer
@@ -33,16 +34,16 @@ class Streamer
             return app(PodcastStreamerAdapter::class);
         }
 
-        if ($this->config?->transcode || self::shouldTranscode($this->song)) {
+        if ($this->config?->transcode || $this->shouldTranscodeForClient()) {
             return app(TranscodingStreamerAdapter::class);
         }
 
         return match ($this->song->storage) {
             SongStorageType::LOCAL => app(LocalStreamerAdapter::class),
-            SongStorageType::SFTP => app(SftpStreamerAdapter::class),
+            SongStorageType::SFTP => app(RemoteDiskStreamerAdapter::class, ['storage' => app(SftpStorage::class)]),
             SongStorageType::S3, SongStorageType::S3_LAMBDA => app(S3CompatibleStreamerAdapter::class),
             SongStorageType::DROPBOX => app(DropboxStreamerAdapter::class),
-            SongStorageType::WEBDAV => app(WebDAVStreamerAdapter::class),
+            SongStorageType::WEBDAV => app(RemoteDiskStreamerAdapter::class, ['storage' => app(WebDAVStorage::class)]),
         };
     }
 
@@ -60,10 +61,23 @@ class Streamer
         return $this->adapter;
     }
 
+    private function shouldTranscodeForClient(): bool
+    {
+        if ($this->config?->streamOriginal) {
+            return false;
+        }
+
+        if ($this->config?->clientPlaysLosslessMimeType($this->song->mime_type)) {
+            return false;
+        }
+
+        return self::shouldTranscode($this->song);
+    }
+
     /**
      * Determine if the given song should be transcoded based on its format and the server's FFmpeg installation.
      */
-    private static function shouldTranscode(Song $song): bool
+    public static function shouldTranscode(Song $song): bool
     {
         if ($song->isEpisode()) {
             return false;

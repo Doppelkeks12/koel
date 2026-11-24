@@ -41,6 +41,7 @@ use Webmozart\Assert\Assert;
  * @property bool $confirmBeforeClosing
  * @property bool $transcodeOnMobile
  * @property int $transcodeQuality
+ * @property bool $streamLosslessWhenSupported
  * @property bool $showAlbumArtOverlay
  * @property bool $makeUploadsPublic
  * @property bool $detectDuplicateUploads
@@ -48,16 +49,24 @@ use Webmozart\Assert\Assert;
  * @property bool $supportBarNoBugging
  * @property bool $continuousPlayback
  * @property int $crossfadeDuration
+ * @property float $musicPlaybackSpeed
+ * @property float $podcastPlaybackSpeed
+ * @property bool $normalizeVolume
+ * @property bool $showWaveform
  * @property int $lyricsZoomLevel
  * @property string $visualizer
  * @property ?string $activeExtraPanelTab
  * @property ?string $lastFmSessionKey
+ * @property ?string $listenBrainzToken
  * @property list<string> $homeBlocksOrder
  */
 final class UserPreferences implements Arrayable, JsonSerializable
 {
     /** @var Collection<int, class-string<Preference>>|null */
     private static ?Collection $discoveredClasses = null;
+
+    /** @var list<class-string<Preference>> */
+    private static array $registeredClasses = [];
 
     /** @param Collection<string, Preference> $preferences */
     private function __construct(
@@ -95,11 +104,44 @@ final class UserPreferences implements Arrayable, JsonSerializable
         return $preference !== null && $preference->getValue() !== null;
     }
 
+    /** @param class-string<Preference> $class */
+    public static function register(string $class): void
+    {
+        Assert::false((new ReflectionClass($class))->isAbstract(), "{$class} is abstract");
+
+        if (in_array($class, self::$registeredClasses, true)) {
+            return;
+        }
+
+        $key = (new $class())->getKey();
+        Assert::null(self::classByKey($key), "Preference key already in use: {$key}");
+
+        self::$registeredClasses[] = $class;
+        self::$discoveredClasses = null;
+    }
+
+    public static function forgetRegisteredPreferences(): void
+    {
+        self::$registeredClasses = [];
+        self::$discoveredClasses = null;
+    }
+
     public static function customizable(string $key): bool
     {
         $class = self::classByKey($key);
 
         return $class !== null && (new $class())->isCustomizable();
+    }
+
+    /** @return list<string> */
+    public static function encryptedKeys(): array
+    {
+        return self::preferenceClasses()
+            ->map(static fn (string $class): Preference => new $class())
+            ->filter(static fn (Preference $preference): bool => $preference->isEncrypted())
+            ->map(static fn (Preference $preference): string => $preference->getKey())
+            ->values()
+            ->all();
     }
 
     public function set(string $key, mixed $value): self
@@ -148,6 +190,8 @@ final class UserPreferences implements Arrayable, JsonSerializable
                     is_subclass_of($candidate, Preference::class) && !(new ReflectionClass($candidate))->isAbstract()
                 ),
             )
+            ->merge(self::$registeredClasses)
+            ->unique()
             ->values();
 
         self::$discoveredClasses = $classes;

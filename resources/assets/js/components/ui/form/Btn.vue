@@ -4,7 +4,7 @@
     ref="button"
     :data-variant="variant"
     :data-size="size"
-    class="text-base text-white border border-transparent bg-k-primary px-3.5 py-2 rounded-sm cursor-pointer"
+    class="text-base text-white border border-transparent bg-k-primary px-3.5 py-2 rounded-md cursor-pointer"
     type="button"
   >
     <slot>Click me</slot>
@@ -14,7 +14,7 @@
     ref="button"
     :data-variant="variant"
     :data-size="size"
-    class="text-base text-white border border-transparent bg-k-primary px-3.5 py-2 rounded-sm cursor-pointer"
+    class="text-base text-white border border-transparent bg-k-primary px-3.5 py-2 rounded-md cursor-pointer"
   >
     <slot>Click me</slot>
   </a>
@@ -23,7 +23,7 @@
 <script lang="ts" setup>
 import { ref } from 'vue'
 
-type Variant = 'success' | 'destructive' | 'highlight' | 'ghost'
+type Variant = 'success' | 'destructive' | 'highlight' | 'ghost' | 'neutral'
 type Size = 'small' | 'large'
 
 withDefaults(defineProps<{ tag?: 'button' | 'a'; variant?: Variant; size?: Size }>(), {
@@ -53,6 +53,10 @@ a {
     box-shadow: inset 0 10px 10px -10px rgba(0, 0, 0, 0.6);
   }
 
+  &[disabled] {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
   &[data-size='large'] {
     @apply px-6 py-3;
   }
@@ -63,6 +67,10 @@ a {
 
   &[data-variant='success'] {
     @apply bg-k-success text-white;
+  }
+
+  &[data-variant='neutral'] {
+    @apply bg-k-fg-10 text-k-fg;
   }
 
   &[data-variant='ghost'] {
@@ -101,7 +109,7 @@ a {
     }
 
     &[data-variant='highlight'] {
-      @apply border-k-highlight;
+      @apply border-k-highlight text-k-highlight;
     }
   }
 }

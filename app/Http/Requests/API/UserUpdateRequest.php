@@ -3,9 +3,8 @@
 namespace App\Http\Requests\API;
 
 use App\Enums\Acl\Role;
+use App\Http\Requests\API\Concerns\ValidatesRole;
 use App\Models\User;
-use App\Rules\AvailableRole;
-use App\Rules\UserCanManageRole;
 use App\Values\User\UserUpdateData;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -17,6 +16,8 @@ use Illuminate\Validation\Rules\Password;
  */
 class UserUpdateRequest extends Request
 {
+    use ValidatesRole;
+
     /** @inheritdoc */
     public function rules(): array
     {
@@ -24,15 +25,10 @@ class UserUpdateRequest extends Request
         $target = $this->route('user');
 
         return [
-            'name' => 'required',
-            'email' => 'required|email|unique:users,email,' . $target->id,
-            'password' => ['sometimes', Password::defaults()],
-            'role' => [
-                'required',
-                Rule::enum(Role::class),
-                new AvailableRole(),
-                new UserCanManageRole($this->user()),
-            ],
+            'name' => [Rule::required()],
+            'email' => [Rule::required(), Rule::email(), Rule::unique('users', 'email')->ignore($target->id)],
+            'password' => [Rule::sometimes(), Password::defaults()],
+            'role' => $this->roleRule(),
         ];
     }
 

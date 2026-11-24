@@ -4,18 +4,16 @@ namespace App\Services\SongStorages;
 
 use App\Enums\SongStorageType;
 use App\Filesystems\DropboxFilesystem;
-use App\Models\User;
 use App\Services\SongStorages\Concerns\DeletesUsingFilesystem;
-use App\Values\UploadReference;
+use App\Services\SongStorages\Concerns\ReadsFileSizeUsingFilesystem;
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 
 class DropboxStorage extends CloudStorage
 {
     use DeletesUsingFilesystem;
+    use ReadsFileSizeUsingFilesystem;
 
     public function __construct(
         private readonly DropboxFilesystem $filesystem,
@@ -23,23 +21,6 @@ class DropboxStorage extends CloudStorage
         private readonly array $config = [],
     ) {
         $this->filesystem->getAdapter()->getClient()->setAccessToken($this->maybeRefreshAccessToken());
-    }
-
-    public function storeUploadedFile(string $uploadedFilePath, User $uploader): UploadReference
-    {
-        $key = $this->generateStorageKey(basename($uploadedFilePath), $uploader);
-        $this->uploadToStorage($key, $uploadedFilePath);
-
-        return UploadReference::make(location: "dropbox://$key", localPath: $uploadedFilePath);
-    }
-
-    public function undoUpload(UploadReference $reference): void
-    {
-        // Delete the temporary file
-        File::delete($reference->localPath);
-
-        // Delete the file from Dropbox
-        $this->delete(Str::after($reference->location, 'dropbox://'));
     }
 
     private function maybeRefreshAccessToken(): string
@@ -76,15 +57,15 @@ class DropboxStorage extends CloudStorage
         $this->deleteFileWithKey($location, $backup);
     }
 
+    public function getFileSize(string $path): ?int
+    {
+        return self::readFileSizeUsingFilesystem($this->filesystem, $path);
+    }
+
     public function testSetup(): void
     {
         $this->filesystem->write('test.txt', 'Koel test file.');
         $this->filesystem->delete('test.txt');
-    }
-
-    public function getLocalPath(string $location): string
-    {
-        return $this->copyToLocal(Str::after($location, 'dropbox://'));
     }
 
     public function getStorageType(): SongStorageType
@@ -100,5 +81,10 @@ class DropboxStorage extends CloudStorage
     public function deleteFileWithKey(string $key, bool $backup): void
     {
         $this->deleteUsingFilesystem($this->filesystem, $key, $backup);
+    }
+
+    protected function getLocationPrefix(): string
+    {
+        return 'dropbox://';
     }
 }

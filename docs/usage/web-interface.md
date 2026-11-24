@@ -28,9 +28,17 @@ or genres:
 
 ![Genres screen](../assets/img/interface/genres.avif)
 
+To find an artist or album quickly, use the search box on the
+Artists or Albums screen. The list then shows the best matches across your whole library.
+
 You can click on any artist, album, or genre name to see all the songs that belong to it.
 On the artist and album screens, you can also find other albums and songs by the same artist as well as extra metadata
 like the artist or album's information when [configured](../service-integrations).
+
+In list view, the Artists, Albums, and Radio screens let you select items the same way as songs: click, hold
+<kbd>Shift</kbd> or <kbd>Ctrl/Cmd</kbd> while clicking, or use <kbd>↑</kbd>/<kbd>↓</kbd> and <kbd>Cmd/Ctrl</kbd>+<kbd>a</kbd>.
+Right-click a selection of artists or albums to play, shuffle, download (if allowed), or favorite them all at once.
+For radio stations, you can favorite them all at once.
 
 On any screen with a song list (a "song-list screen") you can:
 
@@ -57,7 +65,8 @@ current list or the selected songs.
 To play in order instead of shuffling, hold down <kbd>Alt/Option</kbd> while clicking the button.
 
 When a song is playing, you can control playback using the buttons at the bottom of the screen as well as
-rewind/fast-forward the song by clicking and dragging the progress bar.
+rewind/fast-forward the song by clicking and dragging the progress bar. Hover over the progress bar to see the current
+position, the time under your cursor, and the song's total length.
 
 ![Footer controls](../assets/img/interface/footer.avif)
 
@@ -67,9 +76,12 @@ From the same area, you can also:
 * <InterfaceIcon :src="heartIcon" alt="Heart" /> like/unlike the current song
 * <InterfaceIcon :src="repeatIcon" alt="Repeat" /> switch between repeat modes
 * <InterfaceIcon :src="queueIcon" alt="Queue" /> toggle the Queue screen
-* <InterfaceIcon :src="boltIcon" alt="Bolt" /> show the visualizer
+* <InterfaceIcon :src="boltIcon" alt="Bolt" /> show the [visualizer](./visualizers)
 * <InterfaceIcon :src="audioLinesIcon" alt="Equalizer" /> show the equalizer
 * <InterfaceIcon :src="volumeIcon" alt="Volume" /> control the volume
+* <InterfaceIcon :src="airplayIcon" alt="AirPlay" /> play on an AirPlay device (Safari only). The equalizer and crossfade don't apply there. On a Mac, pick the device as your sound output in Control Center to keep them.
+* change the playback speed with the speed button (e.g. 1.0×). Music and podcasts each keep their own speed.
+* <InterfaceIcon :src="pictureInPictureIcon" alt="Mini player" /> open the mini player (Chrome and Edge only)
 * <InterfaceIcon :src="expandIcon" alt="Expand" /> toggle full-screen mode
 
 Right-clicking the footer area brings up the context menu for the currently playing song.
@@ -78,7 +90,7 @@ Right-clicking the footer area brings up the context menu for the currently play
 
 As a user with `manage songs` permission (Community edition) or the song owner (Koel Plus), you can edit a song's metadata by right-clicking on it and
 choosing "Edit…".
-A dialog will appear, allowing you to change the song's title, artist, album, genre, lyrics, and more.
+A dialog will appear, allowing you to change the song's title, artist, album, genres, lyrics, and more.
 
 <img loading="lazy" src="../assets/img/interface/edit-song.webp" alt="Edit song" style="width: 480px">
 
@@ -91,16 +103,14 @@ on it and choosing "Download."
 
 You can also download several songs, all songs from an album, all songs by an artist, or a whole playlist as a zip file
 via the "Download" buttons found on according screens or context menus.
-This feature requires the [`zip` extension](https://www.php.net/manual/en/book.zip.php) to be installed and enabled on
-the server.
 
-### Download Limit
+## Hiding Songs <PlusBadge />
 
-By default, there is no limit to the number of songs that can be downloaded at once.
-However, it is recommended to set a limit via the `DOWNLOAD_LIMIT` environment variable to avoid excessive memory usage
-and disk space consumption during zip file creation.
-For example, setting `DOWNLOAD_LIMIT=100` will prevent downloading more than 100 songs at once.
-A value of `0` (the default) means no limit. Single-song downloads are always allowed regardless of this setting.
+To keep a song from playing on its own, right-click it and choose "Hide." You can hide several songs at once.
+A hidden song stays in your library, dimmed in album, artist, and playlist lists, and still plays when you start it yourself.
+It is left out of shuffles, "Play All," similar song suggestions, and smart playlists.
+
+To bring a song back, right-click it and choose "Unhide," or unhide it from the Hidden Songs list in Settings → Preferences.
 
 ## Deleting Songs
 
@@ -126,11 +136,13 @@ See [Embedding](./embedding) for more details.
 ## Keyboard Shortcuts
 
 Koel has a number of keyboard shortcuts to make it easier to navigate and control playback.
+Press <kbd>?</kbd> anywhere to see them all.
 Note that these shortcuts are only triggered when the focus is not on an input field (including the volume control and
 the music track)
 or a textarea.
 
 * <kbd>h</kbd> shows the Home screen
+* <kbd>,</kbd> opens Settings
 * <kbd>q</kbd> toggles the Queue screen
 * <kbd>f</kbd> puts the focus into the search box and opens the [instant search](search.md) screen
 * <kbd>Enter</kbd> plays a song. If multiple songs are being selected, <kbd>Enter</kbd> adds them to the bottom of the
@@ -143,21 +155,30 @@ or a textarea.
 * <kbd>r</kbd> circles through repeat modes (no repeat, repeat all, repeat one)
 * <kbd>→</kbd> seeks forward 10 seconds
 * <kbd>←</kbd> seeks backward 10 seconds
-* <kbd>↑</kbd> increases volume by 10%
-* <kbd>↓</kbd> decreases volume by 10%
+* <kbd>0</kbd>–<kbd>9</kbd> jumps to 0%–90% of the current song
+* <kbd>↑</kbd>/<kbd>↓</kbd> turn the volume up/down by 10% (unless a list is focused)
 * <kbd>m</kbd> mutes/unmutes
+* <kbd>e</kbd> opens the equalizer
+* <kbd>v</kbd> toggles the visualizer
+* <kbd>Shift</kbd>+<kbd>f</kbd> toggles fullscreen
+* <kbd>/</kbd> toggles the AI Assistant, if it's enabled
+* <kbd>?</kbd> shows the list of keyboard shortcuts
 * <kbd>Cmd/Ctrl</kbd>+<kbd>a</kbd> selects all songs in the current song-list screen when the list is focused
 * <kbd>Delete</kbd> removes selected song(s) from the current queue/playlist
+* <kbd>↑</kbd>/<kbd>↓</kbd> navigate up/down in a focused list; add <kbd>Shift</kbd> to extend the selection
+* <kbd>Backspace</kbd> or <kbd>Alt</kbd>+<kbd>↑</kbd> opens the parent folder in the Media Browser
 
 With a browser that supports [MediaSession](https://developer.mozilla.org/en-US/docs/Web/API/MediaSession) — basically,
 all modern browsers — you can control Koel using hardware media keys without even having Koel _or the browser_ focused.
 
 <script lang="ts" setup>
+import airplayIcon from '../assets/icons/airplay.svg'
 import audioLinesIcon from '../assets/icons/audio-lines.svg'
 import boltIcon from '../assets/icons/bolt.svg'
 import expandIcon from '../assets/icons/expand.svg'
 import filterIcon from '../assets/icons/filter.svg'
 import heartIcon from '../assets/icons/heart.svg'
+import pictureInPictureIcon from '../assets/icons/picture-in-picture.svg'
 import plusIcon from '../assets/icons/plus-circle.svg'
 import queueIcon from '../assets/icons/queue.svg'
 import repeatIcon from '../assets/icons/repeat.svg'

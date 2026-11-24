@@ -33,7 +33,7 @@
         {{ youtubeVideoTitle }}
       </YouTubeSidebarItem>
       <SidebarItem
-        v-if="!isDemo"
+        v-if="showsPodcasts"
         :href="url('podcasts.index')"
         :active="isCurrentScreen('Podcasts', 'Podcast', 'Episode')"
       >
@@ -42,11 +42,17 @@
         </template>
         Podcasts
       </SidebarItem>
-      <SidebarItem :href="url('radio-stations.index')" :active="isCurrentScreen('Radio.Stations')">
+      <SidebarItem v-if="usesRadio" :href="url('radio-stations.index')" :active="isCurrentScreen('Radio.Stations')">
         <template #icon>
           <RadioIcon :size="16" />
         </template>
         Radio
+      </SidebarItem>
+      <SidebarItem :href="url('statistics')" :active="isCurrentScreen('Statistics')">
+        <template #icon>
+          <TrendingUpIcon :size="16" />
+        </template>
+        Statistics
       </SidebarItem>
       <SidebarItem v-if="supportsOffline" :href="url('offline-songs')" :active="isCurrentScreen('OfflineSongs')">
         <template #icon>
@@ -61,13 +67,14 @@
 
 <script lang="ts" setup>
 import { faCloudArrowDown, faCompactDisc, faMusic, faPodcast } from '@fortawesome/free-solid-svg-icons'
-import { GuitarIcon, MicVocalIcon, RadioIcon } from 'lucide-vue-next'
+import { GuitarIcon, MicVocalIcon, RadioIcon, TrendingUpIcon } from 'lucide-vue-next'
 import { unescape } from 'lodash-es'
 import { computed, ref, toRef } from 'vue'
 import { useOfflinePlayback } from '@/composables/useOfflinePlayback'
 import { eventBus } from '@/utils/eventBus'
 import { useRouter } from '@/composables/useRouter'
 import { commonStore } from '@/stores/commonStore'
+import { usePolicies } from '@/composables/usePolicies'
 
 import SidebarSection from '@/components/layout/main-wrapper/sidebar/SidebarSection.vue'
 import SidebarSectionHeader from '@/components/layout/main-wrapper/sidebar/SidebarSectionHeader.vue'
@@ -79,9 +86,13 @@ const youtubeVideoTitle = ref<string | null>(null)
 const { url, isCurrentScreen } = useRouter()
 
 const usesMediaBrowser = toRef(commonStore.state, 'uses_media_browser')
+const usesPodcasts = toRef(commonStore.state, 'uses_podcasts')
+const usesRadio = toRef(commonStore.state, 'uses_radio')
 const { swReady, cachedSongCount } = useOfflinePlayback()
 const supportsOffline = computed(() => swReady.value && cachedSongCount.value > 0)
 const isDemo = window.KOEL.is_demo
+const { currentUserCan } = usePolicies()
+const showsPodcasts = computed(() => usesPodcasts.value && !isDemo && currentUserCan.addPodcast())
 
 eventBus.on('PLAY_YOUTUBE_VIDEO', payload => (youtubeVideoTitle.value = unescape(payload.title)))
 </script>

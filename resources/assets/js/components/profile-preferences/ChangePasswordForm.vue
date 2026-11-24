@@ -1,15 +1,14 @@
 <template>
   <form @submit.prevent="handleSubmit">
     <SettingGroup>
-      <template #title>Change Password</template>
+      <template #title>{{ currentUser.has_password ? 'Change Password' : 'Set a Password' }}</template>
 
-      <AlertBox v-if="currentUser.sso_provider">
-        Your password is managed by your single sign-on provider ({{ currentUser.sso_provider }}). You can't change it
-        here.
+      <AlertBox v-if="currentUser.sso_provider === 'Reverse Proxy'">
+        Your password is managed by your reverse proxy. You can't change it here.
       </AlertBox>
 
       <div v-else class="space-y-5 max-w-md">
-        <FormRow>
+        <FormRow v-if="currentUser.has_password">
           <template #label>Current Password</template>
           <PasswordField
             v-model="data.current_password"
@@ -32,8 +31,8 @@
         </FormRow>
       </div>
 
-      <template v-if="!currentUser.sso_provider" #footer>
-        <Btn type="submit">Update Password</Btn>
+      <template v-if="currentUser.sso_provider !== 'Reverse Proxy'" #footer>
+        <Btn :disabled="loading" type="submit">{{ currentUser.has_password ? 'Update Password' : 'Set Password' }}</Btn>
         <span v-if="isDemo" class="text-[.95rem] opacity-70 ml-2">Changes will not be saved in the demo version.</span>
       </template>
     </SettingGroup>
@@ -44,7 +43,6 @@
 import { authService } from '@/services/authService'
 import { useAuthorization } from '@/composables/useAuthorization'
 import { useForm } from '@/composables/useForm'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 
 import AlertBox from '@/components/ui/AlertBox.vue'
 import Btn from '@/components/ui/form/Btn.vue'
@@ -53,23 +51,26 @@ import PasswordField from '@/components/ui/form/PasswordField.vue'
 import SettingGroup from '@/components/screens/settings/SettingGroup.vue'
 
 const { currentUser } = useAuthorization()
-const { toastSuccess } = useMessageToaster()
 
 const isDemo = window.KOEL.is_demo
 
-const { data, handleSubmit } = useForm<{ current_password: string; new_password: string }>({
+const { data, loading, handleSubmit } = useForm<{ current_password: string; new_password: string }>({
   initialValues: { current_password: '', new_password: '' },
+  toast: {
+    loading: 'Updating password…',
+    success: 'Password updated.',
+  },
   onSubmit: async ({ current_password, new_password }) => {
     if (isDemo) {
       return
     }
 
-    await authService.changePassword(current_password, new_password)
+    await authService.changePassword(currentUser.value.has_password ? current_password : undefined, new_password)
   },
   onSuccess: () => {
+    currentUser.value.has_password = true
     data.current_password = ''
     data.new_password = ''
-    toastSuccess('Password updated.')
   },
 })
 </script>

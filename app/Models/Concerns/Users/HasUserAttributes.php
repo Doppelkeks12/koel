@@ -3,7 +3,6 @@
 namespace App\Models\Concerns\Users;
 
 use App\Enums\Acl\Role as RoleEnum;
-use App\Facades\License;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Support\Arr;
 
@@ -27,9 +26,9 @@ trait HasUserAttributes
         return Attribute::get(fn (): bool => (bool) $this->invitation_token);
     }
 
-    protected function isSso(): Attribute
+    protected function canSetPasswordWithoutCurrentOne(): Attribute
     {
-        return Attribute::get(fn (): bool => License::isPlus() && $this->sso_provider)->shouldCache();
+        return Attribute::get(fn (): bool => !$this->password);
     }
 
     protected function connectedToLastfm(): Attribute

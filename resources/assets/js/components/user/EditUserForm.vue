@@ -1,5 +1,5 @@
 <template>
-  <form data-testid="edit-user-form" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="edit-user" data-testid="edit-user-form" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header>
       <h1>Edit User</h1>
     </header>
@@ -15,14 +15,7 @@
       </FormRow>
       <FormRow>
         <template #label>Email</template>
-        <TextInput
-          v-model="data.email"
-          :readonly="user.sso_provider"
-          name="email"
-          required
-          title="Email"
-          type="email"
-        />
+        <TextInput v-model="data.email" :readonly="user.sso_provider" name="email" required type="email" />
       </FormRow>
       <FormRow v-if="!user.sso_provider">
         <template #label>Password</template>
@@ -38,8 +31,8 @@
     </main>
 
     <footer>
-      <Btn class="btn-update" type="submit">Update</Btn>
-      <Btn variant="ghost" class="btn-cancel" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn class="btn-update" :disabled="loading" type="submit">Update</Btn>
+      <Btn variant="neutral" class="btn-cancel" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -48,8 +41,6 @@
 import { pick } from 'lodash-es'
 import type { UpdateUserData } from '@/stores/userStore'
 import { userStore } from '@/stores/userStore'
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useForm } from '@/composables/useForm'
 
 import Btn from '@/components/ui/form/Btn.vue'
@@ -64,15 +55,16 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { user } = props
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
-
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<UpdateUserData>({
+const { data, loading, handleSubmit, maybeClose } = useForm<UpdateUserData>({
   initialValues: {
     ...pick(user, 'name', 'email', 'role'),
     password: '',
+  },
+  toast: {
+    loading: 'Saving user…',
+    success: 'User profile updated.',
   },
   onSubmit: async data => {
     const formattedData = { ...data }
@@ -83,15 +75,7 @@ const { data, isPristine, handleSubmit } = useForm<UpdateUserData>({
 
     await userStore.update(user, formattedData)
   },
-  onSuccess: () => {
-    toastSuccess('User profile updated.')
-    close()
-  },
+  onSuccess: close,
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

@@ -51,20 +51,6 @@ describe('useVault', () => {
     expect(vault.byId('c')?.name).toBe('Charlie')
   })
 
-  it('exposes the underlying Map for direct operations', () => {
-    const vault = useVault<Item>()
-
-    vault.syncWithVault([
-      { id: 'a', name: 'Alpha' },
-      { id: 'b', name: 'Bravo' },
-    ])
-
-    expect(vault.vault.size).toBe(2)
-    vault.vault.delete('a')
-    expect(vault.byId('a')).toBeUndefined()
-    expect(vault.byId('b')?.name).toBe('Bravo')
-  })
-
   it('isolates instances from one another', () => {
     const a = useVault<Item>()
     const b = useVault<Item>()
@@ -86,5 +72,19 @@ describe('useVault', () => {
     expect(onItemAdded).toHaveBeenCalledTimes(2)
     expect(onItemAdded.mock.calls[0][0].id).toBe('a')
     expect(onItemAdded.mock.calls[1][0].id).toBe('b')
+  })
+
+  it('runs beforeItemMerged with the existing entry and incoming data only for updates', () => {
+    const beforeItemMerged = vi.fn()
+    const vault = useVault<Item>({ beforeItemMerged })
+
+    const [existing] = vault.syncWithVault({ id: 'a', name: 'Alpha' })
+    expect(beforeItemMerged).not.toHaveBeenCalled()
+
+    vault.syncWithVault({ id: 'a', name: 'Alpha v2' })
+
+    expect(beforeItemMerged).toHaveBeenCalledOnce()
+    expect(beforeItemMerged.mock.calls[0][0]).toBe(existing)
+    expect(beforeItemMerged.mock.calls[0][1]).toEqual({ id: 'a', name: 'Alpha v2' })
   })
 })

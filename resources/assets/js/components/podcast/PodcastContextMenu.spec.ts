@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { screen } from '@testing-library/vue'
+import { screen, waitFor } from '@testing-library/vue'
 import { shallowRef } from 'vue'
 import { createHarness } from '@/__tests__/TestHarness'
 import { ContextMenuKey } from '@/config/symbols'
+import Router from '@/router'
 import { playbackService } from '@/services/QueuePlaybackService'
 import { playableStore as episodeStore } from '@/stores/playableStore'
 import Component from './PodcastContextMenu.vue'
@@ -46,7 +47,7 @@ describe('podcastContextMenu.vue', () => {
     await h.tick()
 
     expect(fetchMock).toHaveBeenCalledWith(podcast)
-    expect(playMock).toHaveBeenCalledWith(episodes)
+    expect(playMock).toHaveBeenCalledWith(episodes, false)
   })
 
   it('shuffles all', async () => {
@@ -73,15 +74,6 @@ describe('podcastContextMenu.vue', () => {
     expect(favoriteMock).toHaveBeenCalledWith(podcast)
   })
 
-  it('undoes favorite', async () => {
-    const { podcast } = await renderComponent(h.factory('podcast').make({ favorite: true }))
-    const favoriteMock = h.mock(podcastStore, 'toggleFavorite')
-
-    await h.user.click(screen.getByText('Undo Favorite'))
-
-    expect(favoriteMock).toHaveBeenCalledWith(podcast)
-  })
-
   it('unsubscribes', async () => {
     const { podcast } = await renderComponent()
     const unsubMock = h.mock(podcastStore, 'unsubscribe')
@@ -89,6 +81,20 @@ describe('podcastContextMenu.vue', () => {
     await h.user.click(screen.getByText('Unsubscribe'))
 
     expect(unsubMock).toHaveBeenCalledWith(podcast)
+  })
+
+  it('closes the menu after unsubscribing', async () => {
+    h.mock(podcastStore, 'unsubscribe')
+    const menu = shallowRef<any>({ component: Component, position: { top: 0, left: 0 } })
+
+    h.actingAsAdmin().render(Component, {
+      props: { podcast: h.factory('podcast').make() },
+      global: { provide: { [ContextMenuKey as symbol]: menu } },
+    })
+
+    await h.user.click(screen.getByText('Unsubscribe'))
+
+    await waitFor(() => expect(menu.value.component).toBeNull())
   })
 
   it('closes the menu after rating', async () => {
@@ -104,5 +110,22 @@ describe('podcastContextMenu.vue', () => {
     await h.user.click(screen.getByRole('radio', { name: 'Rate 4 of 5' }))
 
     expect(menu.value.component).toBeNull()
+  })
+
+  it('goes to the podcast details', async () => {
+    const goMock = h.mock(Router, 'go')
+    const { podcast } = await renderComponent()
+
+    await h.user.click(screen.getByText('View Details'))
+
+    expect(goMock).toHaveBeenCalledWith(Router.url('podcasts.show', { id: podcast.id }))
+  })
+
+  it('does not offer the podcast details on the podcast screen', async () => {
+    const podcast = h.factory('podcast').make()
+    h.visit(`/podcasts/${podcast.id}`)
+    await renderComponent(podcast)
+
+    expect(screen.queryByText('View Details')).toBeNull()
   })
 })

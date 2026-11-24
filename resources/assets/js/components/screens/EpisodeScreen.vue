@@ -23,19 +23,12 @@
 
         <template #controls>
           <div class="flex gap-2">
-            <Btn variant="highlight" v-koel-tooltip="playing ? 'Pause' : 'Play'" @click.prevent="playOrPause">
+            <Btn variant="highlight" @click.prevent="playOrPause">
               <Icon v-if="playing" :icon="faPause" fixed-width />
               <Icon v-else :icon="faPlay" fixed-width />
             </Btn>
 
-            <Btn
-              variant="ghost"
-              v-if="episode.episode_link"
-              v-koel-tooltip="'Visit episode webpage'"
-              :href="episode.episode_link"
-              tag="a"
-              target="_blank"
-            >
+            <Btn variant="ghost" v-if="episode.episode_link" :href="episode.episode_link" tag="a" target="_blank">
               <Icon :icon="faExternalLink" fixed-width />
             </Btn>
 
@@ -74,6 +67,7 @@ import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import { defineAsyncComponent } from '@/utils/helpers'
 import { playback } from '@/services/playbackManager'
 import { useRouter } from '@/composables/useRouter'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { useContextMenu } from '@/composables/useContextMenu'
 
@@ -92,6 +86,8 @@ const { openContextMenu } = useContextMenu()
 const loading = ref(false)
 const episodeId = ref<Episode['id']>()
 const episode = ref<Episode>()
+
+usePageTitle().useScreenTitle('Episode', () => episode.value?.title)
 
 const playing = computed(() => {
   return queueStore.current?.playback_state === 'Playing' && queueStore.current?.id === episodeId.value

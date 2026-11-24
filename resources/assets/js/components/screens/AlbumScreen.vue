@@ -3,7 +3,7 @@
     <template #header>
       <ScreenHeaderSkeleton v-if="loading && !album" role="status" aria-busy="true" aria-label="Loading" />
 
-      <ScreenHeader v-if="album" :disabled="loading" :layout="songs.length ? headerLayout : 'collapsed'">
+      <ScreenHeader v-if="album" :disabled="loading" :layout="songs.length ? 'expanded' : 'collapsed'">
         {{ album.name }}
 
         <template #thumbnail>
@@ -47,59 +47,49 @@
     </template>
 
     <ScreenTabs v-if="album" class="-m-6" :class="loading && 'pointer-events-none'">
-      <template #header>
-        <nav>
-          <ul>
-            <li :class="activeTab === 'songs' && 'active'">
-              <a :href="url('albums.show', { id: album.id, tab: 'songs' })">Songs</a>
-            </li>
-            <li :class="activeTab === 'other-albums' && 'active'">
-              <a :href="url('albums.show', { id: album.id, tab: 'other-albums' })">Other Albums</a>
-            </li>
-            <li v-if="useEncyclopedia" :class="activeTab === 'information' && 'active'">
-              <a :href="url('albums.show', { id: album.id, tab: 'information' })">Information</a>
-            </li>
-          </ul>
-        </nav>
-      </template>
+      <ScreenHeaderScrollBox class="overview-pane flex-1 px-6 pb-6">
+        <div class="space-y-12">
+          <SongListSkeleton v-if="loading" class="-mx-6" role="status" aria-busy="true" aria-label="Loading" />
+          <SongList v-else ref="songList" class="-mx-6" unvirtualized @sort="saveSort" @press:enter="onPressEnter" />
 
-      <div v-show="activeTab === 'songs'" class="songs-pane">
-        <SongListSkeleton v-if="loading" role="status" aria-busy="true" aria-label="Loading" />
-        <SongList v-if="!loading && album" ref="songList" @sort="onSort" @press:enter="onPressEnter" @swipe="onSwipe" />
-      </div>
+          <ShelfSection v-if="!otherAlbums || otherAlbums.length" data-testid="album-other-albums">
+            <template #header>More by {{ album.artist_name }}</template>
+            <Carousel>
+              <template v-if="otherAlbums">
+                <AlbumCard v-for="otherAlbum in otherAlbums" :key="otherAlbum.id" :album="otherAlbum" />
+              </template>
+              <template v-else>
+                <AlbumCardSkeleton v-for="i in 6" :key="i" />
+              </template>
+            </Carousel>
+          </ShelfSection>
 
-      <div v-show="activeTab === 'other-albums'" class="albums-pane" data-testid="albums-pane">
-        <template v-if="otherAlbums">
-          <GridListView class="scroll-mask-y" v-if="otherAlbums.length" view-mode="list">
-            <AlbumCard v-for="otherAlbum in otherAlbums" :key="otherAlbum.id" :album="otherAlbum" />
-          </GridListView>
-          <p v-else class="p-6 text-k-fg-50">No other albums by {{ album.artist_name }} found in the library.</p>
-        </template>
-        <GridListView v-else view-mode="list">
-          <AlbumCardSkeleton v-for="i in 6" :key="i" />
-        </GridListView>
-      </div>
-
-      <div v-if="useEncyclopedia && album" v-show="activeTab === 'information'" class="info-pane">
-        <AlbumInfo :album mode="full" />
-      </div>
+          <ShelfSection v-if="showsInformation && !infoEmpty" data-testid="album-about">
+            <template #header>About</template>
+            <ExpandableContentBlock>
+              <AlbumInfo :album mode="full" @empty="infoEmpty = true" />
+            </ExpandableContentBlock>
+          </ShelfSection>
+        </div>
+      </ScreenHeaderScrollBox>
     </ScreenTabs>
   </ScreenBase>
 </template>
 
 <script lang="ts" setup>
 import { faEllipsis } from '@fortawesome/free-solid-svg-icons'
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import { eventBus } from '@/utils/eventBus'
 import { pluralize } from '@/utils/formatters'
 import { albumStore } from '@/stores/albumStore'
 import { artistStore } from '@/stores/artistStore'
-import { playableStore } from '@/stores/playableStore'
+import { playableStore, type SongUpdateResult } from '@/stores/playableStore'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { usePersistedSort } from '@/composables/usePersistedSort'
 import { useRouter } from '@/composables/useRouter'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useThirdPartyServices } from '@/composables/useThirdPartyServices'
 import { useContextMenu } from '@/composables/useContextMenu'
 
@@ -108,36 +98,37 @@ import AlbumThumbnail from '@/components/ui/album-artist/AlbumOrArtistThumbnail.
 import ScreenHeaderSkeleton from '@/components/ui/ScreenHeaderSkeleton.vue'
 import SongListSkeleton from '@/components/playable/playable-list/PlayableListSkeleton.vue'
 import ScreenTabs from '@/components/ui/ArtistAlbumScreenTabs.vue'
+import ScreenHeaderScrollBox from '@/components/ui/ScreenHeaderScrollBox.vue'
 import ScreenBase from '@/components/screens/ScreenBase.vue'
-import GridListView from '@/components/ui/GridListView.vue'
+import ShelfSection from '@/components/ui/ShelfSection.vue'
+import Carousel from '@/components/ui/Carousel.vue'
+import AlbumCard from '@/components/album/AlbumCard.vue'
+import AlbumCardSkeleton from '@/components/ui/album-artist/ArtistAlbumCardSkeleton.vue'
+import ExpandableContentBlock from '@/components/ui/album-artist/ExpandableContentBlock.vue'
 import Btn from '@/components/ui/form/Btn.vue'
 
-const validTabs = ['songs', 'other-albums', 'information'] as const
-type Tab = (typeof validTabs)[number]
-
 const AlbumInfo = defineAsyncComponent(() => import('@/components/album/AlbumInfo.vue'))
-const AlbumCard = defineAsyncComponent(() => import('@/components/album/AlbumCard.vue'))
 const ContextMenu = defineAsyncComponent(() => import('@/components/album/AlbumContextMenu.vue'))
-const AlbumCardSkeleton = defineAsyncComponent(() => import('@/components/ui/album-artist/ArtistAlbumCardSkeleton.vue'))
 const FavoriteButton = defineAsyncComponent(() => import('@/components/ui/FavoriteButton.vue'))
 const StarRating = defineAsyncComponent(() => import('@/components/ui/StarRating.vue'))
 
 const { getRouteParam, go, onScreenActivated, onRouteChanged, url, triggerNotFound } = useRouter()
 const { PlayableListControls: SongListControls, config } = usePlayableListControls('Album')
-const { get: lsGet, set: lsSet } = useLocalStorage()
+const { getSavedSort, saveSort } = usePersistedSort('album', 'track')
 const { useLastfm, useMusicBrainz } = useThirdPartyServices()
 const { openContextMenu } = useContextMenu()
 
-const activeTab = ref<Tab>('songs')
 const album = ref<Album | undefined>()
 const songs = ref<Song[]>([])
 const loading = ref(false)
+const infoEmpty = ref(false)
 const otherAlbums = ref<Album[] | undefined>()
 const info = ref<ArtistInfo | undefined>()
 
+usePageTitle().useScreenTitle('Album', () => album.value?.name)
+
 const {
   PlayableList: SongList,
-  headerLayout,
   playableList: songList,
   duration,
   context,
@@ -146,10 +137,10 @@ const {
   playAll,
   playSelected,
   applyFilter,
-  onSwipe,
 } = usePlayableList(songs, { type: 'Album' })
 
 const useEncyclopedia = computed(() => useMusicBrainz.value || useLastfm.value)
+const showsInformation = computed(() => useEncyclopedia.value || Boolean(album.value?.description))
 
 const isStandardArtist = computed(() => {
   if (!album.value) {
@@ -161,18 +152,27 @@ const isStandardArtist = computed(() => {
 
 const toggleFavorite = () => albumStore.toggleFavorite(album.value!)
 
+const fetchOtherAlbums = async (ofAlbum: Album) => {
+  try {
+    const albums = await albumStore.fetchForArtist(ofAlbum.artist_id)
+    otherAlbums.value = albums.filter(({ id }) => id !== ofAlbum.id)
+  } catch (error: unknown) {
+    otherAlbums.value = []
+    useErrorHandler().handleHttpError(error)
+  }
+}
+
 const fetchScreenData = async () => {
   if (loading.value) {
     return
   }
 
   const id = getRouteParam('id')
-  const tabParam = getRouteParam<Tab>('tab') || 'songs'
-  activeTab.value = validTabs.includes(tabParam) ? tabParam : 'songs'
 
   album.value = undefined
   info.value = undefined
   otherAlbums.value = undefined
+  infoEmpty.value = false
 
   loading.value = true
 
@@ -185,16 +185,12 @@ const fetchScreenData = async () => {
       return
     }
 
-    if (activeTab.value === 'other-albums') {
-      const albums = await albumStore.fetchForArtist(album.value.artist_id)
-      otherAlbums.value = albums.filter(({ id }) => id !== album.value!.id)
-    }
-
     context.entity = album.value
 
-    const restoredField = lsGet<PlayableListSortField>('album-sort-field', 'track')!
-    const restoredOrder = lsGet<SortOrder>('album-sort-order', 'asc')!
-    sort(restoredField, restoredOrder)
+    const { sortField, sortOrder } = getSavedSort()
+    sort(sortField, sortOrder)
+
+    void fetchOtherAlbums(album.value)
   } catch (error: unknown) {
     if ((error as any)?.status === 404) {
       triggerNotFound()
@@ -207,26 +203,37 @@ const fetchScreenData = async () => {
   }
 }
 
-const onSort = (field: MaybeArray<PlayableListSortField>, order: SortOrder) => {
-  lsSet('album-sort-field', field)
-  lsSet('album-sort-order', order)
-}
-
 onScreenActivated('Album', () => fetchScreenData())
 onRouteChanged(route => route.name === 'albums.show' && fetchScreenData())
+
+watch(
+  () => album.value?.description,
+  () => (infoEmpty.value = false),
+)
 
 const requestContextMenu = (event: MouseEvent) =>
   openContextMenu<'ALBUM'>(ContextMenu, event, {
     album: album.value!,
   })
 
-eventBus.on('SONGS_UPDATED', result => {
-  // After songs are updated, check if the current album still exists.
-  // If it doesn't, redirect to the album list.
-  if (result.removed.album_ids.includes(album.value!.id)) {
+const leaveIfAlbumRemoved = (result: SongUpdateResult) => {
+  if (album.value && result.removed.album_ids.includes(album.value.id)) {
     go(url('albums.index'))
   }
-})
+}
+
+const onAlbumMerged = (source: Album, target: Album) => {
+  if (album.value?.id === source.id) {
+    go(url('albums.show', { id: target.id }))
+    return
+  }
+
+  void fetchScreenData()
+}
+
+eventBus.on('SONGS_UPDATED', leaveIfAlbumRemoved).on('ALBUM_MERGED', onAlbumMerged)
+
+onBeforeUnmount(() => eventBus.off('SONGS_UPDATED', leaveIfAlbumRemoved).off('ALBUM_MERGED', onAlbumMerged))
 </script>
 
 <style lang="postcss" scoped>

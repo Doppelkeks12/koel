@@ -8,6 +8,7 @@ use App\Enums\Acl\Role as RoleEnum;
 use App\Models\Organization;
 use App\Models\User;
 use App\Values\User\SsoUser;
+use Illuminate\Database\Eloquent\Collection;
 use SensitiveParameter;
 
 /**
@@ -36,9 +37,30 @@ class UserRepository extends Repository
             });
     }
 
+    public function findOldestAdminOtherThan(User $user): ?User
+    {
+        return User::query()
+            ->whereRole(RoleEnum::ADMIN)
+            ->where('organization_id', $user->organization_id)
+            ->whereKeyNot($user->id)
+            ->oldest()
+            ->first();
+    }
+
     public function findOneByEmail(string $email): ?User
     {
         return User::query()->firstWhere('email', $email);
+    }
+
+    public function findOneByEmailInOrganization(string $email, Organization $organization): ?User
+    {
+        return User::query()->where('organization_id', $organization->id)->firstWhere('email', $email);
+    }
+
+    /** @return Collection<int, User> */
+    public function getAllInOrganization(Organization $organization): Collection
+    {
+        return User::query()->where('organization_id', $organization->id)->get();
     }
 
     public function findOneBySubsonicApiKeyHash(#[SensitiveParameter] string $hash): ?User
@@ -55,6 +77,11 @@ class UserRepository extends Repository
                 'sso_provider' => $ssoUser->provider,
             ]) ?? $this->findOneByEmail($ssoUser->email)
         );
+    }
+
+    public function getOneLockedForUpdate(int $id): User
+    {
+        return User::query()->whereKey($id)->lockForUpdate()->firstOrFail();
     }
 
     public function getOneByPublicId(string $publicId): User

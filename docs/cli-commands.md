@@ -76,6 +76,16 @@ php artisan koel:admin:set-user-role <email>
 |---------|-------------------|
 | `email` | The user's email. |
 
+### `koel:announce-update`
+
+Let open Koel tabs know that a new version has been deployed. `koel:init` runs it for you.
+
+#### Usage
+
+```bash
+php artisan koel:announce-update
+```
+
 ### `koel:clean-up-temp-files`
 
 Remove temporary files older than a certain age. Examples of temporary files include temporarily downloaded files,
@@ -91,6 +101,17 @@ php artisan koel:clean-up-temp-files
 | Name     | Description                                                                   |
 |----------|-------------------------------------------------------------------------------|
 | `--age=` | The age of temporary files to remove in minutes. Defaults to 1440 (one day).  |
+
+### `koel:create-song-previews`
+
+Create 30-second previews of songs that don't have one yet. Embeds in Preview mode <PlusBadge /> play these instead of the full songs.
+Requires [FFmpeg](./usage/ffmpeg).
+
+#### Usage
+
+```bash
+php artisan koel:create-song-previews
+```
 
 ### `koel:doctor`
 
@@ -115,9 +136,13 @@ php artisan koel:extract-folders
 
 ### `koel:fetch-artwork`
 
-Attempt to fetch missing album covers and artist images from the available sources (Spotify, Last.fm, and MusicBrainz).
+Attempt to fetch missing album covers and artist images from the available sources (the Cover Art Archive, Spotify,
+Last.fm, and Wikipedia).
 You'll need to configure and enable the corresponding [3rd-party integrations](./service-integrations.md) for this
 command to work.
+
+The Cover Art Archive finds covers by MusicBrainz identifier, so run [`koel:fetch-mbids`](#koel-fetch-mbids) first to
+fill in the albums that do not have one yet.
 
 To avoid hitting rate limits, Koel pauses between requests. By default, this delay is 1 second, but you can customize it
 with the `--delay` option.
@@ -128,6 +153,49 @@ with the `--delay` option.
 php artisan koel:fetch-artwork
 # Or with a custom delay (in seconds) between requests:
 php artisan koel:fetch-artwork --delay=2
+```
+
+### `koel:fetch-mbids`
+
+Attempt to fetch missing MusicBrainz identifiers for albums, artists and songs. Koel reads these
+identifiers from your files when it scans them, and looks up the rest when you open an album or an
+artist. Run this command to look up everything that is still missing in one go, so songs you have not
+browsed to also carry an identifier when Koel submits a listen to ListenBrainz or answers a Subsonic
+client.
+
+A song's identifier is found through its album, so an album is revisited when any of its songs is still
+missing one, even if the album itself already has one.
+
+MusicBrainz accepts one request per second, so a large library takes a while. You can stop the command at
+any time and run it again later: it only looks up what is still missing, and it never replaces an
+identifier your files already supplied.
+
+#### Usage
+
+```bash
+php artisan koel:fetch-mbids
+```
+
+### `koel:fill-file-sizes`
+
+Fill in missing song file sizes so **Storage used** on the Statistics screen is accurate. Nothing is downloaded.
+
+#### Usage
+
+```bash
+php artisan koel:fill-file-sizes
+```
+
+### `koel:generate-small-covers`
+
+Create the small album covers that Koel shows in song lists, the queue, and the footer. Koel makes these by itself
+whenever an album gets a new cover. Run this command once after upgrading to make them for the covers you already
+have. Until then, Koel shows the full covers, so nothing looks broken.
+
+#### Usage
+
+```bash
+php artisan koel:generate-small-covers
 ```
 
 ### `koel:init`
@@ -227,6 +295,7 @@ php artisan koel:sync [options] # Alias, deprecated
 | `O`, `--owner=`  | The ID of the user who should own the newly scanned songs. Defaults to the first admin user.                                                                                  |
 | `P`, `--private` | Whether to make the newly scanned songs private to the user.                                                                                                                  |
 | `I`, `--ignore=` | The comma-separated tags to ignore (exclude) from scanning. Valid tags are `title`, `album`,`artist`, `albumartist`, `track`, `disc`, `year`, `genre`, `lyrics`, and `cover`. |
+| `--only=`       | The comma-separated tags to scan, ignoring all others. Takes the same tags as `--ignore`. Can't be used with `--ignore`. Add `--force` to also rescan unchanged files. |
 | `F`, `--force`   | Force re-scanning even unchanged files.                                                                                                                                       |
 
 ### `koel:scheduler:install`

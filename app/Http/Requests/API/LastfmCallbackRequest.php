@@ -2,9 +2,11 @@
 
 namespace App\Http\Requests\API;
 
+use Illuminate\Validation\Rule;
+
 /**
- * @property string $token     Lastfm's access token
- * @property string $api_token Koel's current user's token
+ * @property string $token Lastfm's access token
+ * @property string $state
  */
 class LastfmCallbackRequest extends Request
 {
@@ -12,8 +14,8 @@ class LastfmCallbackRequest extends Request
     public function rules(): array
     {
         return [
-            'token' => 'required',
-            'api_token' => 'required',
+            'token' => [Rule::required()],
+            'state' => [Rule::required()],
         ];
     }
 }

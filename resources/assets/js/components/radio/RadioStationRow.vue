@@ -1,8 +1,8 @@
 <template>
   <article
-    class="radio-station-row group pl-5 flex items-center h-[64px] border-b border-k-fg-10 hover:bg-k-fg-5 transition-colors"
+    class="radio-station-row selectable-list-item group pl-5 flex items-center h-[64px] border-b border-k-fg-10 hover:bg-k-fg-5 transition-colors"
     data-testid="radio-station-row"
-    @contextmenu.prevent="onContextMenu"
+    @contextmenu.prevent="emit('open-context-menu', $event)"
     @dblclick.prevent.stop="togglePlay"
   >
     <span class="name flex gap-3 items-center min-w-0">
@@ -12,9 +12,21 @@
       >
         <img v-if="station.logo" :src="station.logo" alt="" class="w-full aspect-square object-cover" loading="lazy" />
       </span>
-      <span class="truncate" :title="station.name">{{ station.name }}</span>
+      <span class="flex flex-col gap-1 min-w-0">
+        <span class="truncate" :title="station.name">{{ station.name }}</span>
+        <span
+          v-if="shouldShowColumn('description') && station.description"
+          class="md:hidden truncate text-[0.9rem] text-k-fg-50"
+        >
+          {{ station.description }}
+        </span>
+      </span>
     </span>
-    <span v-if="shouldShowColumn('description')" class="description truncate" :title="station.description">
+    <span
+      v-if="shouldShowColumn('description')"
+      class="description max-md:hidden truncate"
+      :title="station.description"
+    >
       {{ station.description }}
     </span>
     <span v-if="shouldShowColumn('created_at')" class="created-at text-k-fg-50">{{ formatCreatedAt }}</span>
@@ -22,8 +34,9 @@
       <FavoriteButton :favorite="station.favorite" @toggle="emit('toggle-favorite', station)" />
     </span>
     <span class="extra">
-      <button class="text-k-fg-50 hover:text-k-fg p-1" title="More actions" @click="onContextMenu">
+      <button class="text-k-fg-50 hover:text-k-fg p-1" @click.stop="emit('open-context-menu', $event)">
         <Icon :icon="faEllipsis" />
+        <span class="sr-only">More actions</span>
       </button>
     </span>
   </article>
@@ -32,12 +45,10 @@
 <script lang="ts" setup>
 import { faEllipsis } from '@fortawesome/free-solid-svg-icons'
 import { computed } from 'vue'
-import { useContextMenu } from '@/composables/useContextMenu'
 import { useBranding } from '@/composables/useBranding'
 import { useTableColumnVisibility } from '@/composables/useTableColumnVisibility'
 import { radioStationTableColumnConfig } from '@/config/tables'
 import { playback } from '@/services/playbackManager'
-import { defineAsyncComponent } from '@/utils/helpers'
 
 import FavoriteButton from '@/components/ui/FavoriteButton.vue'
 
@@ -45,20 +56,15 @@ const props = defineProps<{ station: RadioStation }>()
 
 const emit = defineEmits<{
   (e: 'toggle-favorite', station: RadioStation): void
+  (e: 'open-context-menu', event: MouseEvent): void
 }>()
 
-const ContextMenu = defineAsyncComponent(() => import('@/components/radio/RadioStationContextMenu.vue'))
-
-const { openContextMenu } = useContextMenu()
 const { cover: defaultCover } = useBranding()
 const { shouldShowColumn } = useTableColumnVisibility(radioStationTableColumnConfig)
 
 const formatCreatedAt = computed(() =>
   props.station.created_at ? new Date(props.station.created_at).toLocaleDateString() : '—',
 )
-
-const onContextMenu = (event: MouseEvent) =>
-  openContextMenu<'RADIO_STATION'>(ContextMenu, event, { station: props.station })
 
 const togglePlay = () => {
   if (props.station.playback_state === 'Playing') {

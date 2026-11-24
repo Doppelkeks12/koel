@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/vue'
 import type { Mock } from 'vite-plus/test'
-import { describe, expect, it, vi } from 'vite-plus/test'
+import { beforeAll, describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { eventBus } from '@/utils/eventBus'
 import { playlistStore } from '@/stores/playlistStore'
@@ -17,8 +17,9 @@ vi.mock('@/composables/useContextMenu')
 describe('playlistScreen.vue', () => {
   const h = createHarness()
 
-  const renderComponent = async (songs: Playable[] = []) => {
-    const playlist = h.factory('playlist').make()
+  beforeAll(async () => await import('@/components/playable/playable-list/PlayableList.vue'))
+
+  const renderComponent = async (songs: Playable[] = [], playlist = h.factory('playlist').make()) => {
     h.actingAsUser(h.factory('user').state('current').make({ id: playlist.owner_id }) as CurrentUser)
 
     playlistStore.state.playlists = []
@@ -37,7 +38,7 @@ describe('playlistScreen.vue', () => {
 
     h.visit(`playlists/${playlist.id}`)
 
-    await waitFor(() => expect(fetchSongsMock).toHaveBeenCalledWith(playlist, false))
+    await waitFor(() => expect(fetchSongsMock).toHaveBeenCalledWith(playlist, playlist.is_smart))
 
     return {
       ...rendered,
@@ -45,6 +46,54 @@ describe('playlistScreen.vue', () => {
       fetchSongsMock,
     }
   }
+
+  it('fetches fresh songs every time a smart playlist is opened', async () => {
+    const playlist = h.factory('playlist').state('smart').make()
+    const { fetchSongsMock } = await renderComponent([], playlist)
+    fetchSongsMock.mockResolvedValue([])
+
+    h.visit('home')
+    h.visit(`playlists/${playlist.id}`)
+
+    await waitFor(() => expect(fetchSongsMock).toHaveBeenLastCalledWith(playlist, true))
+    expect(fetchSongsMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('says when a smart playlist shows only its first matches', async () => {
+    await renderComponent(h.factory('song').make(500), h.factory('playlist').state('smart').make())
+
+    screen.getByTestId('smart-playlist-limit-notice')
+  })
+
+  it('shows the songs of a playlist opened while another one is still loading', async () => {
+    const first = h.factory('playlist').make()
+    const second = h.factory('playlist').make({ owner_id: first.owner_id })
+    h.actingAsUser(h.factory('user').state('current').make({ id: first.owner_id }) as CurrentUser)
+    playlistStore.state.playlists = []
+    playlistStore.init([first, second])
+    first.playables = h.factory('song').make(3)
+    second.playables = h.factory('song').make(2)
+
+    let resolveFirst: ((playables: Playable[]) => void) | undefined
+
+    h.mock(playableStore, 'fetchForPlaylist').mockImplementation(async playlist =>
+      (playlist as Playlist).id === first.id
+        ? new Promise<Playable[]>(resolve => (resolveFirst = resolve))
+        : second.playables!,
+    )
+
+    h.render(Component, { global: { stubs: { FavoriteButton: h.stub('favorite-button', true) } } })
+    h.visit(`playlists/${first.id}`)
+    await waitFor(() => expect(resolveFirst).toBeDefined())
+
+    h.visit(`playlists/${second.id}`)
+    await waitFor(() => expect(screen.getAllByTestId('song-item')).toHaveLength(2))
+
+    resolveFirst!(first.playables)
+    await new Promise(resolve => setTimeout(resolve))
+
+    expect(screen.getAllByTestId('song-item')).toHaveLength(2)
+  })
 
   it('renders the playlist', async () => {
     await renderComponent(h.factory('song').make(10))

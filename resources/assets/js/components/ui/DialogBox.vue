@@ -2,7 +2,7 @@
   <dialog
     ref="dialog"
     :class="`${type}`"
-    class="m-auto rounded-md bg-k-bg text-k-fg-70 shadow-xl border-0 p-0 min-w-[320px] max-w-[calc(100vw - 40px)] backdrop:bg-black/70"
+    class="m-auto rounded-xl bg-k-bg text-k-fg-70 shadow-2xl border border-k-fg-10 p-0 min-w-[320px] max-w-[calc(100vw - 40px)] backdrop:bg-black/70"
   >
     <div class="flex gap-5 py-6 px-7">
       <aside>
@@ -22,7 +22,7 @@
     </div>
 
     <footer class="flex justify-end gap-2 px-6 py-4 bg-k-fg-3">
-      <Btn variant="ghost" v-if="showCancelButton" name="cancel" @click.prevent="cancel">Cancel</Btn>
+      <Btn variant="neutral" v-if="showCancelButton" name="cancel" @click.prevent="cancel">Cancel</Btn>
       <Btn name="ok">OK</Btn>
     </footer>
   </dialog>
@@ -31,10 +31,13 @@
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
 import { faCheck, faExclamation, faInfo, faQuestion, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
+import { useModalDialogs } from '@/composables/useModalDialogs'
 
 import Btn from '@/components/ui/form/Btn.vue'
 
 type DialogType = 'info' | 'success' | 'warning' | 'danger' | 'confirm'
+
+const { showModalDialog } = useModalDialogs()
 
 const dialog = ref<HTMLDialogElement>()
 const type = ref<DialogType>('info')
@@ -73,8 +76,7 @@ const show = async (_type: DialogType, _message: string, _title: string = '') =>
   message.value = _message
   title.value = _title
 
-  // @ts-ignore
-  dialog.value.showModal()
+  showModalDialog(dialog.value!)
 
   return waitForInput()
 }

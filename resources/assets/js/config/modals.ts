@@ -1,5 +1,6 @@
 export interface Modals {
   ABOUT_KOEL: never
+  ADD_PASSKEY_FORM: { hasPasskeys: boolean }
   ADD_PODCAST_FORM: never
   ADD_RADIO_STATION_FORM: never
   ADD_USER_FORM: never
@@ -17,7 +18,9 @@ export interface Modals {
   EDIT_USER_FORM: { user: User }
   EQUALIZER: never
   INVITE_USER_FORM: never
+  KEYBOARD_SHORTCUTS: never
   KOEL_PLUS: never
+  MANAGE_MILKDROP_PRESETS: never
   PLAYLIST_COLLABORATION: { playlist: Playlist }
   CREATE_THEME_FORM: never
   REORDER_HOME_BLOCKS: { blocks: { id: string; label: string }[] }

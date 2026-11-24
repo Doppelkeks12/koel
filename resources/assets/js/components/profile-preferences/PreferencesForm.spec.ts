@@ -1,12 +1,36 @@
 import { screen } from '@testing-library/vue'
-import { describe, expect, it } from 'vite-plus/test'
+import { afterEach, describe, expect, it } from 'vite-plus/test'
+import { defineComponent } from 'vue'
 import { createHarness } from '@/__tests__/TestHarness'
+import { Filter } from '@/config/hooks'
+import { addFilter, type HookHandle, removeFilter } from '@/hooks'
 import { commonStore } from '@/stores/commonStore'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
-import Component from './PreferencesForm.vue'
+import Component, { type PreferenceRow } from './PreferencesForm.vue'
 
 describe('preferencesForm', () => {
   const h = createHarness()
+
+  let handle: HookHandle | null = null
+
+  afterEach(() => {
+    if (handle) {
+      removeFilter(handle)
+      handle = null
+    }
+  })
+
+  it('renders rows added through the preference rows filter', () => {
+    const ExtensionRow = defineComponent({ template: '<p data-testid="extension-row" />' })
+    handle = addFilter<PreferenceRow[]>(Filter.PREFERENCE_ROWS, rows => [
+      ...rows,
+      { id: 'extension', component: ExtensionRow },
+    ])
+
+    h.render(Component)
+
+    screen.getByTestId('extension-row')
+  })
 
   it('has "Transcode on mobile" option if supported', () => {
     commonStore.state.supports_transcoding = true
@@ -40,5 +64,27 @@ describe('preferencesForm', () => {
 
     await h.user.click(screen.getByTestId('crossfade-toggle'))
     expect(preferences.crossfade_duration).toBe(0)
+  })
+
+  it('hides the upload visibility and public media options from guests', async () => {
+    h.actingAsUser(h.factory('user').make({ abilities: [], role: 'guest' }) as CurrentUser)
+
+    await h.withPlusEdition(() => {
+      const { container } = h.render(Component)
+
+      expect(container.querySelector('[name="make_uploads_public"]')).toBeNull()
+      expect(container.querySelector('[name="include_public_media"]')).toBeNull()
+    })
+  })
+
+  it('shows the upload visibility and public media options to Plus users', async () => {
+    h.actingAsUser(h.factory('user').make({ abilities: [] }) as CurrentUser)
+
+    await h.withPlusEdition(() => {
+      const { container } = h.render(Component)
+
+      expect(container.querySelector('[name="make_uploads_public"]')).not.toBeNull()
+      expect(container.querySelector('[name="include_public_media"]')).not.toBeNull()
+    })
   })
 })

@@ -7,8 +7,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Subsonic\IdRequest;
 use App\Repositories\AlbumRepository;
 use App\Repositories\ArtistRepository;
+use App\Repositories\PlaylistRepository;
 use App\Repositories\PodcastRepository;
-use Illuminate\Support\Facades\File;
+use App\Services\Image\ImageStorage;
 
 class GetCoverArtController extends Controller
 {
@@ -16,6 +17,8 @@ class GetCoverArtController extends Controller
         private readonly AlbumRepository $albumRepository,
         private readonly ArtistRepository $artistRepository,
         private readonly PodcastRepository $podcastRepository,
+        private readonly PlaylistRepository $playlistRepository,
+        private readonly ImageStorage $imageStorage,
     ) {}
 
     public function __invoke(IdRequest $request)
@@ -23,18 +26,29 @@ class GetCoverArtController extends Controller
         $album = $this->albumRepository->findOne($request->id);
         $artist = $album ? null : $this->artistRepository->findOne($request->id);
         $podcast = $album || $artist ? null : $this->podcastRepository->findOne($request->id);
+        $playlist = $album || $artist || $podcast ? null : $this->playlistRepository->findOne($request->id);
 
-        throw_if(!$album && !$artist && !$podcast, DataNotFoundException::class, 'Cover art not found.');
+        throw_if(!$album && !$artist && !$podcast && !$playlist, DataNotFoundException::class, 'Cover art not found.');
 
         if ($podcast?->image) {
             return redirect($podcast->image);
         }
 
-        $filename = $album ? $album->cover : $artist?->image;
-        $path = $filename ? image_storage_path($filename, ensureDirectoryExists: false) : null;
+        if ($playlist) {
+            $this->authorize('access', $playlist);
+        }
 
-        if ($path && File::isFile($path)) {
-            return response()->file($path);
+        $fileName = match (true) {
+            (bool) $album => $album->cover,
+            (bool) $artist => $artist->image ?: $artist->album_cover,
+            default => $playlist?->cover,
+        };
+
+        if ($this->imageStorage->exists($fileName)) {
+            $response = ImageStorage::disk()->response($fileName)->setEtag($fileName);
+            $response->isNotModified($request);
+
+            return $response;
         }
 
         return response()->file(resource_path('assets/img/covers/default.png'));

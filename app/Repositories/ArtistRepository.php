@@ -10,13 +10,29 @@ use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\LazyCollection;
 
 /**
  * @extends Repository<Artist>
  * @implements ScoutableRepository<Artist>
  */
+// @mago-ignore lint:too-many-methods
 class ArtistRepository extends Repository implements ScoutableRepository
 {
+    public function isAccessibleByUser(Artist $artist, User $user): bool
+    {
+        return Artist::query()->whereAccessibleByUser($user)->whereKey($artist->id)->exists();
+    }
+
+    public function findOneByNameIgnoringCase(string $name, ?int $ownerId, Artist $excludedArtist): ?Artist
+    {
+        return Artist::query()
+            ->when($ownerId, static fn (Builder $query) => $query->where('user_id', $ownerId))
+            ->whereRaw('LOWER(name) = LOWER(?)', [$name])
+            ->whereKeyNot($excludedArtist->id)
+            ->first();
+    }
+
     /**
      * @param string $id
      */
@@ -37,35 +53,77 @@ class ArtistRepository extends Repository implements ScoutableRepository
 
     public function getRecentlyAdded(int $count = 6, ?User $user = null): Collection
     {
-        return Artist::query()
+        $user ??= $this->auth->user();
+
+        $ids = Artist::query()
+            ->select('artists.id')
             ->onlyStandard()
             ->onlyAlbumArtists()
-            ->withUserContext(user: $user ?? $this->auth->user())
-            ->latest()
+            ->setScopedUser($user)
+            ->accessible()
+            ->orderByDesc('artists.created_at')
             ->limit($count)
-            ->get();
+            ->pluck('artists.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, user: $user);
     }
 
     public function getMostPlayed(int $count = 6, ?User $user = null): Collection
     {
-        return Artist::query()
-            ->withUserContext(user: $user ?? $this->auth->user(), includePlayCount: true)
+        $user ??= $this->auth->user();
+
+        $ids = Artist::query()
+            ->select('artists.id')
             ->onlyStandard()
             ->onlyAlbumArtists()
+            ->setScopedUser($user)
+            ->accessible()
+            ->withPlayCount(playedOnly: true)
             ->orderByDesc('play_count')
             ->limit($count)
-            ->get();
+            ->pluck('artists.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, user: $user);
     }
 
     /** @return Collection<int, Artist> */
     public function getRandom(int $limit, ?User $user = null): Collection
     {
-        return Artist::query()
+        $user ??= $this->auth->user();
+
+        $ids = Artist::query()
+            ->select('artists.id')
             ->onlyStandard()
             ->onlyAlbumArtists()
-            ->withUserContext(user: $user ?? $this->auth->user())
+            ->setScopedUser($user)
+            ->accessible()
             ->inRandomOrder()
             ->limit($limit)
+            ->pluck('artists.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, user: $user);
+    }
+
+    /**
+     * The user's artists that songs or albums owned by others still use.
+     *
+     * @return Collection<int, Artist>
+     */
+    public function getOwnedByUserButUsedByOthers(User $user): Collection
+    {
+        return Artist::query()
+            ->where('user_id', $user->id)
+            ->where(static function (Builder $query) use ($user): void {
+                $query->whereHas('songs', static fn (Builder $songs) => $songs->where(
+                    'owner_id',
+                    '<>',
+                    $user->id,
+                ))->orWhereHas('albums.songs', static fn (Builder $songs) => $songs->where(
+                    'owner_id',
+                    '<>',
+                    $user->id,
+                ));
+            })
             ->get();
     }
 
@@ -74,8 +132,7 @@ class ArtistRepository extends Repository implements ScoutableRepository
         $artists = Artist::query()
             ->onlyStandard()
             ->withUserContext(user: $user ?? $this->auth->user())
-            ->whereIn('artists.id', $ids)
-            ->get();
+            ->getWhereInChunks('artists.id', $ids);
 
         return $preserveOrder ? $artists->orderByArray($ids) : $artists;
     }
@@ -92,13 +149,35 @@ class ArtistRepository extends Repository implements ScoutableRepository
             ->get();
     }
 
+    /** @return LazyCollection<array-key, Artist> */
+    public function lazyGetWithoutMbid(): LazyCollection
+    {
+        return Artist::query()->onlyStandard()->whereNull('mbid')->lazyById();
+    }
+
+    public function countWithoutMbid(): int
+    {
+        return Artist::query()->onlyStandard()->whereNull('mbid')->count();
+    }
+
+    public function countAccessibleByUser(User $user): int
+    {
+        return Artist::query()
+            ->onlyStandard()
+            ->onlyAlbumArtists()
+            ->setScopedUser($user)
+            ->accessible()
+            ->count();
+    }
+
     public function getAll(?User $user = null): Collection
     {
         return Artist::query()
-            ->withUserContext(user: $user ?? $this->auth->user())
+            ->withUserContext(user: $user ?? $this->auth->user(), includeAlbumCover: false)
+            ->withAlbumCoverPresence()
             ->onlyStandard()
             ->onlyAlbumArtists()
-            ->withCount('albums')
+            ->withAlbumCountIncludingAppearances()
             ->orderBy('name')
             ->get();
     }
@@ -117,7 +196,7 @@ class ArtistRepository extends Repository implements ScoutableRepository
                 ->onlyAlbumArtists()
                 ->sort($sortColumn, $sortDirection),
             idColumn: 'artists.id',
-            perPage: 21,
+            perPage: 60,
         );
     }
 
@@ -143,9 +222,9 @@ class ArtistRepository extends Repository implements ScoutableRepository
     public function search(string $keywords, int $limit, ?User $user = null): Collection
     {
         return $this->getMany(
-            ids: Artist::search($keywords)->take($limit)->get()->modelKeys(),
+            ids: Artist::search($keywords)->take(self::SEARCH_CANDIDATE_LIMIT)->keys()->all(),
             preserveOrder: true,
             user: $user,
-        );
+        )->take($limit);
     }
 }

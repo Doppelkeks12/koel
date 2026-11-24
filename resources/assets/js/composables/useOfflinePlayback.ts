@@ -1,11 +1,15 @@
-import { computed, ref, toRaw } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import { playableStore } from '@/stores/playableStore'
 import { offlineManifest } from '@/services/offlineManifest'
 import type { OfflineManifestEntry } from '@/services/offlineManifest'
 import { http } from '@/services/http'
+import { useMessageToaster } from '@/composables/useMessageToaster'
+import { pluralize } from '@/utils/formatters'
 import { eventBus } from '@/utils/eventBus'
 import { logger } from '@/utils/logger'
 import { isSong } from '@/utils/typeGuards'
+
+import ProgressRing from '@/components/ui/ProgressRing.vue'
 
 type CacheProgress = {
   songId: Song['id']
@@ -98,7 +102,7 @@ const loadManifest = async () => {
 const syncWithServer = async (entries: OfflineManifestEntry[]) => {
   try {
     const cachedIds = entries.map(e => e.playable.id)
-    const freshPlayables = await http.silently.post<Playable[]>('songs/by-ids', { ids: cachedIds })
+    const freshPlayables = await http.silently.withRetries.post<Playable[]>('songs/by-ids', { ids: cachedIds })
     const freshIds = new Set(freshPlayables.map(p => p.id))
 
     // Update existing entries with fresh data
@@ -119,7 +123,7 @@ const syncWithServer = async (entries: OfflineManifestEntry[]) => {
           sw.postMessage({
             type: 'DELETE_AUDIO_CACHE',
             songId: entry.playable.id,
-            sourceUrl: playableStore.getSourceUrl(entry.playable),
+            sourceUrl: playableStore.getUnsignedSourceUrl(entry.playable),
           })
         }
       }
@@ -224,7 +228,7 @@ const setupSongDeletionListener = () => {
         sw.postMessage({
           type: 'DELETE_AUDIO_CACHE',
           songId: song.id,
-          sourceUrl: playableStore.getSourceUrl(song),
+          sourceUrl: playableStore.getUnsignedSourceUrl(song),
         })
       }
     }
@@ -242,6 +246,24 @@ const extractSongIdFromUrl = (url: string): Song['id'] | null => {
 
 export const shouldWarnUponWindowUnload = () => cachingProgress.value.size > 0
 
+const waitUntil = (isDone: () => boolean) =>
+  new Promise<void>(resolve => {
+    if (isDone()) {
+      resolve()
+      return
+    }
+
+    const stopWatching = watch(isDone, done => {
+      if (done) {
+        stopWatching()
+        resolve()
+      }
+    })
+  })
+
+const getSongCachingProgress = (songId: Song['id']) =>
+  cachedSongIds.value.has(songId) || cachingErrors.value.has(songId) ? 1 : (cachingProgress.value.get(songId) ?? 0)
+
 export const useOfflinePlayback = () => {
   if (!listenerSetup) {
     listenerSetup = true
@@ -250,14 +272,23 @@ export const useOfflinePlayback = () => {
     setupSongDeletionListener()
   }
 
-  const makeAvailableOffline = (playable: Playable) => {
+  const makeAvailableOffline = async (playable: Playable) => {
     const sw = getSW()
     if (!sw) return
 
-    const sourceUrl = playableStore.getSourceUrl(playable)
-
     cachingProgress.value.set(playable.id, 0)
     cachingErrors.value.delete(playable.id)
+
+    let sourceUrl: string
+
+    try {
+      sourceUrl = await playableStore.resolveSourceUrl(playable)
+    } catch (error: unknown) {
+      cachingProgress.value.delete(playable.id)
+      cachingErrors.value.set(playable.id, error instanceof Error ? error.message : 'Unknown error')
+      return
+    }
+
     sw.postMessage({
       type: 'CACHE_AUDIO',
       songId: playable.id,
@@ -269,7 +300,7 @@ export const useOfflinePlayback = () => {
     const sw = getSW()
     if (!sw) return
 
-    const sourceUrl = playableStore.getSourceUrl(playable)
+    const sourceUrl = playableStore.getUnsignedSourceUrl(playable)
 
     sw.postMessage({
       type: 'DELETE_AUDIO_CACHE',
@@ -285,7 +316,7 @@ export const useOfflinePlayback = () => {
     const entries = [...manifestEntries.value]
 
     for (const entry of entries) {
-      const sourceUrl = playableStore.getSourceUrl(entry.playable)
+      const sourceUrl = playableStore.getUnsignedSourceUrl(entry.playable)
       sw.postMessage({
         type: 'DELETE_AUDIO_CACHE',
         songId: entry.playable.id,
@@ -311,7 +342,7 @@ export const useOfflinePlayback = () => {
     const sw = getSW()
     if (!sw) return
 
-    const sourceUrls = playables.map(p => playableStore.getSourceUrl(p))
+    const sourceUrls = playables.map(p => playableStore.getUnsignedSourceUrl(p))
 
     sw.postMessage({
       type: 'GET_CACHE_STATUS',
@@ -332,6 +363,56 @@ export const useOfflinePlayback = () => {
     return songs.length > 0 && songs.every(p => isCached(p))
   }
 
+  const hasOfflineCapablePlayables = (playables: Playable[]) => playables.some(p => isSong(p))
+
+  const togglePlayablesOffline = (playables: Playable[], collectionLabel?: string) => {
+    const songs = playables.filter(p => isSong(p))
+
+    if (!songs.length || !getSW()) return
+
+    const { toastPromise } = useMessageToaster()
+
+    if (allPlayablesCached(songs)) {
+      removePlayablesOfflineCache(songs)
+
+      toastPromise(
+        waitUntil(() => songs.every(song => !isCached(song))),
+        {
+          loading: 'Removing offline versions…',
+          success: collectionLabel
+            ? `Removed offline versions for ${collectionLabel}.`
+            : `Removed offline versions of ${pluralize(songs, 'song')}.`,
+          error: 'Couldn’t remove offline versions.',
+        },
+      )
+
+      return
+    }
+
+    const songIds = songs.filter(song => !isCached(song)).map(song => song.id)
+    makePlayablesAvailableOffline(songs)
+
+    const progress = computed(
+      () => (songIds.reduce((total, songId) => total + getSongCachingProgress(songId), 0) / songIds.length) * 100,
+    )
+
+    const caching = waitUntil(() => songIds.every(songId => !cachingProgress.value.has(songId))).then(
+      () => songIds.filter(songId => cachingErrors.value.has(songId)).length,
+    )
+
+    toastPromise(caching, {
+      loading: {
+        content: 'Making songs available offline…',
+        icon: ProgressRing,
+        iconProps: { value: progress, class: 'size-4' },
+      },
+      success: `Made ${pluralize(songIds, 'song')} available offline.`,
+      warning: failedCount =>
+        failedCount ? `${pluralize(failedCount, 'song')} couldn’t be made available offline.` : undefined,
+      error: 'Couldn’t make songs available offline.',
+    })
+  }
+
   return {
     swReady,
     cachedSongIds,
@@ -346,6 +427,8 @@ export const useOfflinePlayback = () => {
     makePlayablesAvailableOffline,
     removePlayablesOfflineCache,
     allPlayablesCached,
+    hasOfflineCapablePlayables,
+    togglePlayablesOffline,
     isCached,
     isCaching,
     getCachingProgress,

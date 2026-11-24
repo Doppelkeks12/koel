@@ -35,18 +35,24 @@ storage service. A **pre-signed URL** is a secret, generated on-the-fly URL that
 ## Lossless Transcoding
 
 Koel supports transcoding your lossless audio to AAC, a format [widely supported](https://caniuse.com/?search=aac)
-by modern browsers. To enable this feature, you'll need to have [FFmpeg](https://ffmpeg.org/) installed on your server
-and set its executable path via the `FFMPEG_PATH` setting in the `.env` file. If you use the
-[Docker image](https://github.com/koel/docker/), this is already done for you.
+by modern browsers. This needs [FFmpeg](./ffmpeg).
 
 The transcode quality can be controlled via `TRANSCODE_BIT_RATE`. The default value is `128`, which means the audio will
 be transcoded to 128 kbps AAC. You can set it to a higher value, such as `192`, to improve the audio quality at the cost
 of a larger file size. Practically, it's almost impossible to differentiate between 320 kbps AAC and lossless audio.
 
+For better quality at the same bit rate, see [Better AAC Quality](./ffmpeg#better-aac-quality).
+
 As transcoding can take some time (albeit typically several seconds) and resources, Koel will cache the transcoded
 files for later use. You should also expect a slight delay when you first play a song that requires transcoding, as
 Koel will need to do its transcoding magic first (which can involve downloading the file from your cloud storage if
 necessary).
+
+To skip that delay, set `TRANSCODE_ON_SCAN=true` in `.env`: Koel then transcodes songs as soon as they're scanned or
+uploaded. Songs uploaded to cloud or remote storage are transcoded while the upload is processed, from the copy Koel
+already has. Other songs are transcoded by a job, in the background if you've
+[configured a queue](https://laravel.com/docs/queues#running-the-queue-worker); otherwise, Koel transcodes an applicable
+song upon scanning or uploading it, which typically takes a couple of seconds.
 
 ### FLAC Transcoding
 
@@ -54,11 +60,19 @@ Since FLAC is [well-supported](https://caniuse.com/?search=flac) by modern brows
 default and maintains the lossless experience. You can also force transcoding FLAC as well by setting `TRANSCODE_FLAC`
 to `true` in the `.env` file.
 
+### Streaming Lossless When Supported
+
+Koel checks which lossless formats (FLAC, ALAC, WAV, AIFF) the device you're listening on can play. Files in those
+formats are streamed as-is, even if `TRANSCODE_FLAC` is on or the format would otherwise be transcoded. ALAC, for
+example, plays untouched in Safari but is transcoded in Chrome. You can turn this off from the [Preferences screen](./profile-preferences#preferences).
+
+Subsonic clients can ask for the original file, in any format, by passing `format=raw` to the `stream` endpoint.
+
 ### Forced Transcoding
 
 For audio formats that aren't [widely supported by browsers](https://caniuse.com/?search=audio%20format),
-such as AIFF or APE, Koel will always resort to transcoding. If you upload files in such formats, make sure the FFmpeg
-setup and configuration (see above) are correct.
+such as APE or WMA, Koel will always resort to transcoding. If you upload files in such formats, make sure
+[FFmpeg](./ffmpeg) is set up.
 
 ### Transcoding on Mobile
 

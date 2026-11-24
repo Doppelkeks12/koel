@@ -9,7 +9,7 @@
     <ParagraphSkeleton v-if="loading" role="status" aria-busy="true" aria-label="Loading" />
 
     <template v-if="!loading && info?.wiki">
-      <div v-html="info.wiki.full" />
+      <div class="rich-text" v-html="info.wiki.full" />
 
       <TrackList v-if="info.tracks?.length" :album :tracks="info.tracks" class="mt-8" data-testid="album-info-tracks" />
     </template>
@@ -24,7 +24,7 @@
 import { ref, toRefs, watch } from 'vue'
 import { encyclopediaService } from '@/services/encyclopediaService'
 import { useThirdPartyServices } from '@/composables/useThirdPartyServices'
-import { defineAsyncComponent } from '@/utils/helpers'
+import { defineAsyncComponent, hasVisibleText } from '@/utils/helpers'
 
 import AlbumThumbnail from '@/components/ui/album-artist/AlbumOrArtistThumbnail.vue'
 import AlbumArtistInfo from '@/components/ui/album-artist/AlbumOrArtistInfo.vue'
@@ -36,6 +36,8 @@ const TrackList = defineAsyncComponent(() => import('@/components/album/AlbumTra
 
 const { album, mode } = toRefs(props)
 
+const emit = defineEmits<{ (e: 'empty'): void }>()
+
 const { useMusicBrainz, useLastfm, useSpotify } = useThirdPartyServices()
 
 const loading = ref(false)
@@ -46,10 +48,14 @@ watch(
   async () => {
     info.value = null
 
-    if (useMusicBrainz.value || useLastfm.value || useSpotify.value) {
+    if (useMusicBrainz.value || useLastfm.value || useSpotify.value || album.value.description) {
       loading.value = true
       info.value = await encyclopediaService.fetchForAlbum(album.value)
       loading.value = false
+
+      if (!info.value?.wiki || (!hasVisibleText(info.value.wiki.full) && !info.value.tracks?.length)) {
+        emit('empty')
+      }
     }
   },
   { immediate: true, deep: true },

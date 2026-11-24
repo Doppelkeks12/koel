@@ -23,6 +23,8 @@ use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection as BaseCollection;
+use Laravel\Passkeys\Contracts\PasskeyUser;
+use Laravel\Passkeys\PasskeyAuthenticatable;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
 use OwenIt\Auditing\Auditable;
@@ -30,6 +32,7 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
+ * @property ?Carbon $deletion_requested_at
  * @property ?Carbon $invitation_accepted_at
  * @property ?Carbon $invited_at
  * @property ?Carbon $two_factor_confirmed_at
@@ -58,7 +61,7 @@ use Spatie\Permission\Traits\HasRoles;
  * @property-read bool $connected_to_lastfm Whether the user is connected to Last.fm
  * @property-read bool $has_custom_avatar
  * @property-read bool $is_prospect
- * @property-read bool $is_sso
+ * @property-read bool $can_set_password_without_current_one
  * @property-read string $avatar
  * @property-read RoleEnum $role
  *
@@ -88,7 +91,7 @@ use Spatie\Permission\Traits\HasRoles;
     'invitation_accepted_at',
 ])]
 #[Appends(['avatar'])]
-class User extends Authenticatable implements AuditableContract
+class User extends Authenticatable implements AuditableContract, PasskeyUser
 {
     use Auditable;
     use HasApiTokens;
@@ -99,6 +102,7 @@ class User extends Authenticatable implements AuditableContract
     use HasUserAttributes;
     use HasUserRelationships;
     use Notifiable;
+    use PasskeyAuthenticatable;
     use Prunable;
 
     public const string FIRST_ADMIN_NAME = 'Koel';
@@ -106,6 +110,7 @@ class User extends Authenticatable implements AuditableContract
     public const string FIRST_ADMIN_PASSWORD = 'KoelIsCool';
     public const string DEMO_PASSWORD = 'demo';
     public const string DEMO_USER_DOMAIN = 'demo.koel.dev';
+    public const int INVITATION_LIFETIME_DAYS = 7;
 
     protected array $auditExclude = ['password', 'remember_token', 'invitation_token'];
     protected $with = ['roles', 'permissions'];
@@ -119,12 +124,18 @@ class User extends Authenticatable implements AuditableContract
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',
             'two_factor_confirmed_at' => 'datetime',
+            'deletion_requested_at' => 'datetime',
         ];
     }
 
     public function hasTwoFactorEnabled(): bool
     {
         return (bool) $this->two_factor_confirmed_at;
+    }
+
+    public function isPendingDeletion(): bool
+    {
+        return (bool) $this->deletion_requested_at;
     }
 
     // @mago-ignore lint:no-redundant-method-override
@@ -139,19 +150,47 @@ class User extends Authenticatable implements AuditableContract
         return 'public_id';
     }
 
-    /** Delete all old and inactive demo users */
     public function prunable(): Builder
     {
-        if (!config('koel.misc.demo')) {
-            return static::query()->whereRaw('false');
-        }
-
         return static::query()
+            ->where(static function (Builder $query): void {
+                self::whereInvitationExpired($query);
+
+                if (config('koel.misc.demo')) {
+                    $query->orWhere(static function (Builder $demoQuery): void {
+                        self::whereDemoAccountIsInactive($demoQuery);
+                    });
+                }
+            });
+    }
+
+    private static function whereInvitationExpired(Builder $query): void
+    {
+        $query->whereNotNull('invitation_token')->where(
+            'invited_at',
+            '<',
+            now()->subDays(self::INVITATION_LIFETIME_DAYS),
+        );
+    }
+
+    private static function whereDemoAccountIsInactive(Builder $query): void
+    {
+        $query
             ->where('created_at', '<=', now()->subWeek())
             ->where('email', 'like', '%@' . self::DEMO_USER_DOMAIN)
             ->whereDoesntHave('interactions', static function (Builder $query): void {
                 $query->where('last_played_at', '>=', now()->subDays(7));
             });
+    }
+
+    public function isGuest(): bool
+    {
+        return $this->role === RoleEnum::GUEST;
+    }
+
+    public function shouldIncludePublicMedia(): bool
+    {
+        return $this->isGuest() || $this->preferences->includePublicMedia;
     }
 
     public function subscribedToPodcast(Podcast $podcast): bool

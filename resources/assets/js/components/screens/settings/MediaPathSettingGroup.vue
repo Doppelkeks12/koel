@@ -1,11 +1,7 @@
 <template>
   <form @submit.prevent="confirmThenSave">
     <SettingGroup>
-      <template #title>Media Path</template>
-      <p v-if="storageDriver !== 'local'">
-        Since you’re not using the local storage, there’s no need to set a media path.
-      </p>
-      <FormRow v-else>
+      <FormRow>
         <template #help>
           <span id="mediaPathHelp">
             The <em>absolute</em> path to the server directory containing your media. Koel will scan this directory for
@@ -24,7 +20,7 @@
       </FormRow>
 
       <template #footer>
-        <Btn data-testid="submit" type="submit">Save &amp; Scan</Btn>
+        <Btn :disabled="scanning" data-testid="submit" type="submit">Save &amp; Scan</Btn>
       </template>
     </SettingGroup>
   </form>
@@ -32,27 +28,25 @@
 
 <script lang="ts" setup>
 import { computed, ref } from 'vue'
-import { commonStore } from '@/stores/commonStore'
 import { settingStore } from '@/stores/settingStore'
 import { useRouter } from '@/composables/useRouter'
 import { useDialogBox } from '@/composables/useDialogBox'
 import { useMessageToaster } from '@/composables/useMessageToaster'
-import { useOverlay } from '@/composables/useOverlay'
-import { useErrorHandler } from '@/composables/useErrorHandler'
+import { getHttpErrorMessage } from '@/composables/useErrorHandler'
+import { logger } from '@/utils/logger'
 
 import Btn from '@/components/ui/form/Btn.vue'
 import TextInput from '@/components/ui/form/TextInput.vue'
 import FormRow from '@/components/ui/form/FormRow.vue'
 import SettingGroup from '@/components/screens/settings/SettingGroup.vue'
 
-const { toastSuccess } = useMessageToaster()
+const { toastPromise } = useMessageToaster()
 const { showConfirmDialog } = useDialogBox()
 const { go, url } = useRouter()
-const { showOverlay, hideOverlay } = useOverlay()
 
-const storageDriver = ref(commonStore.state.storage_driver)
 const mediaPath = ref(settingStore.state.media_path)
 const originalMediaPath = mediaPath.value
+const scanning = ref(false)
 
 const shouldWarn = computed(() => {
   // Warn the user if the media path is not empty and about to change.
@@ -60,25 +54,26 @@ const shouldWarn = computed(() => {
     return false
   }
 
-  if (storageDriver.value !== 'local') {
-    return false
-  }
-
   return originalMediaPath !== mediaPath.value.trim()
 })
 
 const save = async () => {
-  showOverlay({ message: 'Scanning…' })
+  scanning.value = true
+  const updating = settingStore.updateMediaPath(mediaPath.value!)
+  toastPromise(updating, {
+    loading: 'Scanning…',
+    success: 'Settings saved.',
+    error: getHttpErrorMessage,
+  })
 
   try {
-    await settingStore.updateMediaPath(mediaPath.value!)
-    toastSuccess('Settings saved.')
+    await updating
     // Make sure we're back to home first.
     go(url('home'), true)
   } catch (error: unknown) {
-    useErrorHandler('dialog').handleHttpError(error)
+    logger.error(error)
   } finally {
-    hideOverlay()
+    scanning.value = false
   }
 }
 

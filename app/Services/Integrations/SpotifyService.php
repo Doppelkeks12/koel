@@ -24,7 +24,7 @@ class SpotifyService
             return null;
         }
 
-        if ($artist instanceof Artist && ($artist->is_various || $artist->is_unknown)) {
+        if ($artist instanceof Artist && !$artist->is_standard) {
             return null;
         }
 
@@ -39,7 +39,7 @@ class SpotifyService
             return null;
         }
 
-        if ($album->is_unknown || $album->artist->is_unknown || $album->artist->is_various) {
+        if (!$album->is_identifiable) {
             return null;
         }
 

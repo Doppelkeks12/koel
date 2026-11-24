@@ -48,7 +48,7 @@ return new class extends Migration {
                 ->whereIn('id', $ids)
                 ->update([
                     'user_id' => $firstAdmin->id,
-                    'public_id' => DB::raw("CASE id $cases END"),
+                    'public_id' => DB::raw("CASE id $cases END")
                 ]);
         });
 
@@ -66,7 +66,7 @@ return new class extends Migration {
                 ->whereIn('id', $ids)
                 ->update([
                     'user_id' => $firstAdmin->id,
-                    'public_id' => DB::raw("CASE id $cases END"),
+                    'public_id' => DB::raw("CASE id $cases END")
                 ]);
         });
 
@@ -88,7 +88,7 @@ return new class extends Migration {
                 'artists.name as artist_name',
                 'artists.image as artist_image',
                 'albums.name as album_name',
-                'albums.cover as album_cover',
+                'albums.cover as album_cover'
             )
             ->chunk(100, static function ($songsChunk) use (&$artistCache, &$albumCache): void {
                 if (count($songsChunk) === 0) {
@@ -108,11 +108,11 @@ return new class extends Migration {
                             'name' => $song->artist_name,
                             'public_id' => Ulid::generate(),
                             'user_id' => $song->owner_id,
-                            'image' => $song->artist_image ?? '',
+                            'image' => $song->artist_image ?? ''
                         ]),
                         static function ($id) use (&$artistCache, $artistKey): void {
                             $artistCache[$artistKey] = $id;
-                        },
+                        }
                     );
 
                     $albumKey = "{$song->album_name}|{$artistId}|{$song->owner_id}";
@@ -123,11 +123,11 @@ return new class extends Migration {
                             'public_id' => Ulid::generate(),
                             'artist_id' => $artistId,
                             'user_id' => $song->owner_id,
-                            'cover' => $song->album_cover ?? '',
+                            'cover' => $song->album_cover ?? ''
                         ]),
                         static function ($id) use (&$albumCache, $albumKey): void {
                             $albumCache[$albumKey] = $id;
-                        },
+                        }
                     );
 
                     $songIds[] = $song->id;
@@ -159,7 +159,7 @@ return new class extends Migration {
                     ->whereIn('id', $songIds)
                     ->update([
                         'artist_id' => DB::raw($artistCaseSql),
-                        'album_id' => DB::raw($albumCaseSql),
+                        'album_id' => DB::raw($albumCaseSql)
                     ]);
             });
     }

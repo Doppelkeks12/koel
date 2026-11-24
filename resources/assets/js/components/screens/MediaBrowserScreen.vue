@@ -6,9 +6,10 @@
 
         <template #meta>
           <div class="flex items-center gap-2 mt-2">
-            <Breadcrumbs :current="currentFolder" :ancestors class="flex-1" />
-            <Btn size="small" variant="ghost" title="Reload" @click.prevent="refresh">
+            <Breadcrumbs ref="breadcrumbs" :current="currentFolder" :ancestors class="flex-1" />
+            <Btn size="small" variant="ghost" @click.prevent="refresh">
               <Icon :icon="faRotateRight" />
+              <span class="sr-only">Reload</span>
             </Btn>
           </div>
         </template>
@@ -17,19 +18,24 @@
 
     <ScreenEmptyState v-if="libraryEmpty">
       No files found.
-      <span v-if="currentUserCan.manageSettings()" class="secondary block"> Have you set up your library yet? </span>
+      <EmptyLibraryHint />
     </ScreenEmptyState>
 
     <div v-else class="-m-6 h-full min-h-full flex flex-col flex-1 overflow-auto">
       <MediaListView
+        ref="mediaList"
         v-show="!shouldShowSkeleton"
         :items
         :folder-id="folderId"
         :class="noContent || 'flex-1'"
         @scrolled-to-end="onScrolledToEnd"
+        @open-parent-folder="openParentFolder"
       />
 
-      <MediaListViewSkeleton v-if="shouldShowSkeleton" role="status" aria-busy="true" aria-label="Loading" />
+      <template v-if="shouldShowSkeleton">
+        <ScreenHeaderSpace />
+        <MediaListViewSkeleton role="status" aria-busy="true" aria-label="Loading" />
+      </template>
 
       <ScreenEmptyState v-if="noContent">
         <template #icon>
@@ -44,13 +50,12 @@
 <script lang="ts" setup>
 import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 import { faFolderOpen } from '@fortawesome/free-regular-svg-icons'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { commonStore } from '@/stores/commonStore'
 import { useRouter } from '@/composables/useRouter'
 import { mediaBrowser } from '@/services/mediaBrowser'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { eventBus } from '@/utils/eventBus'
-import { usePolicies } from '@/composables/usePolicies'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
 import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
@@ -58,13 +63,16 @@ import ScreenBase from '@/components/screens/ScreenBase.vue'
 import Breadcrumbs from '@/components/playable/media-browser/Breadcrumbs.vue'
 import MediaListView from '@/components/playable/media-browser/MediaListView.vue'
 import MediaListViewSkeleton from '@/components/playable/media-browser/MediaListViewSkeleton.vue'
+import ScreenHeaderSpace from '@/components/ui/ScreenHeaderSpace.vue'
 import Btn from '@/components/ui/form/Btn.vue'
+import EmptyLibraryHint from '@/components/ui/EmptyLibraryHint.vue'
 
-const { currentUserCan } = usePolicies()
-const { onRouteChanged, getRouteParam, onScreenActivated } = useRouter()
+const { onRouteChanged, getRouteParam, onScreenActivated, go, url } = useRouter()
 
 const libraryEmpty = computed(() => commonStore.state.song_length === 0)
 
+const mediaList = ref<InstanceType<typeof MediaListView>>()
+const breadcrumbs = ref<InstanceType<typeof Breadcrumbs>>()
 const loading = ref(false)
 const folderId = ref<string | null>(null)
 const currentFolder = ref<Folder | null>(null)
@@ -126,6 +134,27 @@ const refresh = () => {
   fetchContent(true)
 }
 
+const openParentFolder = () => {
+  if (!currentFolder.value) {
+    return
+  }
+
+  const parent = ancestors.value.at(-1)
+
+  go(parent ? url('media-browser', { folder: parent.id }) : url('media-browser'))
+}
+
+const isFocusInBrowser = () => {
+  const focused = document.activeElement
+
+  return (
+    !focused ||
+    focused === document.body ||
+    Boolean(mediaList.value?.hasFocus()) ||
+    Boolean((breadcrumbs.value?.$el as HTMLElement | undefined)?.contains(focused))
+  )
+}
+
 const onScrolledToEnd = () => {
   if (cursor.value !== null) {
     fetchContent()
@@ -137,9 +166,16 @@ onRouteChanged(async route => {
     return
   }
 
+  const listShouldKeepFocus = isFocusInBrowser()
+
   folderId.value = getFolderIdFromRoute()
   resetState()
   await fetchContent()
+
+  if (listShouldKeepFocus) {
+    await nextTick()
+    mediaList.value?.focus()
+  }
 })
 
 eventBus.on('SONGS_DELETED', async deletedSongs => {

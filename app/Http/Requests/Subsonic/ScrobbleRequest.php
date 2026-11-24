@@ -4,10 +4,12 @@ namespace App\Http\Requests\Subsonic;
 
 use App\Http\Requests\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Validation\Rule;
 
 /**
  * @property list<string> $id
  * @property bool $submission
+ * @property-read int|null $time
  */
 class ScrobbleRequest extends Request
 {
@@ -23,8 +25,9 @@ class ScrobbleRequest extends Request
     public function rules(): array
     {
         return [
-            'id' => ['required', 'array', 'min:1'],
-            'id.*' => ['string'],
+            'id' => [Rule::required(), Rule::array(), 'min:1'],
+            'id.*' => [Rule::string()],
+            'time' => [Rule::sometimes(), Rule::numeric()->integer()],
         ];
     }
 }

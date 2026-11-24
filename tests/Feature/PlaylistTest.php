@@ -17,6 +17,7 @@ use function Tests\create_playlist;
 use function Tests\create_playlists;
 use function Tests\create_user;
 use function Tests\minimal_base64_encoded_image;
+use function Tests\stored_image_name;
 
 class PlaylistTest extends TestCase
 {
@@ -63,7 +64,7 @@ class PlaylistTest extends TestCase
         self::assertTrue($playlist->ownedBy($user));
         self::assertNull($playlistFolderService->getFolderForPlaylist($playlist));
         self::assertEqualsCanonicalizing($songs->modelKeys(), $playlist->playables->modelKeys());
-        self::assertSame("$ulid.webp", $playlist->cover);
+        self::assertSame(stored_image_name($ulid), $playlist->cover);
     }
 
     #[Test]
@@ -363,7 +364,7 @@ class PlaylistTest extends TestCase
             ->assertSuccessful()
             ->assertJsonStructure(PlaylistResource::JSON_STRUCTURE);
 
-        self::assertSame("$ulid.webp", $playlist->refresh()->cover);
+        self::assertSame(stored_image_name($ulid), $playlist->refresh()->cover);
     }
 
     #[Test]
@@ -462,10 +463,7 @@ class PlaylistTest extends TestCase
     public function embedPayloadOmitsPermissions(): void
     {
         $playlist = create_playlist();
-        $embed = Embed::factory()->createOne([
-            'embeddable_type' => 'playlist',
-            'embeddable_id' => $playlist->id,
-        ]);
+        $embed = Embed::factory()->for($playlist->owner)->embedding($playlist)->createOne();
 
         $this
             ->getJson("api/embeds/{$embed->id}/" . EmbedOptions::make())

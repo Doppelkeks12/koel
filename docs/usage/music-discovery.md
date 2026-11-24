@@ -33,6 +33,25 @@ Do note that, to play audio formats that are not
 [natively supported by modern browsers](https://caniuse.com/?search=audio%20format), you'll need proper
 [setup and configuration](streaming.md#transcoding).
 
+## Compilation Albums
+
+Koel groups a compilation's songs under the "Various Artists" album artist when either:
+
+- the songs' album artist tag is "Various Artists" (in any letter case) or "VA", or
+- the songs have no album artist but are marked as part of a compilation (the "compilation" flag in MP3, FLAC, Ogg, and M4A files).
+
+## Vinyl Track Numbers
+
+Koel shows vinyl track numbers like `A1`, `A2`, and `B1` as they are in your files, and plays and sorts the tracks in
+that order.
+
+Songs scanned before Koel supported these numbers show `0` instead. To fix them, scan again and update only the track
+numbers:
+
+```bash
+php artisan koel:scan --force --only=track
+```
+
 ## Scan via the Web interface
 
 :::warning Not for large libraries
@@ -41,7 +60,7 @@ opt for other methods instead.
 :::
 
 Upload your songs into a readable directory on your server and configure Koel to scan and sync it by setting a "media
-path" under Manage → Settings.
+path" under Manage → Settings → Media Path.
 
 ![Settings Screen](../assets/img/settings.webp)
 
@@ -95,9 +114,11 @@ for more details.
 ## Upload via the Web Interface
 
 You can upload songs directly by clicking the "Upload" sidebar menu item or just drag and drop files and
-folders into the web interface.
+folders into the web interface. Uploading is only available on a computer, not on phones or tablets.
 Note that if you’re not using a cloud storage (available with Koel Plus), you will need to set the media path first,
 as the files will be uploaded into the `%media_path%/__KOEL__UPLOADS__` directory.
+
+Dropped the wrong folder? Click **Stop All** to stop the remaining uploads and clear them from the list. Songs that already finished uploading stay in your library.
 
 Koel automatically detects duplicate uploads by comparing file hashes (not song metadata). If a file you upload matches a song already in your library, it will be flagged and held in a duplicate uploads panel on the Upload screen. You can then choose to discard the upload or continue and keep the duplicate.
 
@@ -105,6 +126,9 @@ Depending on how big your files are, you may want to set `upload_max_filesize` a
 correspondingly, or uploading may fail with a `Payload too large` error.
 This applies even if you’re using a cloud storage, as the files will be uploaded to your server first before being sent
 to the cloud.
+
+A proxy in front of Koel can limit upload sizes too. Cloudflare’s free plan, for example, rejects requests larger than
+100 MB, so bigger files won’t go through its proxy or tunnel.
 
 ## Watch the Media Directory
 

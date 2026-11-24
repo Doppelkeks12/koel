@@ -1,22 +1,19 @@
 import vueSnapshotSerializer from 'jest-serializer-vue'
-import { expect, vi } from 'vite-plus/test'
+import { afterAll, expect, vi } from 'vite-plus/test'
 import './shims/popover'
 import './shims/storage'
+import './shims/mediaSession'
+import './shims/nodeWebApis'
 
 declare global {
   interface Window {
-    createLemonSqueezy?: () => Closure
     RUNNING_UNIT_TESTS?: boolean
-  }
-
-  interface LemonSqueezy {
-    Url: {
-      Open: () => void
-    }
   }
 }
 
 expect.addSnapshotSerializer(vueSnapshotSerializer)
+
+afterAll(() => vi.dynamicImportSettled())
 
 globalThis.ResizeObserver =
   globalThis.ResizeObserver ||
@@ -27,12 +24,6 @@ globalThis.ResizeObserver =
       unobserve: vi.fn(),
     }
   })
-
-globalThis.LemonSqueezy = {
-  Url: {
-    Open: vi.fn(),
-  },
-}
 
 HTMLMediaElement.prototype.load = vi.fn()
 HTMLMediaElement.prototype.play = vi.fn()
@@ -52,16 +43,17 @@ HTMLDialogElement.prototype.close = vi.fn(function mock(this: HTMLDialogElement)
 
 window.KOEL = {
   base_url: 'http://test/',
+  build: null,
   is_demo: false,
   pusher: { app_key: '', app_cluster: '' },
+  reverb: null,
   branding: { name: 'Koel', logo: '', cover: '' },
+  gravatar: { url: 'https://www.gravatar.com/avatar', default: 'robohash' },
   mailer_configured: true,
   sso_providers: [],
   accepted_audio_extensions: [],
 }
 window.RUNNING_UNIT_TESTS = true
-
-window.createLemonSqueezy = vi.fn()
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

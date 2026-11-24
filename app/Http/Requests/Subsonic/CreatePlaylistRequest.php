@@ -3,10 +3,13 @@
 namespace App\Http\Requests\Subsonic;
 
 use App\Http\Requests\Request;
+use App\Rules\AllPlayablesAreAccessibleBy;
 use Illuminate\Support\Arr;
+use Illuminate\Validation\Rule;
 
 /**
- * @property string $name
+ * @property string|null $name
+ * @property string|null $playlistId
  * @property list<string> $songId
  */
 class CreatePlaylistRequest extends Request
@@ -20,7 +23,9 @@ class CreatePlaylistRequest extends Request
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string'],
+            'playlistId' => [Rule::sometimes(), Rule::string()],
+            'name' => [Rule::requiredWithout('playlistId'), Rule::string()],
+            'songId' => [Rule::array(), new AllPlayablesAreAccessibleBy($this->user())],
         ];
     }
 }

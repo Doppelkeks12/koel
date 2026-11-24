@@ -3,9 +3,12 @@
 namespace Tests\Integration\Services\Playlist;
 
 use App\Enums\Placement;
+use App\Models\Album;
 use App\Models\PlaylistFolder;
 use App\Models\Podcast;
 use App\Models\Song;
+use App\Repositories\PlaylistRepository;
+use App\Services\LibrarySummaryService;
 use App\Services\Playlist\PlaylistService;
 use App\Services\Podcast\PodcastService;
 use App\Values\Playlist\PlaylistCreateData;
@@ -203,6 +206,40 @@ class PlaylistServiceTest extends TestCase
     }
 
     #[Test]
+    public function addMoreSongsThanOneBatchToPlaylist(): void
+    {
+        $playlist = create_playlist();
+        $existingSongs = Song::factory()->createMany(2);
+        $playlist->addPlayables($existingSongs);
+        $songs = Song::factory()->for(Album::factory()->createOne())->createMany(1001);
+
+        $this->service->addPlayablesToPlaylist($playlist, $songs, $playlist->owner);
+
+        $positions = app(PlaylistRepository::class)->getPlayablePositionsInPlaylist(
+            $playlist,
+            $existingSongs->merge($songs)->modelKeys(),
+        );
+
+        self::assertSame(range(1, 1003), $positions->sort()->values()->all());
+        self::assertSame($existingSongs->merge($songs)->modelKeys(), $positions->sort()->keys()->all());
+    }
+
+    #[Test]
+    public function addSongsAlreadyInPlaylistSkipsThem(): void
+    {
+        $playlist = create_playlist();
+        $songs = Song::factory()->createMany(3);
+        $playlist->addPlayables($songs->take(2));
+
+        $addedSongs = $this->service->addPlayablesToPlaylist($playlist, $songs->skip(1), $playlist->owner);
+        $playlist->refresh();
+
+        self::assertCount(2, $addedSongs);
+        self::assertSame($songs->modelKeys(), $playlist->playables->modelKeys());
+        self::assertSame([1, 2, 3], $playlist->playables->pluck('pivot.position')->all());
+    }
+
+    #[Test]
     public function addEpisodesToPlaylist(): void
     {
         /** @var PodcastService $podcastService */
@@ -249,7 +286,7 @@ class PlaylistServiceTest extends TestCase
         $playlist->refresh();
         self::assertTrue($this->service->isPlaylistCollaborative($playlist));
 
-        $songs = Song::factory()->state(['is_public' => false])->createMany(2);
+        $songs = Song::factory()->for($user, 'owner')->private()->createMany(2);
 
         $this->service->addPlayablesToPlaylist($playlist, $songs, $user);
 
@@ -257,14 +294,48 @@ class PlaylistServiceTest extends TestCase
     }
 
     #[Test]
+    public function addingToCollaborativePlaylistKeepsOtherUsersPrivateSongsPrivate(): void
+    {
+        PlusTestCase::enablePlusLicense();
+
+        $playlist = create_playlist();
+        $collaborator = create_user();
+        $playlist->collaborators()->attach($collaborator);
+        $playlist->refresh();
+
+        $othersPrivateSong = Song::factory()->private()->createOne();
+        $playlist->addPlayables($othersPrivateSong);
+
+        $this->service->addPlayablesToPlaylist(
+            $playlist,
+            Song::factory()->for($collaborator, 'owner')->createOne(),
+            $collaborator,
+        );
+
+        self::assertFalse($othersPrivateSong->refresh()->is_public);
+    }
+
+    #[Test]
     public function makePlaylistSongsPublic(): void
     {
         $playlist = create_playlist();
-        $playlist->addPlayables(Song::factory()->state(['is_public' => false])->createMany(2));
+        $ownSongs = Song::factory()->for($playlist->owner, 'owner')->private()->createMany(2);
+        $othersPrivateSong = Song::factory()->private()->createOne();
+        $playlist->addPlayables($ownSongs->merge([$othersPrivateSong]));
 
-        $this->service->makePlaylistContentPublic($playlist);
+        $this->service->makePlaylistContentPublic($playlist, $playlist->owner);
 
-        $playlist->playables->each(static fn (Song $song) => self::assertTrue($song->is_public));
+        $ownSongs->each(static fn (Song $song) => self::assertTrue($song->refresh()->is_public));
+        self::assertFalse($othersPrivateSong->refresh()->is_public);
+    }
+
+    #[Test]
+    public function makePlaylistSongsPublicInvalidatesLibrarySummaries(): void
+    {
+        $playlist = create_playlist();
+        $this->mock(LibrarySummaryService::class)->expects('markLibraryChanged');
+
+        app(PlaylistService::class)->makePlaylistContentPublic($playlist, $playlist->owner);
     }
 
     #[Test]

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { http } from '@/services/http'
+import { commonStore } from '@/stores/commonStore'
 import { settingStore } from '@/stores/settingStore'
 
 describe('settingStore', () => {
@@ -26,5 +27,29 @@ describe('settingStore', () => {
     })
 
     expect(putMock).toHaveBeenCalledWith('settings/branding', { name: 'Koel' })
+  })
+
+  it.each<[AiSettings, boolean]>([
+    [{ enabled: true, provider: 'openai', has_api_key: true }, true],
+    [{ enabled: false, provider: 'openai', has_api_key: true }, false],
+    [{ enabled: true, provider: 'openai', has_api_key: false }, false],
+  ])('shows or hides the AI assistant after saving %o', async (saved, usesAi) => {
+    commonStore.state.uses_ai = !usesAi
+    h.mock(http, 'put').mockResolvedValue(saved)
+
+    await settingStore.updateAi({ enabled: saved.enabled, provider: 'openai' })
+
+    expect(commonStore.state.uses_ai).toBe(usesAi)
+  })
+
+  it('shows or hides YouTube after saving its API key', async () => {
+    commonStore.state.uses_you_tube = true
+    const putMock = h.mock(http, 'put').mockResolvedValue({ has_api_key: false, enabled: false })
+
+    await settingStore.updateYouTubeApiKey(null)
+
+    expect(putMock).toHaveBeenCalledWith('settings/youtube', { api_key: null })
+    expect(settingStore.state.youtube).toEqual({ has_api_key: false })
+    expect(commonStore.state.uses_you_tube).toBe(false)
   })
 })

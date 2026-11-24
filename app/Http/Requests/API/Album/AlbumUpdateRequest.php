@@ -2,24 +2,31 @@
 
 namespace App\Http\Requests\API\Album;
 
+use App\Http\Requests\API\Concerns\ValidatesOptionalImage;
 use App\Http\Requests\API\Request;
-use App\Rules\ValidImageData;
 use App\Values\Album\AlbumUpdateData;
+use Illuminate\Validation\Rule;
 
 /**
  * @property-read string $name
  * @property-read ?int $year
  * @property-read ?string $cover
+ * @property-read ?string $description
+ * @property-read ?bool $merge
  */
 class AlbumUpdateRequest extends Request
 {
+    use ValidatesOptionalImage;
+
     /** @inheritDoc */
     public function rules(): array
     {
         return [
-            'name' => ['string', 'required'],
-            'year' => ['integer', 'nullable'],
-            'cover' => ['string', 'sometimes', 'nullable', new ValidImageData()],
+            'name' => [Rule::string(), Rule::required()],
+            'year' => [Rule::numeric()->integer(), Rule::nullable()],
+            'cover' => self::optionalImageRules(),
+            'description' => [Rule::string()->max(16_000), Rule::sometimes(), Rule::nullable()],
+            'merge' => [Rule::sometimes(), Rule::boolean()],
         ];
     }
 
@@ -28,7 +35,8 @@ class AlbumUpdateRequest extends Request
         return AlbumUpdateData::make(
             name: $this->name,
             year: $this->year ?: null,
-            cover: $this->has('cover') ? $this->string('cover') : null,
+            cover: $this->optionalImageInput('cover'),
+            description: $this->has('description') ? (string) $this->description : null,
         );
     }
 }

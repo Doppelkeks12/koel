@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Subsonic;
 
+use App\Enums\PlayableType;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\Subsonic\Resources\StarredResource;
 use App\Http\Responses\Subsonic\SubsonicResponse;
@@ -13,6 +14,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 
 class GetStarred2Controller extends Controller
 {
+    protected const string RESPONSE_KEY = 'starred2';
+
     public function __construct(
         private readonly ArtistRepository $artistRepository,
         private readonly AlbumRepository $albumRepository,
@@ -24,10 +27,10 @@ class GetStarred2Controller extends Controller
     {
         $artists = $this->artistRepository->getFavorites(user: $user)->loadCount('albums');
         $albums = $this->albumRepository->getFavorites(user: $user)->loadCount('songs')->loadSum('songs', 'length');
-        $songs = $this->songRepository->getFavorites(scopedUser: $user);
+        $songs = $this->songRepository->getFavorites(scopedUser: $user, type: PlayableType::SONG);
 
         return SubsonicResponse::ok([
-            'starred2' => StarredResource::toArray($artists, $albums, $songs, $user),
+            static::RESPONSE_KEY => StarredResource::toArray($artists, $albums, $songs, $user),
         ]);
     }
 }

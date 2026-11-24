@@ -45,10 +45,10 @@ class ArtistEventTest extends PlusTestCase
         ]);
 
         $this
-            ->getAs("api/artists/{$artist->id}/events")
-            ->assertJsonStructure(['*' => LiveEventResource::JSON_STRUCTURE])
-            ->assertJsonCount(2)
-            ->assertOk();
+            ->getAs("api/artists/{$artist->id}/events", $artist->user)
+            ->assertOk()
+            ->assertJsonStructure(['events' => ['*' => LiveEventResource::JSON_STRUCTURE], 'nearby'])
+            ->assertJsonCount(2, 'events');
     }
 
     #[Test]
@@ -77,10 +77,10 @@ class ArtistEventTest extends PlusTestCase
         ]);
 
         $this
-            ->getAs("api/artists/{$artist->id}/events")
-            ->assertJsonStructure(['*' => LiveEventResource::JSON_STRUCTURE])
-            ->assertJsonCount(1)
-            ->assertOk();
+            ->getAs("api/artists/{$artist->id}/events", $artist->user)
+            ->assertOk()
+            ->assertJsonStructure(['events' => ['*' => LiveEventResource::JSON_STRUCTURE], 'nearby'])
+            ->assertJsonCount(1, 'events');
 
         Saloon::assertNothingSent();
     }

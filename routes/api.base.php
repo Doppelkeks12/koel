@@ -1,25 +1,33 @@
 <?php
 
-use App\Facades\YouTube;
 use App\Helpers\Uuid;
 use App\Http\Controllers\API\ActivateLicenseController;
 use App\Http\Controllers\API\AiController;
 use App\Http\Controllers\API\AlbumController;
+use App\Http\Controllers\API\AlbumSearchController;
 use App\Http\Controllers\API\AlbumSongController;
 use App\Http\Controllers\API\Artist\ArtistAlbumController;
 use App\Http\Controllers\API\Artist\ArtistController;
 use App\Http\Controllers\API\Artist\ArtistSongController;
 use App\Http\Controllers\API\Artist\FetchArtistEventsController;
 use App\Http\Controllers\API\Artist\FetchArtistInformationController;
+use App\Http\Controllers\API\ArtistSearchController;
 use App\Http\Controllers\API\Auth\LoginWithCredentialsController;
 use App\Http\Controllers\API\Auth\LoginWithOneTimeTokenController;
 use App\Http\Controllers\API\Auth\LogoutController;
+use App\Http\Controllers\API\Auth\LogOutOtherSessionsController;
+use App\Http\Controllers\API\Auth\Passkey\ConfirmationOptionsController as PasskeyConfirmationOptionsController;
+use App\Http\Controllers\API\Auth\Passkey\LoginController as PasskeyLoginController;
+use App\Http\Controllers\API\Auth\Passkey\LoginOptionsController as PasskeyLoginOptionsController;
+use App\Http\Controllers\API\Auth\Passkey\PasskeyController;
+use App\Http\Controllers\API\Auth\Passkey\RegistrationOptionsController as PasskeyRegistrationOptionsController;
 use App\Http\Controllers\API\Auth\TwoFactor\ConfirmController as ConfirmTwoFactorController;
 use App\Http\Controllers\API\Auth\TwoFactor\DisableController as DisableTwoFactorController;
-use App\Http\Controllers\API\Auth\TwoFactor\RegenerateRecoveryCodesController;
 use App\Http\Controllers\API\Auth\TwoFactor\EnrollController as EnrollTwoFactorController;
+use App\Http\Controllers\API\Auth\TwoFactor\RegenerateRecoveryCodesController;
 use App\Http\Controllers\API\Auth\TwoFactorChallengeController;
 use App\Http\Controllers\API\ChangePasswordController;
+use App\Http\Controllers\API\ConfirmEmailChangeController;
 use App\Http\Controllers\API\DisconnectFromLastfmController;
 use App\Http\Controllers\API\Embed\EmbedController;
 use App\Http\Controllers\API\Embed\EmbedOptionsController;
@@ -30,19 +38,29 @@ use App\Http\Controllers\API\FetchAlbumInformationController;
 use App\Http\Controllers\API\FetchAlbumThumbnailController;
 use App\Http\Controllers\API\FetchDemoCreditsController;
 use App\Http\Controllers\API\FetchFavoriteSongsController;
+use App\Http\Controllers\API\FetchHiddenSongsController;
 use App\Http\Controllers\API\FetchInitialDataController;
+use App\Http\Controllers\API\FetchLibraryStatisticsController;
+use App\Http\Controllers\API\FetchListeningStatisticsController;
 use App\Http\Controllers\API\FetchOverviewController;
+use App\Http\Controllers\API\FetchRadioStationStreamUrlController;
 use App\Http\Controllers\API\FetchRandomAlbumsController;
 use App\Http\Controllers\API\FetchRandomArtistsController;
 use App\Http\Controllers\API\FetchRecentlyPlayedSongController;
+use App\Http\Controllers\API\FetchSongDownloadUrlController;
+use App\Http\Controllers\API\FetchSongPlayUrlController;
 use App\Http\Controllers\API\FetchSongsByIdsController;
 use App\Http\Controllers\API\FetchSongsForQueueController;
 use App\Http\Controllers\API\FetchSongsToQueueByGenreController;
+use App\Http\Controllers\API\FetchSongWaveformController;
 use App\Http\Controllers\API\ForgotPasswordController;
 use App\Http\Controllers\API\GenreController;
+use App\Http\Controllers\API\GetLastfmAuthorizationUrlController;
 use App\Http\Controllers\API\GetOneTimeTokenController;
+use App\Http\Controllers\API\HideSongsController;
 use App\Http\Controllers\API\LambdaSongController as S3SongController;
 use App\Http\Controllers\API\LikeMultipleSongsController;
+use App\Http\Controllers\API\ListenBrainzTokenController;
 use App\Http\Controllers\API\Me\RegenerateSubsonicApiKeyController;
 use App\Http\Controllers\API\MediaBrowser\FetchFolderSongsController;
 use App\Http\Controllers\API\MediaBrowser\FetchRecursiveFolderSongsController;
@@ -76,30 +94,36 @@ use App\Http\Controllers\API\ResetPasswordController;
 use App\Http\Controllers\API\ScrobbleController;
 use App\Http\Controllers\API\SearchYouTubeController;
 use App\Http\Controllers\API\SetLastfmSessionKeyController;
+use App\Http\Controllers\API\Settings\UpdateAiSettingsController;
 use App\Http\Controllers\API\Settings\UpdateBrandingController;
 use App\Http\Controllers\API\Settings\UpdateMediaPathController;
+use App\Http\Controllers\API\Settings\UpdateYouTubeSettingsController;
 use App\Http\Controllers\API\SongController;
 use App\Http\Controllers\API\SongSearchController;
 use App\Http\Controllers\API\ThemeController;
 use App\Http\Controllers\API\ToggleLikeSongController;
+use App\Http\Controllers\API\UnhideSongsController;
 use App\Http\Controllers\API\UnlikeMultipleSongsController;
 use App\Http\Controllers\API\UpdatePlaybackStatusController;
 use App\Http\Controllers\API\UpdateUserPreferenceController;
+use App\Http\Controllers\API\Upload\CompletePresignedUploadController;
 use App\Http\Controllers\API\Upload\DiscardAllDuplicateUploadsController;
 use App\Http\Controllers\API\Upload\DiscardDuplicateUploadController;
 use App\Http\Controllers\API\Upload\FetchDuplicateUploadsController;
 use App\Http\Controllers\API\Upload\KeepAllDuplicateUploadsController;
 use App\Http\Controllers\API\Upload\KeepDuplicateUploadController;
+use App\Http\Controllers\API\Upload\PresignUploadController;
 use App\Http\Controllers\API\Upload\UploadSongController;
 use App\Http\Controllers\API\UserController;
 use App\Http\Controllers\API\UserInvitationController;
-use App\Http\Controllers\Download\CheckDownloadableCountController;
+use App\Http\Middleware\AllowPasskeysFromRequestOrigin;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
-use Pusher\Pusher;
 
 Route::prefix('api')
     ->middleware('api')
+    // @mago-ignore lint:halstead (a flat list of route definitions, not logic to break up)
     ->group(static function (): void {
         Route::get('ping', static fn () => null);
 
@@ -107,6 +131,10 @@ Route::prefix('api')
             Route::post('me', LoginWithCredentialsController::class)->name('auth.login');
             Route::post('me/otp', LoginWithOneTimeTokenController::class);
             Route::post('me/two-factor-challenge', TwoFactorChallengeController::class);
+            Route::middleware(AllowPasskeysFromRequestOrigin::class)->group(static function (): void {
+                Route::get('me/passkey-login-options', PasskeyLoginOptionsController::class);
+                Route::post('me/passkey-login', PasskeyLoginController::class);
+            });
 
             Route::delete('me', LogoutController::class);
 
@@ -116,27 +144,24 @@ Route::prefix('api')
             Route::get('invitations', [UserInvitationController::class, 'get']);
             Route::post('invitations/accept', [UserInvitationController::class, 'accept']);
 
-            Route::middleware('embeds.enabled')->group(static function (): void {
-                Route::get('embeds/{embed}/{options}', [EmbedController::class, 'getPayload'])->name('embeds.payload');
-                Route::post('embed-options', [EmbedOptionsController::class, 'encrypt']);
-            });
+            Route::post('email-change/confirm/{user}', ConfirmEmailChangeController::class)
+                ->middleware('signed:relative')
+                ->name('email-change.confirm');
         });
 
+        Route::middleware(['embeds.enabled', 'throttle:60,1,embeds'])->group(static function (): void {
+            Route::get('embeds/{embed}/{options}', [EmbedController::class, 'getPayload'])->name('embeds.payload');
+            Route::post('embed-options', [EmbedOptionsController::class, 'encrypt']);
+        });
+
+        // @mago-ignore lint:halstead (a flat list of route definitions, not logic to break up)
         Route::middleware('auth')->group(static function (): void {
             Route::get('one-time-token', GetOneTimeTokenController::class);
-            Route::post('broadcasting/auth', static function (Request $request) {
-                $pusher = new Pusher(
-                    config('broadcasting.connections.pusher.key'),
-                    config('broadcasting.connections.pusher.secret'),
-                    config('broadcasting.connections.pusher.app_id'),
-                    [
-                        'cluster' => config('broadcasting.connections.pusher.options.cluster'),
-                        'encrypted' => true,
-                    ],
-                );
-
-                return $pusher->authorizeChannel($request->input('channel_name'), $request->input('socket_id'));
-            })->name('broadcasting.auth');
+            // @mago-ignore lint:prefer-first-class-callable (a facade callable is resolved when the
+            // route is defined, which hands Broadcast::auth the wrong request)
+            Route::post('broadcasting/auth', static fn (Request $request): mixed => Broadcast::auth($request))->name(
+                'broadcasting.auth',
+            );
 
             Route::get('overview', FetchOverviewController::class);
             Route::get('data', FetchInitialDataController::class);
@@ -148,8 +173,8 @@ Route::prefix('api')
 
             Route::put('settings/media-path', UpdateMediaPathController::class);
             Route::put('settings/branding', UpdateBrandingController::class);
-
-            Route::get('download/check', CheckDownloadableCountController::class);
+            Route::put('settings/ai', UpdateAiSettingsController::class);
+            Route::put('settings/youtube', UpdateYouTubeSettingsController::class);
 
             Route::get('albums/random', FetchRandomAlbumsController::class);
             Route::apiResource('albums', AlbumController::class);
@@ -161,6 +186,18 @@ Route::prefix('api')
             Route::apiResource('artists.songs', ArtistSongController::class);
 
             Route::post('songs/{song}/scrobble', ScrobbleController::class)->where(['song' => Uuid::REGEX]);
+
+            Route::get('songs/{song}/play-url', FetchSongPlayUrlController::class)->where(['song' => Uuid::REGEX]);
+
+            if (config('koel.download.allow')) {
+                Route::get('songs/{song}/download-url', FetchSongDownloadUrlController::class)->where([
+                    'song' => Uuid::REGEX,
+                ]);
+            }
+
+            Route::get('songs/{song}/waveform', FetchSongWaveformController::class)->where([
+                'song' => Uuid::REGEX,
+            ])->middleware('cache.headers:private;no_cache;etag');
 
             Route::apiResource('songs', SongController::class)
                 ->except('update', 'destroy')
@@ -178,6 +215,8 @@ Route::prefix('api')
             Route::get('songs/in-folder', FetchFolderSongsController::class);
 
             Route::post('upload', UploadSongController::class);
+            Route::post('upload/presign', PresignUploadController::class);
+            Route::post('upload/complete', CompletePresignedUploadController::class);
             Route::get('duplicate-uploads', FetchDuplicateUploadsController::class);
             Route::post('duplicate-uploads/{duplicateUpload}', KeepDuplicateUploadController::class);
             Route::post('duplicate-uploads', KeepAllDuplicateUploadsController::class);
@@ -200,11 +239,16 @@ Route::prefix('api')
             Route::get('songs/recently-played', FetchRecentlyPlayedSongController::class);
             Route::get('songs/favorite', FetchFavoriteSongsController::class); // @deprecated
             Route::get('songs/favorites', FetchFavoriteSongsController::class);
+            Route::get('songs/hidden', FetchHiddenSongsController::class);
+            Route::post('songs/hide', HideSongsController::class);
+            Route::post('songs/unhide', UnhideSongsController::class);
 
             Route::put('songs/{song}/rating', RateSongController::class)->where(['song' => Uuid::REGEX]);
             Route::put('albums/{album}/rating', RateAlbumController::class);
             Route::put('artists/{artist}/rating', RateArtistController::class);
-            Route::put('podcasts/{podcast}/rating', RatePodcastController::class)->where(['podcast' => Uuid::REGEX]);
+            Route::put('podcasts/{podcast}/rating', RatePodcastController::class)->where([
+                'podcast' => Uuid::REGEX,
+            ])->middleware('podcasts.enabled');
 
             Route::apiResource('playlist-folders', PlaylistFolderController::class);
             Route::apiResource('playlist-folders.playlists', PlaylistFolderPlaylistController::class)->except(
@@ -234,24 +278,35 @@ Route::prefix('api')
             Route::get('me', [ProfileController::class, 'show']);
             Route::put('me', [ProfileController::class, 'update']);
             Route::put('me/password', ChangePasswordController::class);
+            Route::delete('me/sessions/others', LogOutOtherSessionsController::class);
             Route::patch('me/preferences', UpdateUserPreferenceController::class);
             Route::post('me/equalizer-presets', [EqualizerPresetController::class, 'store']);
             Route::delete('me/equalizer-presets/{id}', [EqualizerPresetController::class, 'destroy']);
             Route::post('me/subsonic-api-key/regenerate', RegenerateSubsonicApiKeyController::class);
+            Route::get('me/listening-statistics', FetchListeningStatisticsController::class);
+            Route::get('me/library-statistics', FetchLibraryStatisticsController::class);
 
             Route::post('me/two-factor', EnrollTwoFactorController::class);
             Route::post('me/two-factor/confirm', ConfirmTwoFactorController::class);
             Route::post('me/two-factor/recovery-codes', RegenerateRecoveryCodesController::class);
             Route::delete('me/two-factor', DisableTwoFactorController::class);
 
+            Route::middleware(AllowPasskeysFromRequestOrigin::class)->group(static function (): void {
+                Route::get('me/passkeys/confirmation-options', PasskeyConfirmationOptionsController::class);
+                Route::post('me/passkeys/registration-options', PasskeyRegistrationOptionsController::class);
+                Route::apiResource('me/passkeys', PasskeyController::class)->only(['index', 'store', 'destroy']);
+            });
+
             // Last.fm-related routes
+            Route::get('lastfm/authorization-url', GetLastfmAuthorizationUrlController::class);
             Route::post('lastfm/session-key', SetLastfmSessionKeyController::class);
             Route::delete('lastfm/disconnect', DisconnectFromLastfmController::class)->name('lastfm.disconnect');
 
-            // YouTube-related routes
-            if (YouTube::enabled()) {
-                Route::get('youtube/search/song/{song}', SearchYouTubeController::class);
-            }
+            // ListenBrainz-related routes
+            Route::post('listenbrainz/token', [ListenBrainzTokenController::class, 'store']);
+            Route::delete('listenbrainz/token', [ListenBrainzTokenController::class, 'destroy']);
+
+            Route::get('youtube/search/song/{song}', SearchYouTubeController::class);
 
             // Media information routes
             Route::get('albums/{album}/information', FetchAlbumInformationController::class);
@@ -268,6 +323,8 @@ Route::prefix('api')
 
             Route::get('search', ExcerptSearchController::class);
             Route::get('search/songs', SongSearchController::class);
+            Route::get('search/albums', AlbumSearchController::class);
+            Route::get('search/artists', ArtistSearchController::class);
 
             Route::post('invitations', [UserInvitationController::class, 'invite']);
             Route::delete('invitations', [UserInvitationController::class, 'revoke']);
@@ -285,18 +342,21 @@ Route::prefix('api')
             Route::delete('playlists/{playlist}/collaborators', [PlaylistCollaboratorController::class, 'destroy']);
 
             // Podcast routes
-            Route::apiResource('podcasts', PodcastController::class);
-            Route::apiResource('podcasts.episodes', PodcastEpisodeController::class);
-            Route::delete('podcasts/{podcast}/subscriptions', UnsubscribeFromPodcastController::class);
+            Route::middleware('podcasts.enabled')->group(static function (): void {
+                Route::apiResource('podcasts', PodcastController::class)->only(['index', 'store', 'show']);
+                Route::apiResource('podcasts.episodes', PodcastEpisodeController::class)->only(['index']);
+                Route::delete('podcasts/{podcast}/subscriptions', UnsubscribeFromPodcastController::class);
+            });
 
             // Media browser routes
             Route::get('browse/folders', FetchSubfoldersController::class);
             Route::get('browse/songs', PaginateFolderSongsController::class);
 
             // Radio station routes
-            Route::group(['prefix' => 'radio'], static function (): void {
+            Route::group(['prefix' => 'radio', 'middleware' => 'radio.enabled'], static function (): void {
                 Route::apiResource('stations', RadioStationController::class);
                 Route::get('stations/{radioStation}/now-playing', RadioStationNowPlayingController::class);
+                Route::get('stations/{radioStation}/stream-url', FetchRadioStationStreamUrlController::class);
             });
 
             // AI assistant

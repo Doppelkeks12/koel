@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Resources\UserProspectResource;
 use App\Mail\UserInvite;
+use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -92,6 +93,23 @@ class UserInvitationTest extends TestCase
     }
 
     #[Test]
+    public function refuseAnInvitationOlderThanAWeek(): void
+    {
+        $prospect = self::createProspect();
+        $prospect->update(['invited_at' => now()->subDays(8)]);
+
+        $this->get("api/invitations?token=$prospect->invitation_token")->assertNotFound();
+
+        $this->post('api/invitations/accept', [
+            'token' => $prospect->invitation_token,
+            'name' => 'Bruce Dickinson',
+            'password' => 'SuperSecretPassword',
+        ])->assertNotFound();
+
+        self::assertTrue($prospect->refresh()->is_prospect);
+    }
+
+    #[Test]
     public function revoke(): void
     {
         $prospect = self::createProspect();
@@ -107,6 +125,16 @@ class UserInvitationTest extends TestCase
         $prospect = self::createProspect();
 
         $this->deleteAs('api/invitations', ['email' => $prospect->email])->assertForbidden();
+
+        $this->assertModelExists($prospect);
+    }
+
+    #[Test]
+    public function cannotRevokeInvitationOfAnotherOrganization(): void
+    {
+        $prospect = User::factory()->prospect()->for(Organization::factory()->createOne())->createOne();
+
+        $this->deleteAs('api/invitations', ['email' => $prospect->email], create_admin())->assertUnprocessable();
 
         $this->assertModelExists($prospect);
     }

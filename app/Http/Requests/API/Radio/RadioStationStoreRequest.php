@@ -2,9 +2,8 @@
 
 namespace App\Http\Requests\API\Radio;
 
+use App\Http\Requests\API\Radio\Concerns\ValidatesRadioStationUrl;
 use App\Http\Requests\API\Request;
-use App\Rules\HasAudioContentType;
-use App\Rules\SafeUrl;
 use App\Rules\ValidImageData;
 use App\Values\Radio\RadioStationCreateData;
 use Illuminate\Validation\Rule;
@@ -19,25 +18,18 @@ use Illuminate\Validation\Rule;
  */
 class RadioStationStoreRequest extends Request
 {
+    use ValidatesRadioStationUrl;
+
     /** @inheritdoc */
     public function rules(): array
     {
         return [
-            'url' => [
-                'bail',
-                'required',
-                'url',
-                Rule::unique('radio_stations')->where(function ($query) {
-                    return $query->where('user_id', $this->user()->id);
-                }),
-                new SafeUrl(),
-                new HasAudioContentType(),
-            ],
-            'name' => ['required', 'string', 'max:191'],
-            'logo' => ['nullable', new ValidImageData()],
-            'description' => ['sometimes', 'nullable', 'string'],
-            'is_public' => ['boolean', 'nullable'],
-            'homepage_url' => ['sometimes', 'nullable', 'url'],
+            'url' => $this->radioStationUrlRules(),
+            'name' => [Rule::required(), Rule::string()->max(191)],
+            'logo' => [Rule::nullable(), new ValidImageData()],
+            'description' => [Rule::sometimes(), Rule::nullable(), Rule::string()],
+            'is_public' => [Rule::boolean(), Rule::nullable()],
+            'homepage_url' => [Rule::sometimes(), Rule::nullable(), Rule::url()],
         ];
     }
 

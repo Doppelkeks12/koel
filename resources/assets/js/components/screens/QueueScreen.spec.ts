@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { commonStore } from '@/stores/commonStore'
 import { queueStore } from '@/stores/queueStore'
+import { playableStore } from '@/stores/playableStore'
 import { playbackService } from '@/services/QueuePlaybackService'
 import Component from './QueueScreen.vue'
 
@@ -43,7 +44,7 @@ describe('queueScreen.vue', () => {
     const playMock = h.mock(playbackService, 'playFirstInQueue')
 
     renderComponent()
-    await h.user.click(screen.getByText('playing some random songs'))
+    await h.user.click(screen.getByRole('button', { name: 'playing some random songs' }))
 
     await waitFor(() => {
       expect(fetchRandomMock).toHaveBeenCalled()
@@ -58,7 +59,21 @@ describe('queueScreen.vue', () => {
     renderComponent(songs)
     const playMock = h.mock(playbackService, 'queueAndPlay')
 
-    await h.user.click(screen.getByTitle('Shuffle all. Press Alt/⌥ to change mode.'))
+    await h.user.click(screen.getByRole('button', { name: 'Shuffle All' }))
     await waitFor(() => expect(playMock).toHaveBeenCalledWith(songs, true))
+  })
+
+  it('queues the playable from a queue link', async () => {
+    const song = h.factory('song').make()
+    const resolveMock = h.mock(playableStore, 'resolve').mockResolvedValue(song)
+    const queueMock = h.mock(queueStore, 'queue')
+
+    renderComponent()
+    h.visit(`/songs/${song.id}`)
+
+    await waitFor(() => {
+      expect(resolveMock).toHaveBeenCalledWith(song.id)
+      expect(queueMock).toHaveBeenCalledWith(song)
+    })
   })
 })

@@ -15,6 +15,10 @@ export const audioService = {
   context: null! as AudioContext,
   source: null! as MediaElementAudioSourceNode,
   element: null! as HTMLMediaElement,
+  normalizationGainNode: null! as GainNode,
+  crossfadeSource: null as MediaElementAudioSourceNode | null,
+  sourcesByElement: new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>(),
+  crossfadeGainNode: null as GainNode | null,
   preampGainNode: null! as GainNode,
   analyzer: null! as AnalyserNode,
 
@@ -25,11 +29,13 @@ export const audioService = {
     this.element = mediaElement
 
     this.context = new AudioContext()
+    this.normalizationGainNode = this.context.createGain()
     this.preampGainNode = this.context.createGain()
-    this.source = this.context.createMediaElementSource(this.element)
+    this.source = this.getOrCreateSource(this.element)
     this.analyzer = this.context.createAnalyser()
 
-    this.source.connect(this.preampGainNode)
+    this.source.connect(this.normalizationGainNode)
+    this.normalizationGainNode.connect(this.preampGainNode)
 
     const config = equalizerStore.getConfig()
 
@@ -51,7 +57,7 @@ export const audioService = {
 
       filter.Q.setTargetAtTime(1, this.context.currentTime, 0.01)
       filter.frequency.setTargetAtTime(frequency, this.context.currentTime, 0.01)
-      filter.gain.value = dbToGain(config.gains[i])
+      filter.gain.value = config.gains[i]
 
       prevFilter ? prevFilter.connect(filter) : this.preampGainNode.connect(filter)
       prevFilter = filter
@@ -79,8 +85,62 @@ export const audioService = {
     }
 
     this.element = newElement
-    this.source = this.context.createMediaElementSource(newElement)
-    this.source.connect(this.preampGainNode)
+
+    if (this.crossfadeSource?.mediaElement === newElement) {
+      this.source = this.crossfadeSource
+      this.crossfadeSource = null
+      this.disconnectCrossfadeElement()
+    } else {
+      this.source = this.getOrCreateSource(newElement)
+    }
+
+    this.source.connect(this.normalizationGainNode)
+  },
+
+  /**
+   * Make the given element the one heard through the audio graph, if it isn't already.
+   */
+  routeElement(element: HTMLMediaElement) {
+    if (this.context && this.element !== element) {
+      this.reconnectSource(element)
+    }
+  },
+
+  /** An element can only ever get one source node, so reuse it when the element is routed again. */
+  getOrCreateSource(element: HTMLMediaElement) {
+    let source = this.sourcesByElement.get(element)
+
+    if (!source) {
+      source = this.context.createMediaElementSource(element)
+      this.sourcesByElement.set(element, source)
+    }
+
+    return source
+  },
+
+  /**
+   * Route a crossfade's incoming element through the equalizer, fading it in on the audio clock to its own
+   * normalization gain until it takes over.
+   */
+  connectCrossfadeElement(element: HTMLMediaElement, normalizationGainDb: number, fadeInDuration: number) {
+    this.disconnectCrossfadeElement()
+
+    const now = this.context.currentTime
+
+    this.crossfadeGainNode = this.context.createGain()
+    this.crossfadeGainNode.gain.setValueAtTime(0, now)
+    this.crossfadeGainNode.gain.linearRampToValueAtTime(dbToGain(normalizationGainDb), now + fadeInDuration)
+    this.crossfadeGainNode.connect(this.preampGainNode)
+
+    this.crossfadeSource = this.getOrCreateSource(element)
+    this.crossfadeSource.connect(this.crossfadeGainNode)
+  },
+
+  disconnectCrossfadeElement() {
+    this.crossfadeSource?.disconnect()
+    this.crossfadeGainNode?.disconnect()
+    this.crossfadeSource = null
+    this.crossfadeGainNode = null
   },
 
   changePreampGain(db: number) {
@@ -88,8 +148,13 @@ export const audioService = {
     this.preampGainNode.gain.value = dbToGain(db)
   },
 
+  changeNormalizationGain(db: number) {
+    this.normalizationGainNode.gain.value = dbToGain(db)
+  },
+
+  /** A BiquadFilterNode's gain is already in dB, unlike a GainNode's. */
   changeFilterGain(node: BiquadFilterNode, db: number) {
-    node.gain.value = dbToGain(db)
+    node.gain.value = db
   },
 
   /**

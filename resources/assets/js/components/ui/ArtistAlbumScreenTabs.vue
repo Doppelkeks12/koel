@@ -1,8 +1,5 @@
 <template>
   <div class="tabs">
-    <header>
-      <slot name="header" />
-    </header>
     <main>
       <slot />
     </main>
@@ -15,43 +12,7 @@
   @apply flex flex-col overflow-hidden flex-1;
 }
 
-:deep(header ul) {
-  @apply flex flex-nowrap bg-k-fg-5 overflow-x-auto overflow-y-hidden shrink-0 border-b-k-fg-5;
-
-  li {
-    @apply text-base relative uppercase tracking-wider opacity-50 cursor-pointer;
-    @apply transition-opacity duration-200 ease-in-out rounded-none;
-
-    &:hover {
-      @apply opacity-80;
-    }
-
-    &.active,
-    &:hover {
-      @apply opacity-100;
-    }
-
-    a {
-      @apply text-k-fg relative px-7 py-4 inline-block;
-    }
-  }
-}
-
-:deep(:is(main, .songs-pane, .albums-pane)) {
+:deep(:is(main, .songs-pane)) {
   @apply flex flex-col flex-1 overflow-auto;
-}
-
-:deep(.albums-pane) {
-  > ul {
-    @apply p-7 overflow-auto;
-  }
-
-  .none {
-    @apply px-7 py-4;
-  }
-}
-
-:deep(.info-pane) {
-  @apply p-7;
 }
 </style>

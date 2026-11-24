@@ -41,30 +41,25 @@ describe('duplicateUploadList', () => {
       },
     })
 
-  it('renders the count badge', () => {
-    renderComponent(makeSongs(3))
-    screen.getByText('3')
-  })
-
-  it('pluralizes the label correctly for single item', () => {
-    renderComponent(makeSongs(1))
-    screen.getByText('Duplicate file')
-  })
-
-  it('pluralizes the label correctly for multiple items', () => {
-    renderComponent(makeSongs(3))
-    screen.getByText('Duplicate files')
-  })
-
   it('calls keepAllDuplicates on keep all button click', async () => {
     const mock = h.mock(uploadService, 'keepAllDuplicates')
     renderComponent()
 
-    // Open details
-    await h.user.click(screen.getByText('Duplicate files'))
     await h.user.click(screen.getByRole('button', { name: 'Keep All' }))
 
     expect(mock).toHaveBeenCalled()
+  })
+
+  it('disables keeping all while a keep all is in flight', async () => {
+    const mock = h.mock(uploadService, 'keepAllDuplicates').mockReturnValue(new Promise(() => {}))
+    renderComponent()
+
+    const keepAllButton = screen.getByRole('button', { name: 'Keep All' })
+    await h.user.click(keepAllButton)
+    await h.user.click(keepAllButton)
+
+    expect(mock).toHaveBeenCalledOnce()
+    expect(keepAllButton).toHaveProperty('disabled', true)
   })
 
   it('confirms before discarding all', async () => {
@@ -72,7 +67,6 @@ describe('duplicateUploadList', () => {
     const mock = h.mock(uploadService, 'discardAllDuplicates')
     renderComponent()
 
-    await h.user.click(screen.getByText('Duplicate files'))
     await h.user.click(screen.getByRole('button', { name: 'Discard All' }))
 
     expect(mockShowConfirmDialog).toHaveBeenCalledWith('Discard all duplicate uploads?')

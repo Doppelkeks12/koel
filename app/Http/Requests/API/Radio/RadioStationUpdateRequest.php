@@ -2,10 +2,10 @@
 
 namespace App\Http\Requests\API\Radio;
 
+use App\Http\Requests\API\Concerns\ValidatesOptionalImage;
+use App\Http\Requests\API\Radio\Concerns\ValidatesRadioStationUrl;
 use App\Http\Requests\API\Request;
-use App\Rules\HasAudioContentType;
-use App\Rules\SafeUrl;
-use App\Rules\ValidImageData;
+use App\Models\RadioStation;
 use App\Values\Radio\RadioStationUpdateData;
 use Illuminate\Validation\Rule;
 
@@ -19,27 +19,22 @@ use Illuminate\Validation\Rule;
  */
 class RadioStationUpdateRequest extends Request
 {
+    use ValidatesRadioStationUrl;
+    use ValidatesOptionalImage;
+
     /** @inheritdoc */
     public function rules(): array
     {
+        /** @var RadioStation $station */
+        $station = $this->route('station');
+
         return [
-            'url' => [
-                'bail',
-                'required',
-                'url',
-                Rule::unique('radio_stations')
-                    ->where(function ($query) {
-                        return $query->where('user_id', $this->user()->id);
-                    })
-                    ->ignore($this->route('station')->id), // @phpstan-ignore-line
-                new SafeUrl(),
-                new HasAudioContentType(),
-            ],
-            'name' => ['required', 'string', 'max:191'],
-            'logo' => ['nullable', 'sometimes', new ValidImageData()],
-            'description' => ['string', 'sometimes', 'nullable'],
-            'is_public' => ['boolean'],
-            'homepage_url' => ['sometimes', 'nullable', 'url'],
+            'url' => $this->radioStationUrlRules($station),
+            'name' => [Rule::required(), Rule::string()->max(191)],
+            'logo' => self::optionalImageRules(),
+            'description' => [Rule::string(), Rule::sometimes(), Rule::nullable()],
+            'is_public' => [Rule::boolean()],
+            'homepage_url' => [Rule::sometimes(), Rule::nullable(), Rule::url()],
         ];
     }
 
@@ -49,7 +44,7 @@ class RadioStationUpdateRequest extends Request
             name: $this->name,
             url: $this->url,
             description: $this->string('description'),
-            logo: $this->has('logo') ? $this->string('logo') : null,
+            logo: $this->optionalImageInput('logo'),
             isPublic: $this->boolean('is_public'),
             homepageUrl: $this->homepage_url,
         );

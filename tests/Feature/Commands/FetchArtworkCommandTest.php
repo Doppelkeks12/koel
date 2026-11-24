@@ -35,11 +35,37 @@ class FetchArtworkCommandTest extends TestCase
         Album::factory()->createOne(['cover' => '']);
 
         $encyclopedia = Mockery::mock(EncyclopediaService::class);
+        $encyclopedia->shouldReceive('forgetArtistInformation');
+        $encyclopedia->shouldReceive('forgetAlbumInformation');
         $encyclopedia->shouldReceive('getArtistInformation')->atLeast()->once();
         $encyclopedia->shouldReceive('getAlbumInformation')->atLeast()->once();
 
         $this->app->instance(EncyclopediaService::class, $encyclopedia);
 
         $this->artisan('koel:fetch-artwork')->assertSuccessful();
+    }
+
+    #[Test]
+    public function forgetCachedAlbumInformationBeforeFetching(): void
+    {
+        config([
+            'koel.services.spotify.client_id' => 'fake-id',
+            'koel.services.spotify.client_secret' => 'fake-secret',
+        ]);
+
+        $album = Album::factory()->createOne(['cover' => '']);
+
+        $encyclopedia = Mockery::mock(EncyclopediaService::class);
+        $encyclopedia->shouldReceive('forgetArtistInformation');
+        $encyclopedia->shouldReceive('getArtistInformation');
+        $encyclopedia
+            ->expects('forgetAlbumInformation')
+            ->with(Mockery::on(static fn (Album $forgotten): bool => $forgotten->is($album)))
+            ->ordered();
+        $encyclopedia->expects('getAlbumInformation')->ordered();
+
+        $this->app->instance(EncyclopediaService::class, $encyclopedia);
+
+        $this->artisan('koel:fetch-artwork', ['--delay' => 0])->assertSuccessful();
     }
 }

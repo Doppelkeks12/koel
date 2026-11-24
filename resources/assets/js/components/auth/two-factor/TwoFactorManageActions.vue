@@ -20,12 +20,12 @@
 
       <div class="flex gap-2">
         <Btn type="submit">Submit</Btn>
-        <Btn type="button" variant="ghost" @click.prevent="cancel">Cancel</Btn>
+        <Btn type="button" variant="neutral" @click.prevent="cancel">Cancel</Btn>
       </div>
     </form>
 
     <div v-else class="flex gap-2">
-      <Btn type="button" @click.prevent="action = 'regenerate'">Regenerate Recovery Codes</Btn>
+      <Btn type="button" variant="ghost" bordered @click.prevent="action = 'regenerate'">Regenerate Recovery Codes</Btn>
       <Btn type="button" variant="destructive" @click.prevent="action = 'disable'">Disable</Btn>
     </div>
   </div>
@@ -58,7 +58,6 @@ const cancel = () => {
 
 const { data, handleSubmit } = useForm<{ code: string }>({
   initialValues: { code: '' },
-  useOverlay: false,
   onSubmit: async ({ code }) => {
     if (action.value === 'regenerate') {
       const result = await authService.regenerateRecoveryCodes(code)

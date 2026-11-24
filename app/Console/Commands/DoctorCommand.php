@@ -14,6 +14,7 @@ use App\Http\Integrations\YouTube\YouTubeConnector;
 use App\Models\Setting;
 use App\Models\Song;
 use App\Models\User;
+use App\Repositories\OrganizationRepository;
 use App\Services\Image\ImageWriter;
 use App\Services\Integrations\LastfmService;
 use App\Services\Integrations\SpotifyService;
@@ -40,6 +41,13 @@ class DoctorCommand extends Command
     protected $description = 'Check Koel setup';
 
     private array $errors = [];
+
+    public function __construct(
+        private readonly YouTubeService $youTubeService,
+        private readonly OrganizationRepository $organizationRepository,
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -182,13 +190,13 @@ class DoctorCommand extends Command
             }
         }
 
-        if (!YouTubeService::enabled()) {
-            $this->reportWarning('YouTube integration', 'Not available');
-        } else {
-            /** @var YouTubeConnector $connector */
-            $connector = app(YouTubeConnector::class);
+        try {
+            $youTubeApiKey = $this->youTubeService->getApiKey($this->organizationRepository->getDefault());
 
-            try {
+            if (!$youTubeApiKey) {
+                $this->reportWarning('YouTube integration', 'Not available');
+            } else {
+                $connector = new YouTubeConnector($youTubeApiKey);
                 $object = $connector->send(new SearchVideosRequest('Pink Floyd Comfortably Numb'))->object();
 
                 if (object_get($object, 'error')) {
@@ -196,10 +204,10 @@ class DoctorCommand extends Command
                 }
 
                 $this->reportSuccess('YouTube integration');
-            } catch (Throwable $e) {
-                $this->collectError($e);
-                $this->reportError('YouTube integration');
             }
+        } catch (Throwable $e) {
+            $this->collectError($e);
+            $this->reportError('YouTube integration');
         }
 
         if (!SpotifyService::enabled()) {
@@ -265,7 +273,7 @@ class DoctorCommand extends Command
     private function checkApiHealth(): void
     {
         try {
-            Http::get(config('app.url') . '/api/ping');
+            Http::get(app_url('api/ping'));
             $this->reportSuccess('API is healthy');
         } catch (Throwable $e) {
             $this->collectError($e);
@@ -346,8 +354,7 @@ class DoctorCommand extends Command
     private function checkImageWriting(): void
     {
         try {
-            $writer = new ImageWriter();
-            $this->reportSuccess('Image processing', $writer->extension->value);
+            $this->reportSuccess('Image processing', app(ImageWriter::class)->format());
         } catch (Throwable $e) {
             $this->collectError($e);
             $this->reportError('Image processing', 'No supported format');

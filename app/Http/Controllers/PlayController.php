@@ -2,21 +2,32 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\NativelyPlayableLosslessFormat;
 use App\Http\Requests\SongPlayRequest;
-use App\Models\Song;
 use App\Models\User;
+use App\Repositories\SongRepository;
 use App\Services\Streamer\Streamer;
 use App\Values\RequestedStreamingConfig;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 class PlayController extends Controller
 {
+    public function __construct(
+        private readonly SongRepository $songRepository,
+    ) {}
+
     /**
      * @param User $user
      * @param ?bool $transcode Whether to **force** transcoding (on mobile devices).
      */
-    public function __invoke(Authenticatable $user, SongPlayRequest $request, Song $song, ?bool $transcode = null)
+    public function __invoke(Authenticatable $user, SongPlayRequest $request, string $songId, ?bool $transcode = null)
     {
+        $song = $this->songRepository->getOneWithoutRelations($songId);
+
+        if ($song->isEpisode()) {
+            $song->load('podcast');
+        }
+
         $this->authorize('access', $song);
 
         // If force transcoding is enabled, use the user's transcoding quality preference.
@@ -30,6 +41,7 @@ class PlayController extends Controller
             transcode: (bool) $transcode,
             bitRate: $transcodeBitRate,
             startTime: (float) $request->time,
+            clientLosslessFormats: $request->enums('lossless', NativelyPlayableLosslessFormat::class),
         )))->stream();
     }
 }

@@ -1,5 +1,5 @@
 ---
-description: Requirements, installation methods (pre-compiled, source, Docker), configuration, running with FrankenPHP (binary + systemd), upgrading, and downgrading Koel.
+description: Requirements, installation methods (pre-compiled, source, Docker, Railway), configuration, running with FrankenPHP (binary + systemd), upgrading, and downgrading Koel.
 ---
 
 # Getting Started
@@ -14,6 +14,8 @@ The requirements for each part are as follows:
 
 * [All requirements by Laravel](https://laravel.com/docs/11.x/deployment#server-requirements) – PHP >= 8.2 with required
   extensions
+* libcurl 7.59 or newer, the library behind PHP's `curl` extension. Only very old systems (e.g. Ubuntu 18.04, CentOS 7)
+  ship an older one.
 * One of the databases supported by Laravel. Koel has been tested with MySQL, MariaDB, PostgreSQL, and SQLite.
 * If you're [building Koel from source](#building-from-source), make sure to have [Composer](https://getcomposer.org/),
   Git, Node.js >= 20 with [pnpm](https://pnpm.io/), and [Vite+](https://viteplus.dev/) (`pnpm install` will set it up locally).
@@ -25,7 +27,7 @@ The requirements for each part are as follows:
 
 ## Installation
 
-There are four methods to install and start using Koel:
+There are five methods to install and start using Koel:
 
 ### Using the Standalone Binary
 
@@ -88,6 +90,16 @@ and `Caddyfile.example` for [FrankenPHP](/guide/running-with-frankenphp).
 
 Koel has an official Docker image: [koel/docker](https://github.com/koel/docker). Please refer to the repository for
 detailed instructions and issue reporting.
+
+### Using Railway (community)
+
+To deploy Koel with PostgreSQL on [Railway](https://railway.com), use this community-maintained template:
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/koel?utm_medium=integration&utm_source=button&utm_campaign=koel)
+
+This is not an official Koel offering — please report template issues to the maintainers at
+[osbytes/template-koel](https://github.com/osbytes/template-koel). After the first deploy, change the default admin
+password immediately (`admin@koel.dev` / `KoelIsCool`).
 
 ## Configuration
 

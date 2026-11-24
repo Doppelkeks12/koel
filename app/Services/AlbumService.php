@@ -8,39 +8,41 @@ use App\Repositories\AlbumRepository;
 use App\Services\Image\ImageStorage;
 use App\Values\Album\AlbumUpdateData;
 use App\Values\ImageWritingConfig;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
 
 class AlbumService
 {
     public function __construct(
+        private readonly RichTextSanitizer $richTextSanitizer,
         private readonly AlbumRepository $albumRepository,
         private readonly ImageStorage $imageStorage,
         private readonly Finder $finder,
+        private readonly FavoriteService $favoriteService,
+        private readonly RatingService $ratingService,
+        private readonly LibrarySummaryService $librarySummaryService,
     ) {}
 
     public function updateAlbum(Album $album, AlbumUpdateData $dto): Album
     {
         // Ensure that the album name is unique within the artist
-        $existingAlbumWithTheSameName = $this->albumRepository->findOneBy([
-            'name' => $dto->name,
-            'artist_id' => $album->artist_id,
-        ]);
+        $existingAlbumWithTheSameName = $this->albumRepository->findOneByArtistAndNameIgnoringCase(
+            $album->artist_id,
+            $dto->name,
+            $album,
+        );
 
-        throw_if($existingAlbumWithTheSameName?->isNot($album), AlbumNameConflictException::class);
+        throw_if(
+            $existingAlbumWithTheSameName !== null,
+            AlbumNameConflictException::class,
+            $existingAlbumWithTheSameName,
+        );
 
-        $data = $dto->toArray();
+        $data = $this->imageStorage->storeOptionalImage($dto->cover)->applyToAttributes($dto->toArray(), 'cover');
 
-        if (is_string($dto->cover)) {
-            // A non-empty string means the user is uploading another cover,
-            // when an empty string means the user is removing the cover.
-            $data['cover'] = rescue_if($dto->cover, fn () => $this->imageStorage->storeImage($dto->cover), '');
-        } else {
-            // If the cover is null, the user's not changing or removing the cover at all.
-            Arr::forget($data, 'cover');
-        }
+        $data = $this->richTextSanitizer->applySanitizedToAttributes($data, 'description', $dto->description);
 
         $album->update($data);
 
@@ -49,6 +51,24 @@ class AlbumService
         }
 
         return $album->refresh();
+    }
+
+    /**
+     * Move the source album's songs, favorites, and ratings to the target album, then delete the source.
+     * The target keeps its own details, including the cover.
+     */
+    public function mergeAlbums(Album $source, Album $target): Album
+    {
+        DB::transaction(function () use ($source, $target): void {
+            $source->songs()->update(['album_id' => $target->id, 'album_name' => $target->name]);
+            $this->favoriteService->transferFavorites($source, $target);
+            $this->ratingService->transferRatings($source, $target);
+            $source->delete();
+        });
+
+        $this->librarySummaryService->markLibraryChanged();
+
+        return $target->refresh();
     }
 
     public function storeAlbumCover(Album $album, mixed $source): ?string
@@ -64,8 +84,22 @@ class AlbumService
 
     public function trySetAlbumCoverFromDirectory(Album $album, string $directory): void
     {
+        $cover = $this->findCachedCoverInDirectory($directory);
+
+        if ($cover && !File::exists($cover)) {
+            Cache::forget(cache_key($directory, 'cover'));
+            $cover = $this->findCachedCoverInDirectory($directory);
+        }
+
+        if ($cover && is_image($cover)) {
+            $this->storeAlbumCover($album, $cover);
+        }
+    }
+
+    private function findCachedCoverInDirectory(string $directory): ?string
+    {
         // As directory scanning can be expensive, we cache and reuse the result.
-        Cache::remember(cache_key($directory, 'cover'), now()->addDay(), function () use ($album, $directory): ?string {
+        return Cache::remember(cache_key($directory, 'cover'), now()->addDay(), function () use ($directory): ?string {
             $matches = array_keys(iterator_to_array(
                 $this->finder::create()
                     ->depth(0)
@@ -76,44 +110,46 @@ class AlbumService
                     ->in($directory),
             ));
 
-            $cover = $matches[0] ?? null;
-
-            if ($cover && is_image($cover)) {
-                $this->storeAlbumCover($album, $cover);
-            }
-
-            return $cover;
+            return $matches[0] ?? null;
         });
     }
 
     public function generateAlbumThumbnail(Album $album): string
     {
         $this->imageStorage->storeImage(
-            source: image_storage_path($album->cover),
+            source: $this->imageStorage->get($album->cover),
             config: ImageWritingConfig::make(maxWidth: 48, blur: 10),
-            path: image_storage_path($album->thumbnail),
+            fileName: $album->thumbnail,
         );
 
         return $album->thumbnail;
     }
 
+    public function generateAlbumSmallCover(Album $album): void
+    {
+        $album->small_cover = $this->imageStorage->storeImage(
+            source: $this->imageStorage->get($album->cover),
+            config: ImageWritingConfig::make(maxWidth: 144),
+        );
+
+        $album->saveQuietly();
+    }
+
     public function getOrCreateAlbumThumbnail(Album $album): ?string
     {
-        $thumbnailPath = image_storage_path($album->thumbnail);
-
-        if ($thumbnailPath && !File::exists($thumbnailPath)) {
+        if ($album->thumbnail && !$this->imageStorage->exists($album->thumbnail)) {
             $this->generateAlbumThumbnail($album);
         }
 
         return $album->thumbnail;
     }
 
-    private function generateFullScreenCover(Album $album, string $source): string
+    private function generateFullScreenCover(Album $album, mixed $source): string
     {
         $this->imageStorage->storeImage(
             $source,
             ImageWritingConfig::make(maxWidth: 1920),
-            image_storage_path($album->full_screen_cover_name),
+            $album->full_screen_cover_name,
         );
 
         return $album->full_screen_cover_name;

@@ -5,18 +5,7 @@
         Albums
         <template #controls>
           <div class="flex gap-2">
-            <Btn
-              v-koel-tooltip
-              :title="preferences.albums_favorites_only ? 'Show all' : 'Show favorites only'"
-              variant="ghost"
-              class="border border-k-fg-10"
-              @click.prevent="toggleFavoritesOnly"
-            >
-              <Icon
-                :icon="preferences.albums_favorites_only ? faHeart : faEmptyHeart"
-                :class="preferences.albums_favorites_only && 'text-k-love'"
-              />
-            </Btn>
+            <FavoritesOnlyToggle :active="preferences.albums_favorites_only" @toggle="toggleFavoritesOnly" />
 
             <AlbumListSorter
               v-if="preferences.albums_view_mode !== 'table'"
@@ -25,7 +14,19 @@
               @sort="sort"
             />
 
+            <ListFilter :icon="faSearch" label="Search" />
+
             <ViewModeSwitch v-model="preferences.albums_view_mode" secondary="table" />
+            <button
+              v-koel-tooltip
+              :disabled="loading"
+              class="px-3.5 py-2 border rounded-md border-k-fg-10 disabled:opacity-50"
+              title="Reload"
+              type="button"
+              @click.prevent="reload"
+            >
+              <Icon :icon="faRotateRight" />
+            </button>
           </div>
         </template>
       </ScreenHeader>
@@ -36,7 +37,7 @@
         <Icon :icon="faCompactDisc" />
       </template>
       No albums found.
-      <span v-if="currentUserCan.manageSettings()" class="secondary block"> Have you set up your library yet? </span>
+      <EmptyLibraryHint />
     </ScreenEmptyState>
 
     <ScreenEmptyState v-else-if="noFavoriteAlbums">
@@ -46,9 +47,16 @@
       No favorite albums.
     </ScreenEmptyState>
 
+    <ScreenEmptyState v-else-if="filtering && !searching && !shownAlbums.length">
+      <template #icon>
+        <Icon :icon="faCompactDisc" />
+      </template>
+      No matching albums.
+    </ScreenEmptyState>
+
     <template v-else>
       <div
-        v-if="showSkeletons && preferences.albums_view_mode === 'table'"
+        v-if="showingSkeletons && preferences.albums_view_mode === 'table'"
         class="-m-6 flex flex-col"
         role="status"
         aria-busy="true"
@@ -57,7 +65,7 @@
         <AlbumTableRowSkeleton v-for="i in 12" :key="i" />
       </div>
       <div
-        v-else-if="showSkeletons"
+        v-else-if="showingSkeletons"
         class="grid gap-5 p-6"
         :style="{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }"
         role="status"
@@ -69,19 +77,21 @@
       <div class="-m-6 flex-1 flex flex-col min-h-0" v-else>
         <AlbumTable
           v-if="preferences.albums_view_mode === 'table'"
-          :albums="displayedAlbums"
+          :albums="shownAlbums"
+          :loading-more="loadingMore && !filtering"
           :field="preferences.albums_sort_field"
           :order="preferences.albums_sort_order"
           @sort="sort"
           @toggle-favorite="toggleFavorite"
-          @scrolled-to-end="fetchAlbums"
+          @scrolled-to-end="fetchMoreUnlessFiltering"
         />
         <AlbumGrid
           v-else
           ref="grid"
-          :albums="displayedAlbums"
+          :albums="shownAlbums"
+          :loading-more="loadingMore && !filtering"
           :show-release-year="preferences.albums_sort_field === 'year'"
-          @scrolled-to-end="fetchAlbums"
+          @scrolled-to-end="fetchMoreUnlessFiltering"
         />
       </div>
     </template>
@@ -89,96 +99,71 @@
 </template>
 
 <script lang="ts" setup>
-import { faHeart as faEmptyHeart } from '@fortawesome/free-regular-svg-icons'
-import { faCompactDisc, faHeart } from '@fortawesome/free-solid-svg-icons'
-import { computed, nextTick, onMounted, ref, toRef } from 'vue'
+import { faCompactDisc, faSearch, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+import { computed, onMounted, ref, toRef } from 'vue'
 import { albumStore } from '@/stores/albumStore'
 import { commonStore } from '@/stores/commonStore'
 import { preferenceStore as preferences } from '@/stores/preferenceStore'
-import { useErrorHandler } from '@/composables/useErrorHandler'
-import { usePolicies } from '@/composables/usePolicies'
+import { useCursorPaginatedList } from '@/composables/useCursorPaginatedList'
+import { useServerListSearch } from '@/composables/useServerListSearch'
 
 import AlbumCardSkeleton from '@/components/ui/album-artist/ArtistAlbumCardSkeleton.vue'
 import AlbumGrid from '@/components/album/AlbumGrid.vue'
 import AlbumTable from '@/components/album/AlbumTable.vue'
 import AlbumTableRowSkeleton from '@/components/album/AlbumTableRowSkeleton.vue'
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
+import ListFilter from '@/components/ui/ListFilter.vue'
+import FavoritesOnlyToggle from '@/components/ui/FavoritesOnlyToggle.vue'
 import ViewModeSwitch from '@/components/ui/ViewModeSwitch.vue'
 import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
 import ScreenBase from '@/components/screens/ScreenBase.vue'
 import AlbumListSorter from '@/components/album/AlbumListSorter.vue'
-import Btn from '@/components/ui/form/Btn.vue'
-
-const { currentUserCan } = usePolicies()
+import EmptyLibraryHint from '@/components/ui/EmptyLibraryHint.vue'
 
 const grid = ref<InstanceType<typeof AlbumGrid>>()
 const albums = toRef(albumStore.state, 'albums')
 
-const loading = ref(false)
-const cursor = ref<string | null>('')
+const {
+  loading,
+  displayedItems: displayedAlbums,
+  noFavorites: noFavoriteAlbums,
+  showSkeletons,
+  loadingMore,
+  fetchMore: fetchAlbums,
+  reload,
+  sort,
+  toggleFavoritesOnly,
+} = useCursorPaginatedList({
+  store: albumStore,
+  items: albums,
+  favoritesOnly: toRef(preferences, 'albums_favorites_only'),
+  sortField: toRef(preferences, 'albums_sort_field'),
+  sortOrder: toRef(preferences, 'albums_sort_order'),
+  onReset: () => grid.value?.scrollToTop(),
+})
 
 const libraryEmpty = computed(() => commonStore.state.song_length === 0)
 
-const displayedAlbums = computed(() =>
-  preferences.albums_favorites_only ? albums.value.filter((a: Album) => a.favorite) : albums.value,
+const {
+  filtering,
+  results: matchingAlbums,
+  searching,
+} = useServerListSearch(
+  keywords => albumStore.search(keywords, preferences.albums_favorites_only),
+  () => preferences.albums_favorites_only,
 )
 
-const noFavoriteAlbums = computed(
-  () =>
-    !loading.value &&
-    preferences.albums_favorites_only &&
-    displayedAlbums.value.length === 0 &&
-    !moreAlbumsAvailable.value,
-)
-const moreAlbumsAvailable = computed(() => cursor.value !== null)
-const showSkeletons = computed(() => loading.value && albums.value.length === 0)
+const shownAlbums = computed(() => (filtering.value ? matchingAlbums.value : displayedAlbums.value))
 
-const fetchAlbums = async () => {
-  if (loading.value || !moreAlbumsAvailable.value) {
-    return
+const showingSkeletons = computed(() => showSkeletons.value || searching.value)
+
+const fetchMoreUnlessFiltering = () => {
+  if (!filtering.value) {
+    fetchAlbums()
   }
-
-  loading.value = true
-
-  try {
-    cursor.value = await albumStore.paginate({
-      favorites_only: preferences.albums_favorites_only,
-      cursor: cursor.value,
-      sort: preferences.albums_sort_field,
-      order: preferences.albums_sort_order,
-    })
-  } catch (error: unknown) {
-    useErrorHandler().handleHttpError(error)
-  } finally {
-    loading.value = false
-  }
-}
-
-const resetState = async () => {
-  cursor.value = ''
-
-  albumStore.reset()
-  grid.value?.scrollToTop()
-}
-
-const sort = async (field: AlbumListSortField, order: SortOrder) => {
-  preferences.albums_sort_field = field
-  preferences.albums_sort_order = order
-
-  await resetState()
-  await nextTick()
-  await fetchAlbums()
 }
 
 const toggleFavorite = (album: Album) => albumStore.toggleFavorite(album)
-
-const toggleFavoritesOnly = async () => {
-  preferences.albums_favorites_only = !preferences.albums_favorites_only
-
-  await resetState()
-  await nextTick()
-  await fetchAlbums()
-}
 
 onMounted(() => {
   if (!libraryEmpty.value) {

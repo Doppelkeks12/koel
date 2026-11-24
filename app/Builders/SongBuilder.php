@@ -3,9 +3,11 @@
 namespace App\Builders;
 
 use App\Builders\Concerns\CanScopeByUser;
+use App\Enums\ScanResultType;
 use App\Facades\License;
 use App\Models\Song;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -49,6 +51,32 @@ class SongBuilder extends FavoriteableBuilder
         'favorite',
     ];
 
+    public function wherePath(string $path): self
+    {
+        return $this->where('songs.path_hash', simple_hash($path))->where('songs.path', $path);
+    }
+
+    /** @param array<string> $paths */
+    public function wherePathIn(array $paths): self
+    {
+        return $this->whereIn('songs.path_hash', array_map(simple_hash(...), $paths))->whereIn('songs.path', $paths);
+    }
+
+    public function missingFromScan(string $scanId): self
+    {
+        $validFilesOfScan = static fn (QueryBuilder $query): QueryBuilder => $query
+            ->from('scanned_files')
+            ->where('scanned_files.scan_id', $scanId)
+            ->whereIn('scanned_files.type', [ScanResultType::SUCCESS->value, ScanResultType::SKIPPED->value]);
+
+        return $this->whereExists($validFilesOfScan)->whereNotExists(
+            static fn (QueryBuilder $query): QueryBuilder => $validFilesOfScan($query)->whereColumn(
+                'scanned_files.path_hash',
+                'songs.path_hash',
+            ),
+        );
+    }
+
     public function inDirectory(string $path): self
     {
         // Make sure the path ends with a directory separator.
@@ -57,13 +85,16 @@ class SongBuilder extends FavoriteableBuilder
         return $this->where('path', 'LIKE', "$path%");
     }
 
-    private function withPlayCount(): self
+    public function withPlayCount(): self
     {
         throw_unless($this->user, new LogicException('User must be set to query play counts.'));
 
-        return $this->leftJoin('interactions', function (JoinClause $join): void {
-            $join->on('interactions.song_id', 'songs.id')->where('interactions.user_id', $this->user->id);
-        })->addSelect(DB::raw('COALESCE(interactions.play_count, 0) as play_count'));
+        return $this
+            ->leftJoin('interactions', function (JoinClause $join): void {
+                $join->on('interactions.song_id', 'songs.id')->where('interactions.user_id', $this->user->id);
+            })
+            ->addSelect(DB::raw('COALESCE(interactions.play_count, 0) as play_count'))
+            ->addSelect('interactions.last_played_at');
     }
 
     public function accessible(): self
@@ -94,7 +125,7 @@ class SongBuilder extends FavoriteableBuilder
             $query
                 ->whereNotNull('songs.podcast_id')
                 ->orWhere(function (self $q2) {
-                    if (!$this->user->preferences->includePublicMedia) {
+                    if (!$this->user->shouldIncludePublicMedia()) {
                         return $q2->whereBelongsTo($this->user, 'owner');
                     }
 
@@ -110,16 +141,27 @@ class SongBuilder extends FavoriteableBuilder
         });
     }
 
-    private function withRatingSubquery(): self
+    public function whereNotHidden(): self
     {
-        throw_unless($this->user, new LogicException('User must be set to query song ratings.'));
+        if (License::isCommunity()) {
+            return $this;
+        }
 
+        throw_unless($this->user, new LogicException('User must be set to leave out hidden songs.'));
+
+        return $this->whereNotExists(fn (QueryBuilder $query): QueryBuilder => $query
+            ->from('hidden_songs')
+            ->whereColumn('hidden_songs.song_id', 'songs.id')
+            ->where('hidden_songs.user_id', $this->user->id));
+    }
+
+    private function withHiddenStatus(): self
+    {
         return $this->addSelect([
-            'rating' => DB::table('ratings')
-                ->where('rateable_type', 'playable')
-                ->where('user_id', $this->user->id)
-                ->whereColumn('rateable_id', 'songs.id')
-                ->selectRaw('COALESCE(MAX(rating), 0)'),
+            'hidden' => DB::table('hidden_songs')
+                ->selectRaw('COUNT(*)')
+                ->whereColumn('hidden_songs.song_id', 'songs.id')
+                ->where('hidden_songs.user_id', $this->user->id),
         ]);
     }
 
@@ -132,12 +174,14 @@ class SongBuilder extends FavoriteableBuilder
             ->accessible()
             ->when($includeFavoriteStatus, static fn (self $query) => $query->withFavoriteStatus($favoritesOnly))
             ->when($includePlayCount, static fn (self $query) => $query->withPlayCount())
+            ->when(License::isPlus(), static fn (self $query) => $query->with('analysis:song_id,loudness,true_peak'))
+            ->when(License::isPlus(), static fn (self $query) => $query->withHiddenStatus())
             ->withRatingSubquery();
     }
 
     private function sortByOneColumn(string $column, string $direction): self
     {
-        $column = self::normalizeSortColumn($column);
+        $column = self::SORT_COLUMNS_NORMALIZE_MAP[$column] ?? $column;
 
         Assert::oneOf($column, self::VALID_SORT_COLUMNS);
         Assert::oneOf(strtolower($direction), ['asc', 'desc']);
@@ -149,6 +193,19 @@ class SongBuilder extends FavoriteableBuilder
                 ->orderBy('songs.title');
         }
 
+        if ($column === 'genres.name') {
+            return $this
+                ->addSelect(DB::raw(
+                    "(COALESCE((SELECT MIN(genres.name) FROM genres INNER JOIN genre_song ON genre_song.genre_id = genres.id WHERE genre_song.song_id = songs.id), '')) as genre_sort_name",
+                ))
+                ->orderBy('genre_sort_name', $direction)
+                ->orderBy('songs.title');
+        }
+
+        if ($column === 'songs.track') {
+            return $this->orderBy('songs.disc', $direction)->orderBy('songs.track', $direction)->orderBy('songs.title');
+        }
+
         return $this
             ->orderBy($column, $direction)
             // Depending on the column, we might need to order by other columns as well.
@@ -158,37 +215,27 @@ class SongBuilder extends FavoriteableBuilder
                 ->orderBy('songs.track')
                 ->orderBy('songs.title'))
             ->when($column === 'songs.album_name', static fn (self $query) => $query
-                ->orderBy('songs.artist_name')
+                ->orderBy('songs.album_id')
                 ->orderBy('songs.disc')
                 ->orderBy('songs.track')
-                ->orderBy('songs.title'))
-            ->when($column === 'track', static fn (self $query) => $query
-                ->orderBy('songs.disc')
-                ->orderBy('songs.track'));
+                ->orderBy('songs.title'));
     }
 
     public function sort(array $columns, string $direction): self
     {
-        $this
-            ->when(
-                in_array('podcast_title', $columns, true) || in_array('podcast_author', $columns, true),
-                static fn (self $query) => $query->leftJoin('podcasts', 'songs.podcast_id', 'podcasts.id'),
-            )
-            ->when(in_array('genre', $columns, true), static fn (self $query) => $query->leftJoin(
-                'genre_song',
-                'songs.id',
-                'genre_song.song_id',
-            )->leftJoin('genres', 'genre_song.genre_id', 'genres.id'))
-            ->when(in_array('rating', $columns, true), function (self $query): void {
-                throw_unless($this->user, new LogicException('User must be set to sort by rating.'));
+        $this->when(
+            in_array('podcast_title', $columns, true) || in_array('podcast_author', $columns, true),
+            static fn (self $query) => $query->leftJoin('podcasts', 'songs.podcast_id', 'podcasts.id'),
+        )->when(in_array('rating', $columns, true), function (self $query): void {
+            throw_unless($this->user, new LogicException('User must be set to sort by rating.'));
 
-                $query->leftJoin('ratings as user_ratings', function (JoinClause $join): void {
-                    $join->on('user_ratings.rateable_id', 'songs.id')->where(
-                        'user_ratings.rateable_type',
-                        'playable',
-                    )->where('user_ratings.user_id', $this->user->id);
-                });
+            $query->leftJoin('ratings as user_ratings', function (JoinClause $join): void {
+                $join->on('user_ratings.rateable_id', 'songs.id')->where(
+                    'user_ratings.rateable_type',
+                    'playable',
+                )->where('user_ratings.user_id', $this->user->id);
             });
+        });
 
         foreach ($columns as $column) {
             $this->sortByOneColumn($column, $direction);
@@ -197,16 +244,9 @@ class SongBuilder extends FavoriteableBuilder
         return $this;
     }
 
-    private static function normalizeSortColumn(string $column): string
+    public function genreless(): self
     {
-        return array_key_exists($column, self::SORT_COLUMNS_NORMALIZE_MAP)
-            ? self::SORT_COLUMNS_NORMALIZE_MAP[$column]
-            : $column;
-    }
-
-    public function storedOnCloud(): self
-    {
-        return $this->whereNotNull('storage')->where('storage', '!=', '')->whereNull('podcast_id');
+        return $this->leftJoin('genre_song', 'genre_song.song_id', 'songs.id')->whereNull('genre_song.song_id');
     }
 
     public function storedLocally(): self

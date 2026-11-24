@@ -34,8 +34,8 @@ describe('userCard.vue', () => {
     h.actingAsUser(user)
     renderComponent(user)
 
-    screen.getByTitle('This is you!')
-    expect(screen.getByRole('link', { name: 'Your Profile' }).getAttribute('href')).toBe('/#/profile')
+    screen.getByText('This is you!')
+    expect(screen.getByRole('link', { name: 'Your Profile' }).getAttribute('href')).toBe('/#/settings')
   })
 
   it('does not show profile link for other users', () => {
@@ -51,6 +51,16 @@ describe('userCard.vue', () => {
 
     await h.trigger(screen.getByTestId('user-card'), 'contextMenu')
     await assertOpenContextMenu(openContextMenu as Mock, UserContextMenu, { user })
+  })
+
+  it('does not request the context menu on right-click for the current user', async () => {
+    const { openContextMenu } = useContextMenu()
+    const user = h.factory('user').state('current').make() as CurrentUser
+    h.actingAsUser(user)
+    renderComponent(user)
+
+    await h.trigger(screen.getByTestId('user-card'), 'contextMenu')
+    expect(openContextMenu).not.toHaveBeenCalled()
   })
 
   it('requests the context menu via the More Actions button', async () => {

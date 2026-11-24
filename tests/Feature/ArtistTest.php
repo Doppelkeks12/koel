@@ -7,6 +7,8 @@ use App\Http\Resources\ArtistResource;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\Embed;
+use App\Models\Favorite;
+use App\Models\Interaction;
 use App\Models\Song;
 use App\Values\EmbedOptions;
 use PHPUnit\Framework\Attributes\Test;
@@ -15,6 +17,7 @@ use Tests\TestCase;
 use function Tests\create_admin;
 use function Tests\create_user;
 use function Tests\minimal_base64_encoded_image;
+use function Tests\stored_image_name;
 
 class ArtistTest extends TestCase
 {
@@ -44,7 +47,7 @@ class ArtistTest extends TestCase
     public function indexWithCursorReturnsCursorPagination(): void
     {
         Artist::factory()
-            ->createMany(22)
+            ->createMany(61)
             ->each(static function (Artist $artist): void {
                 Album::factory()->for($artist)->createOne();
             });
@@ -53,7 +56,7 @@ class ArtistTest extends TestCase
             'api/artists?cursor=',
         )->assertJsonStructure(ArtistResource::CURSOR_PAGINATION_JSON_STRUCTURE);
 
-        self::assertCount(21, $response->json('data'));
+        self::assertCount(60, $response->json('data'));
         self::assertNotNull($response->json('meta.next_cursor'));
         self::assertNull($response->json('meta.prev_cursor'));
 
@@ -70,7 +73,7 @@ class ArtistTest extends TestCase
     public function indexWithCursorTraversesAllSupportedSortsWithoutDuplicates(): void
     {
         Artist::factory()
-            ->createMany(30)
+            ->createMany(70)
             ->each(static function (Artist $artist): void {
                 Album::factory()->for($artist)->createOne();
             });
@@ -91,8 +94,8 @@ class ArtistTest extends TestCase
                 $cursor = $r->json('meta.next_cursor');
             }
 
-            self::assertCount(30, $allIds, "sort={$sort} returned wrong total");
-            self::assertCount(30, array_unique($allIds), "sort={$sort} returned duplicates");
+            self::assertCount(70, $allIds, "sort={$sort} returned wrong total");
+            self::assertCount(70, array_unique($allIds), "sort={$sort} returned duplicates");
         }
     }
 
@@ -154,6 +157,63 @@ class ArtistTest extends TestCase
     }
 
     #[Test]
+    public function showUsesTheCoverOfTheUsersMostPlayedAlbumForAnArtistWithoutAnImage(): void
+    {
+        $user = create_user();
+        $artist = Artist::factory()->createOne(['image' => '']);
+        $favoriteAlbum = Album::factory()->for($artist)->createOne(['cover' => 'favorite.webp']);
+        $otherAlbum = Album::factory()->for($artist)->createOne(['cover' => 'other.webp']);
+
+        Interaction::factory()
+            ->for($user)
+            ->for(Song::factory()->for($favoriteAlbum)->createOne())
+            ->createOne(['play_count' => 5]);
+        Interaction::factory()->for(Song::factory()->for($otherAlbum)->createOne())->createOne(['play_count' => 50]);
+
+        $this->getAs("api/artists/{$artist->id}", $user)->assertJsonPath(
+            'album_cover',
+            image_storage_url('favorite.webp'),
+        );
+    }
+
+    #[Test]
+    public function showUsesTheNewestAlbumCoverForAnArtistWithoutAnImageOrPlays(): void
+    {
+        $artist = Artist::factory()->createOne(['image' => '']);
+        Album::factory()->for($artist)->createOne(['cover' => 'old.webp', 'created_at' => now()->subYear()]);
+        Album::factory()->for($artist)->createOne(['cover' => 'new.webp', 'created_at' => now()]);
+        Album::factory()->for($artist)->createOne(['cover' => '', 'created_at' => now()->addDay()]);
+
+        $this->getAs("api/artists/{$artist->id}")->assertJsonPath('album_cover', image_storage_url('new.webp'));
+    }
+
+    #[Test]
+    public function showLeavesOutTheAlbumCoverForAnArtistWithAnImage(): void
+    {
+        $artist = Artist::factory()->createOne();
+        Album::factory()->for($artist)->createOne(['cover' => 'cover.webp']);
+
+        $this->getAs("api/artists/{$artist->id}")->assertJsonPath('album_cover', null);
+    }
+
+    #[Test]
+    public function showIncludesTheMusicBrainzIdentifier(): void
+    {
+        $artist = Artist::factory()->createOne(['mbid' => '4d1f7b6e-1d6e-4b3f-9a0d-8c2f1a5b6c7d']);
+
+        $this->getAs("api/artists/{$artist->id}")->assertJsonPath('mbid', '4d1f7b6e-1d6e-4b3f-9a0d-8c2f1a5b6c7d');
+    }
+
+    #[Test]
+    public function showOmitsTheMusicBrainzIdentifierWhenMusicBrainzIsDisabled(): void
+    {
+        config(['koel.services.musicbrainz.enabled' => false]);
+        $artist = Artist::factory()->createOne(['mbid' => '4d1f7b6e-1d6e-4b3f-9a0d-8c2f1a5b6c7d']);
+
+        $this->getAs("api/artists/{$artist->id}")->assertJsonMissingPath('mbid');
+    }
+
+    #[Test]
     public function updateWithImage(): void
     {
         $artist = Artist::factory()->createOne();
@@ -175,7 +235,32 @@ class ArtistTest extends TestCase
         $artist->refresh();
 
         self::assertEquals('Updated Artist Name', $artist->name);
-        self::assertEquals("$ulid.webp", $artist->image);
+        self::assertEquals(stored_image_name($ulid), $artist->image);
+    }
+
+    #[Test]
+    public function updateWithDescription(): void
+    {
+        $artist = Artist::factory()->createOne();
+
+        $this->putAs(
+            "api/artists/{$artist->id}",
+            [
+                'name' => $artist->name,
+                'description' => '<p>Formed in <strong>1981</strong>.</p><script>alert(1)</script>',
+            ],
+            create_admin(),
+        )->assertJsonPath('description', '<p>Formed in <strong>1981</strong>.</p>');
+    }
+
+    #[Test]
+    public function updateKeepingDescriptionIntact(): void
+    {
+        $artist = Artist::factory()->createOne(['description' => '<p>Mine</p>']);
+
+        $this->putAs("api/artists/{$artist->id}", ['name' => 'Updated Artist Name'], create_admin())->assertOk();
+
+        self::assertSame('<p>Mine</p>', $artist->refresh()->description);
     }
 
     #[Test]
@@ -218,20 +303,31 @@ class ArtistTest extends TestCase
     }
 
     #[Test]
-    public function updatingToExistingNameFails(): void
+    public function updatingToExistingNameRespondsWithConflict(): void
     {
         $existingArtist = Artist::factory()->createOne(['name' => 'Maydup Nem']);
         $artist = Artist::factory()->for($existingArtist->user)->createOne();
 
-        $this->putAs(
-            "api/artists/{$artist->id}",
-            [
-                'name' => 'Maydup Nem',
-            ],
-            create_admin(),
-        )->assertJsonValidationErrors([
-            'name' => 'An artist with the same name already exists.',
-        ]);
+        $this->putAs("api/artists/{$artist->id}", ['name' => 'Maydup Nem'], create_admin())->assertConflict();
+
+        self::assertModelExists($artist);
+    }
+
+    #[Test]
+    public function updatingToExistingNameWithMergeMergesIntoTheExistingArtist(): void
+    {
+        $existingArtist = Artist::factory()->createOne(['name' => 'Maydup Nem']);
+        $artist = Artist::factory()->for($existingArtist->user)->createOne();
+        $admin = create_admin();
+        Favorite::factory()->for($admin)->for($artist, 'favoriteable')->createOne();
+
+        $this
+            ->putAs("api/artists/{$artist->id}", ['name' => 'Maydup Nem', 'merge' => true], $admin)
+            ->assertOk()
+            ->assertJsonPath('id', $existingArtist->id)
+            ->assertJsonPath('favorite', true);
+
+        self::assertModelMissing($artist);
     }
 
     #[Test]

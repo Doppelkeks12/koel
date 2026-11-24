@@ -9,19 +9,20 @@ use App\Casts\SongStorageCast;
 use App\Casts\SongTitleCast;
 use App\Enums\PlayableType;
 use App\Enums\SongStorageType;
-use App\Models\Concerns\MorphsToEmbeds;
+use App\Models\Concerns\HasMbid;
 use App\Models\Concerns\MorphsToFavorites;
 use App\Models\Concerns\MorphsToRatings;
 use App\Models\Concerns\Songs\HasSongAttributes;
 use App\Models\Concerns\Songs\HasSongRelationships;
 use App\Models\Concerns\SupportsDeleteWhereValueNotIn;
-use App\Models\Contracts\Embeddable;
 use App\Models\Contracts\Favoriteable;
 use App\Models\Contracts\Rateable;
+use App\Observers\SongObserver;
 use App\Values\SongStorageMetadata\SongStorageMetadata;
 use Carbon\Carbon;
 use Database\Factories\SongFactory;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Attributes\Unguarded;
 use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Collection;
@@ -41,7 +42,10 @@ use PhanAn\Poddle\Values\EpisodeMetadata;
  * @property ?Folder $folder
  * @property ?bool $favorite Whether the song is liked by the current user (dynamically calculated)
  * @property ?Carbon $favorited_at When the current user favorited the song, if at all
+ * @property ?bool $hidden Whether the current user has hidden the song (dynamically calculated, Koel Plus only)
  * @property ?int $play_count The number of times the song has been played by the current user (dynamically calculated)
+ * @property ?Carbon $last_played_at When the current user last played the song, if at all (dynamically calculated)
+ * @property ?string $mbid The MusicBrainz recording ID
  * @property ?string $album_name
  * @property ?string $artist_name
  * @property ?string $basename
@@ -60,11 +64,15 @@ use PhanAn\Poddle\Values\EpisodeMetadata;
  * @property ?string $hash The hash of the song file. Null for legacy songs.
  * @property int $owner_id
  * @property int $track
+ * @property ?string $track_label The track's label on a vinyl release, e.g. "A2".
  * @property ?int $year
  * @property ?int $file_size The size in bytes of the song file, if available.
+ * @property ?SongAnalysis $analysis The loudness and waveform, if analyzed.
+ * @property ?Transcode $preview
  * @property string $id
  * @property string $lyrics
  * @property string $path
+ * @property ?string $path_hash
  * @property string $title
  * @property-read SongStorageMetadata $storage_metadata
  * @property-read ?string $genre The string representation of the genres associated with the song. Readonly.
@@ -86,17 +94,18 @@ use PhanAn\Poddle\Values\EpisodeMetadata;
  *
  * @method static SongFactory factory(...$parameters)
  */
+#[ObservedBy(SongObserver::class)]
 #[UseEloquentBuilder(SongBuilder::class)]
 #[Unguarded]
-#[Hidden(['updated_at', 'path', 'mtime'])]
-class Song extends Model implements AuditableContract, Favoriteable, Embeddable, Rateable
+#[Hidden(['updated_at', 'path', 'path_hash', 'mtime'])]
+class Song extends Model implements AuditableContract, Favoriteable, Rateable
 {
     use Auditable;
     use HasFactory;
+    use HasMbid;
     use HasSongAttributes;
     use HasSongRelationships;
     use HasUuids;
-    use MorphsToEmbeds;
     use MorphsToFavorites;
     use MorphsToRatings;
     use Searchable;
@@ -118,10 +127,19 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable,
             'episode_metadata' => EpisodeMetadataCast::class,
             'favorite' => 'boolean',
             'favorited_at' => 'datetime',
+            'hidden' => 'boolean',
+            'last_played_at' => 'datetime',
         ];
     }
 
-    protected $with = ['album', 'artist', 'album.artist', 'podcast', 'genres', 'owner'];
+    protected $with = [
+        'album',
+        'artist',
+        'album.artist',
+        'podcast',
+        'genres',
+        'owner',
+    ];
 
     public static function query(?PlayableType $type = null, ?User $user = null): SongBuilder
     {
@@ -141,12 +159,16 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable,
             return $user->subscribedToPodcast($this->podcast);
         }
 
-        return $this->is_public || $this->ownedBy($user);
+        if ($this->ownedBy($user)) {
+            return true;
+        }
+
+        return $this->is_public && $this->owner->organization_id === $user->organization_id;
     }
 
     public function ownedBy(User $user): bool
     {
-        return $this->owner->id === $user->id;
+        return $this->owner_id === $user->id;
     }
 
     public static function getPathFromS3BucketAndKey(string $bucket, string $key): string
@@ -195,6 +217,11 @@ class Song extends Model implements AuditableContract, Favoriteable, Embeddable,
     public function isEpisode(): bool
     {
         return $this->type === PlayableType::PODCAST_EPISODE;
+    }
+
+    public function isScrobbleable(): bool
+    {
+        return !$this->isEpisode() && !$this->artist?->is_unknown;
     }
 
     public function genreEqualsTo(string|array $genres): bool

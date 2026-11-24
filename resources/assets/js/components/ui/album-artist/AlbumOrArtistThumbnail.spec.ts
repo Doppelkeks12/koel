@@ -46,12 +46,32 @@ describe('albumOrArtistThumbnail.vue', () => {
     }
   }
 
-  it('renders for album', () => {
-    expect(renderForAlbum().html()).toMatchSnapshot()
+  it('shows the album cover', () => {
+    const { album } = renderForAlbum()
+
+    expect(screen.getByRole('img').getAttribute('src')).toBe(album.cover)
   })
 
-  it('renders for artist', () => {
-    expect(renderForArtist().html()).toMatchSnapshot()
+  it('shows the small album cover in the small size', () => {
+    const album = h.factory('album').make({
+      cover: 'https://test/album.jpg',
+      small_cover: 'https://test/album-small.jpg',
+    })
+
+    h.render(Component, {
+      props: {
+        entity: album,
+        size: 'sm',
+      },
+    })
+
+    expect(screen.getByRole('img').getAttribute('src')).toBe(album.small_cover)
+  })
+
+  it('shows the artist image', () => {
+    const { artist } = renderForArtist()
+
+    expect(screen.getByRole('img').getAttribute('src')).toBe(artist.image)
   })
 
   it('plays album', async () => {

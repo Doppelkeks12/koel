@@ -3,6 +3,7 @@
 namespace App\Values\Scanning;
 
 use App\Helpers\Encoding\TagFixer;
+use App\Helpers\MbidReader;
 use App\Helpers\SyncedLyricsConverter;
 use App\Models\Album;
 use App\Models\Artist;
@@ -13,12 +14,19 @@ use Illuminate\Support\Str;
 
 class ScanInformation implements Arrayable
 {
+    public const string FILE_HASH_ALGORITHM = 'xxh128';
+
     private function __construct(
         public ?string $title,
         public ?string $albumName,
         public ?string $artistName,
         public ?string $albumArtistName,
+        public ?string $mbid,
+        public ?string $albumMbid,
+        public ?string $artistMbid,
+        public ?string $albumArtistMbid,
         public ?int $track,
+        public ?string $trackLabel,
         public ?int $disc,
         public ?int $year,
         public ?string $genre,
@@ -32,7 +40,7 @@ class ScanInformation implements Arrayable
         public ?int $fileSize,
     ) {}
 
-    public static function fromGetId3Info(array $info, string $path): self
+    public static function fromGetId3Info(array $info, string $path, ?string $originalFileName = null): self
     {
         // We prefer ID3v2 tags over ID3v1 tags.
         $tags = array_merge(
@@ -44,11 +52,16 @@ class ScanInformation implements Arrayable
 
         $comments = Arr::get($info, 'comments', []);
 
-        $albumArtistName = TagFixer::fix(self::getTag($tags, ['albumartist', 'album_artist', 'band']));
+        $albumArtistName = TagFixer::fix(self::getTag($tags, ['albumartist', 'album_artist', 'album artist', 'band']));
 
         // If the song is explicitly marked as a compilation but there's no album artist name, use the umbrella
         // "Various Artists" artist.
-        if (!$albumArtistName && self::getTag($tags, 'part_of_a_compilation')) {
+        $isCompilation = filter_var(
+            self::getTag($tags, ['part_of_a_compilation', 'compilation']),
+            FILTER_VALIDATE_BOOLEAN,
+        );
+
+        if (!$albumArtistName && $isCompilation) {
             $albumArtistName = Artist::VARIOUS_NAME;
         }
 
@@ -67,20 +80,32 @@ class ScanInformation implements Arrayable
             'lyrics',
         ])));
 
+        $trackTag = (string) self::getTag($tags, ['track', 'tracknumber', 'track_number']);
+        $trackLabel = self::getVinylTrackLabel($trackTag);
+
         return new self(
-            title: html_entity_decode(TagFixer::fix(self::getTag($tags, 'title', pathinfo($path, PATHINFO_FILENAME)))),
+            title: html_entity_decode(TagFixer::fix(self::getTag(
+                $tags,
+                'title',
+                pathinfo($originalFileName ?? $path, PATHINFO_FILENAME),
+            ))),
             albumName: html_entity_decode(TagFixer::fix(self::getTag($tags, 'album', Album::UNKNOWN_NAME))),
             artistName: html_entity_decode(TagFixer::fix(self::getTag($tags, 'artist', Artist::UNKNOWN_NAME))),
             albumArtistName: html_entity_decode($albumArtistName),
-            track: (int) self::getTag($tags, ['track', 'tracknumber', 'track_number']),
-            disc: (int) self::getTag($tags, ['discnumber', 'part_of_a_set'], 1),
+            mbid: MbidReader::getRecordingMbid($info, $tags),
+            albumMbid: MbidReader::getAlbumMbid($tags),
+            artistMbid: MbidReader::getArtistMbid($tags),
+            albumArtistMbid: MbidReader::getAlbumArtistMbid($tags),
+            track: $trackLabel ? (int) preg_replace('/\D/', '', $trackLabel) : (int) $trackTag,
+            trackLabel: $trackLabel,
+            disc: (int) self::getTag($tags, ['discnumber', 'disc_number', 'part_of_a_set'], 1),
             year: (int) self::getTag($tags, ['year', 'date']) ?: null,
             genre: TagFixer::fix(self::getTag($tags, 'genre')),
             lyrics: $lyrics,
             length: (float) Arr::get($info, 'playtime_seconds'),
             cover: $cover,
             path: $path,
-            hash: File::hash($path),
+            hash: File::hash($path, self::FILE_HASH_ALGORITHM),
             mTime: get_mtime($path),
             mimeType: Str::lower(Arr::get($info, 'mime_type')) ?: 'audio/mpeg',
             fileSize: File::size($path),
@@ -92,7 +117,12 @@ class ScanInformation implements Arrayable
         ?string $albumName = null,
         ?string $artistName = null,
         ?string $albumArtistName = null,
+        ?string $mbid = null,
+        ?string $albumMbid = null,
+        ?string $artistMbid = null,
+        ?string $albumArtistMbid = null,
         ?int $track = null,
+        ?string $trackLabel = null,
         ?int $disc = null,
         ?int $year = null,
         ?string $genre = null,
@@ -110,7 +140,12 @@ class ScanInformation implements Arrayable
             albumName: $albumName,
             artistName: $artistName,
             albumArtistName: $albumArtistName,
+            mbid: $mbid,
+            albumMbid: $albumMbid,
+            artistMbid: $artistMbid,
+            albumArtistMbid: $albumArtistMbid,
             track: $track,
+            trackLabel: $trackLabel,
             disc: $disc,
             year: $year,
             genre: $genre,
@@ -123,6 +158,11 @@ class ScanInformation implements Arrayable
             mimeType: $mimeType,
             fileSize: $fileSize,
         );
+    }
+
+    private static function getVinylTrackLabel(string $trackTag): ?string
+    {
+        return preg_match('/^([a-z]{1,2}\d{0,3})(\/\d+)?$/i', $trackTag, $matches) ? $matches[1] : null;
     }
 
     private static function getTag(array $arr, string|array $keys, $default = ''): mixed
@@ -146,7 +186,12 @@ class ScanInformation implements Arrayable
             'album' => $this->albumName,
             'artist' => $this->artistName,
             'albumartist' => $this->albumArtistName,
+            'mbid' => $this->mbid,
+            'album_mbid' => $this->albumMbid,
+            'artist_mbid' => $this->artistMbid,
+            'albumartist_mbid' => $this->albumArtistMbid,
             'track' => $this->track,
+            'track_label' => $this->trackLabel,
             'disc' => $this->disc,
             'year' => $this->year,
             'genre' => $this->genre,

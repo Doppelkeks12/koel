@@ -7,7 +7,7 @@ use App\Http\Requests\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * @property-read string $embeddable_id
+ * @property-read ?string $embeddable_id
  * @property-read string $embeddable_type
  */
 class ResolveEmbedRequest extends Request
@@ -16,8 +16,12 @@ class ResolveEmbedRequest extends Request
     public function rules(): array
     {
         return [
-            'embeddable_id' => ['required', 'string'],
-            'embeddable_type' => ['required', Rule::enum(EmbeddableType::class)],
+            'embeddable_id' => [
+                Rule::requiredIf(fn (): bool => $this->embeddable_type !== EmbeddableType::FAVORITES->value),
+                'nullable',
+                Rule::string(),
+            ],
+            'embeddable_type' => [Rule::required(), Rule::enum(EmbeddableType::class)],
         ];
     }
 }

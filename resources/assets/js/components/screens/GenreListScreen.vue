@@ -13,6 +13,17 @@
             />
 
             <ListFilter />
+
+            <button
+              v-koel-tooltip
+              :disabled="loading"
+              class="px-3.5 py-2 border rounded-md border-k-fg-10 disabled:opacity-50"
+              title="Reload"
+              type="button"
+              @click.prevent="fetchGenres"
+            >
+              <Icon :icon="faRotateRight" />
+            </button>
           </div>
         </template>
       </ScreenHeader>
@@ -23,7 +34,7 @@
         <GuitarIcon :size="96" />
       </template>
       No genres found.
-      <span v-if="currentUserCan.manageSettings()" class="secondary block"> Have you set up your library yet? </span>
+      <EmptyLibraryHint />
     </ScreenEmptyState>
 
     <template v-else>
@@ -45,6 +56,7 @@
 </template>
 
 <script lang="ts" setup>
+import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 import { GuitarIcon } from 'lucide-vue-next'
 import { computed, onMounted, provide, ref } from 'vue'
 import { commonStore } from '@/stores/commonStore'
@@ -54,7 +66,6 @@ import { preferenceStore as preferences } from '@/stores/preferenceStore'
 import { useFuzzySearch } from '@/composables/useFuzzySearch'
 import { FilterKeywordsKey } from '@/config/symbols'
 import { orderBy } from 'lodash-es'
-import { usePolicies } from '@/composables/usePolicies'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
 import GenreCardSkeleton from '@/components/genre/GenreCardSkeleton.vue'
@@ -63,8 +74,8 @@ import ScreenBase from '@/components/screens/ScreenBase.vue'
 import GenreCard from '@/components/genre/GenreCard.vue'
 import ListFilter from '@/components/ui/ListFilter.vue'
 import GenreListSorter from '@/components/genre/GenreListSorter.vue'
+import EmptyLibraryHint from '@/components/ui/EmptyLibraryHint.vue'
 
-const { currentUserCan } = usePolicies()
 const { handleHttpError } = useErrorHandler()
 
 const genres = ref<Genre[]>([])

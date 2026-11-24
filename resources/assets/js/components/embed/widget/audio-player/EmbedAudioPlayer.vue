@@ -6,7 +6,7 @@
     <template v-if="!preview">
       <ProgressBar :playable="currentPlayable" :progress class="ml-2" @seek="seek" />
 
-      <span v-show="timeRemainingLabel" class="min-w-16 flex items-center justify-end font-mono">
+      <span v-show="timeRemainingLabel" class="min-w-16 flex items-center justify-end tabular-nums">
         {{ timeRemainingLabel }}
       </span>
     </template>
@@ -16,6 +16,7 @@
 </template>
 
 <script setup lang="ts">
+import { EMBED_PREVIEW_MAX_SECONDS } from '@/config/audio'
 import { computed, onMounted, ref, toRefs } from 'vue'
 import { useThrottleFn } from '@vueuse/core'
 import { secondsToHis } from '@/utils/formatters'
@@ -23,6 +24,9 @@ import { secondsToHis } from '@/utils/formatters'
 import ProgressBar from '@/components/embed/widget/audio-player/EmbedAudioPlayerProgressBar.vue'
 import PlayButton from '@/components/embed/widget/audio-player/EmbedAudioPlayerPlayButton.vue'
 import NextButton from '@/components/embed/widget/audio-player/EmbedAudioPlayerNextButton.vue'
+
+const FULL_VOLUME = 0.75
+const PREVIEW_FADE_IN_SECONDS = 3
 
 const props = defineProps<{ playables: Playable[]; preview: boolean }>()
 
@@ -109,8 +113,8 @@ const playNext = () => (nextPlayable.value ? play(nextPlayable.value) : stop())
 
 const setupAudioEvents = (audio: HTMLAudioElement) => {
   audio.addEventListener('loadedmetadata', () => {
-    maxDuration.value = preview.value ? Math.min(audio.duration, 30) : audio.duration
-    audio.volume = 0.75
+    maxDuration.value = preview.value ? Math.min(audio.duration, EMBED_PREVIEW_MAX_SECONDS) : audio.duration
+    audio.volume = preview.value ? 0 : FULL_VOLUME
   })
 
   audio.addEventListener('ended', () => playNext())
@@ -124,6 +128,12 @@ const setupAudioEvents = (audio: HTMLAudioElement) => {
       timeRemainingLabel.value = timeRemaining === 'NaN:NaN' ? '--:--' : `-${timeRemaining}`
 
       if (preview.value) {
+        if (audio.currentTime < PREVIEW_FADE_IN_SECONDS) {
+          audio.volume = FULL_VOLUME * (audio.currentTime / PREVIEW_FADE_IN_SECONDS)
+        } else if (audio.currentTime + 3 < maxDuration.value) {
+          audio.volume = FULL_VOLUME
+        }
+
         if (audio.currentTime + 3 >= maxDuration.value) {
           // Gradually decrease the volume once we're approaching the end of the sample.
           audio.volume = Math.max(0, audio.volume - 0.07)

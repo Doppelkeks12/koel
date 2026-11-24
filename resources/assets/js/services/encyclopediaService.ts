@@ -21,7 +21,7 @@ export const encyclopediaService = {
   },
 
   async fetchForAlbum(album: Album) {
-    album = albumStore.syncWithVault(album)[0]
+    album = albumStore.byId(album.id) ?? album
     const cacheKey = ['album.info', album.id, album.name]
 
     if (cache.has(cacheKey)) {
@@ -33,7 +33,12 @@ export const encyclopediaService = {
 
     if (info?.cover) {
       album.cover = info.cover
-      playableStore.byAlbum(album).forEach(song => (song.album_cover = info.cover!))
+      album.small_cover = info.cover
+
+      playableStore.byAlbum(album).forEach(song => {
+        song.album_cover = info.cover!
+        song.album_small_cover = info.cover!
+      })
     }
 
     return info

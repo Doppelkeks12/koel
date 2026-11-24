@@ -23,10 +23,11 @@
         variant="success"
         class="aspect-square scale-75 hover:scale-90 active:scale-[80%]"
         rounded
-        title="Remove this rule"
+        data-testid="add-rule-btn"
         @click.prevent="addRule"
       >
         <Icon :icon="faPlus" />
+        <span class="sr-only">Add a rule</span>
       </Btn>
     </div>
   </div>
@@ -52,7 +53,10 @@ const notifyParentForUpdate = () => emit('input', mutatedGroup)
 const addRule = () => mutatedGroup.rules.push(playlistStore.createEmptySmartPlaylistRule())
 
 const onRuleChanged = (data: SmartPlaylistRule) => {
-  Object.assign(mutatedGroup.rules.find(({ id }) => id === data.id)!, data)
+  Object.assign(
+    mutatedGroup.rules.find(({ id }) => id === data.id)!,
+    data,
+  )
   notifyParentForUpdate()
 }
 

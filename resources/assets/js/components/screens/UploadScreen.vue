@@ -1,40 +1,76 @@
 <template>
   <ScreenBase>
     <template #header>
-      <ScreenHeader layout="collapsed">
-        Upload Media
-
-        <template #controls>
-          <BtnGroup v-if="hasUploadFailures" uppercase>
-            <Btn variant="success" data-testid="upload-retry-all-btn" @click="retryAll">
-              <Icon :icon="faRotateRight" />
-              Retry All
-            </Btn>
-            <Btn variant="highlight" data-testid="upload-remove-all-btn" @click="removeFailedEntries">
-              <Icon :icon="faTrashCan" />
-              Remove Failed
-            </Btn>
-          </BtnGroup>
-        </template>
-      </ScreenHeader>
+      <ScreenHeader layout="collapsed"> Upload Media </ScreenHeader>
     </template>
 
     <div
       v-if="mediaPathSetUp"
       :class="{ droppable }"
-      class="relative flex-1 flex flex-col"
+      class="relative flex-1 min-h-0 flex flex-col"
       @dragenter.prevent="onDragEnter"
       @dragleave.prevent="onDragLeave"
       @drop.prevent="onDrop"
       @dragover.prevent
     >
-      <DuplicateUploadList v-if="duplicatedSongs.length" :songs="duplicatedSongs" class="mb-4" />
+      <div v-if="showsFilters" :class="{ 'flex-1': !showsDropPrompt }" class="min-h-0 flex flex-col gap-4">
+        <UploadSummary v-if="hasFiles" class="mb-4">
+          <Btn
+            v-if="unfinishedCount"
+            size="small"
+            variant="destructive"
+            data-testid="upload-stop-all-btn"
+            @click="stopAll"
+          >
+            Stop All
+          </Btn>
+        </UploadSummary>
 
-      <div v-if="files.length" class="pb-4 space-y-4">
-        <UploadItem v-for="file in files" :key="file.id" :file="file" data-testid="upload-item" />
+        <SegmentedControl v-model="currentFilter" :options="filterOptions" class="self-start" name="upload-filter">
+          <template #default="{ option }">
+            {{ option.label }}
+            <span
+              :data-count="filterCounts[option.value]"
+              :data-filter="option.value"
+              :data-testid="`upload-filter-count-${option.value}`"
+              class="count inline-flex items-center justify-center h-[16px] min-w-[16px] px-[5px] rounded-full bg-k-fg-10 text-[.8rem] leading-none tabular-nums"
+              data-badge
+            >
+              {{ filterCounts[option.value] }}
+            </span>
+          </template>
+        </SegmentedControl>
+
+        <div class="flex-1 min-h-0 flex flex-col gap-4">
+          <DuplicateUploadList
+            v-if="currentFilter === 'duplicated' && duplicatedSongs.length"
+            :songs="duplicatedSongs"
+            class="flex-1 min-h-0"
+          />
+
+          <VirtualScroller
+            v-else-if="visibleFiles.length"
+            :item-height="ROW_HEIGHT"
+            :items="visibleFiles"
+            class="flex-1 -mr-6 pr-6"
+          >
+            <template #default="{ item }: { item: UploadFile }">
+              <div :key="item.id" :style="{ height: `${ROW_HEIGHT}px`, paddingBottom: `${ROW_GAP}px` }">
+                <UploadItem :file="item" class="h-full" data-testid="upload-item" />
+              </div>
+            </template>
+          </VirtualScroller>
+
+          <footer v-if="currentFilter === 'errored' && filterCounts.errored" class="flex justify-end gap-1.5">
+            <Btn size="small" variant="success" data-testid="upload-retry-all-btn" @click="retryAll">Retry All</Btn>
+            <Btn size="small" variant="neutral" data-testid="upload-remove-all-btn" @click="removeFailedEntries">
+              Remove Failed
+            </Btn>
+          </footer>
+        </div>
       </div>
 
-      <ScreenEmptyState v-else-if="!files.length && !duplicatedSongs.length">
+      <ScreenEmptyState v-if="showsDropPrompt" data-testid="upload-drop-prompt">
         <template #icon>
           <Icon :icon="faUpload" />
         </template>
@@ -67,23 +103,48 @@
 </template>
 
 <script lang="ts" setup>
-import { faRotateRight, faTrashCan, faUpload, faWarning } from '@fortawesome/free-solid-svg-icons'
-import { computed, defineAsyncComponent, ref, toRef, onMounted } from 'vue'
+import { faUpload, faWarning } from '@fortawesome/free-solid-svg-icons'
+import { computed, defineAsyncComponent, ref, toRef, onMounted, watch } from 'vue'
 
 import { isDirectoryReadingSupported as canDropFolders } from '@/utils/supports'
 import { acceptedExtensions } from '@/utils/mediaHelper'
 import { uploadService } from '@/services/uploadService'
+import type { UploadFile, UploadStatus } from '@/services/uploadService'
 import { useUpload } from '@/composables/useUpload'
+import { useDialogBox } from '@/composables/useDialogBox'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
 import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
-import BtnGroup from '@/components/ui/form/BtnGroup.vue'
 import ScreenBase from '@/components/screens/ScreenBase.vue'
 
 import DuplicateUploadList from '@/components/ui/DuplicateUploadList.vue'
+import UploadSummary from '@/components/ui/upload/UploadSummary.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import VirtualScroller from '@/components/ui/VirtualScroller.vue'
 
 const Btn = defineAsyncComponent(() => import('@/components/ui/form/Btn.vue'))
 const UploadItem = defineAsyncComponent(() => import('@/components/ui/upload/UploadItem.vue'))
+
+type FileFilter = 'in-progress' | 'done' | 'skipped' | 'errored'
+type UploadFilter = FileFilter | 'duplicated'
+
+const FILTER_LABELS: Record<UploadFilter, string> = {
+  'in-progress': 'In Progress',
+  done: 'Done',
+  skipped: 'Skipped',
+  errored: 'Errored',
+  duplicated: 'Duplicated',
+}
+
+const FILTER_STATUSES: Record<FileFilter, UploadStatus[]> = {
+  'in-progress': ['Ready', 'Uploading', 'Retrying', 'Processing'],
+  done: ['Uploaded'],
+  skipped: ['Skipped'],
+  errored: ['Errored', 'Canceled'],
+}
+
+const ROW_GAP = 6
+const ROW_HEIGHT = 36 + ROW_GAP
 
 const acceptAttribute = acceptedExtensions.map(ext => `.${ext}`).join(',')
 
@@ -91,10 +152,41 @@ const { allowsUpload, mediaPathSetUp, queueFilesForUpload, handleDropEvent } = u
 
 const duplicatedSongs = toRef(uploadService.state, 'duplicatedSongs')
 
-const files = toRef(uploadService.state, 'files')
-const droppable = ref(false)
+const currentFilter = ref<UploadFilter>('in-progress')
 
-const hasUploadFailures = computed(() => files.value.filter(({ status }) => status === 'Errored').length > 0)
+const hasFiles = computed(() => uploadService.tracker.size > 0)
+
+const visibleFiles = computed(() =>
+  currentFilter.value === 'duplicated'
+    ? []
+    : uploadService.tracker.getFilesWithStatus(FILTER_STATUSES[currentFilter.value]),
+)
+
+const filterOptions = computed(() =>
+  (Object.keys(FILTER_LABELS) as UploadFilter[]).map(filter => ({
+    value: filter,
+    label: FILTER_LABELS[filter],
+    testId: `upload-filter-${filter}`,
+  })),
+)
+
+const filterCounts = computed<Record<UploadFilter, number>>(() => ({
+  'in-progress': uploadService.tracker.count(FILTER_STATUSES['in-progress']),
+  done: uploadService.tracker.count(FILTER_STATUSES.done),
+  skipped: uploadService.tracker.count(FILTER_STATUSES.skipped),
+  errored: uploadService.tracker.count(FILTER_STATUSES.errored),
+  duplicated: duplicatedSongs.value.length,
+}))
+
+const unfinishedCount = computed(() => uploadService.countUnfinishedFiles())
+
+const showsFilters = computed(() => hasFiles.value || duplicatedSongs.value.length > 0)
+
+const showsDropPrompt = computed(
+  () => !showsFilters.value || (currentFilter.value === 'in-progress' && !filterCounts.value['in-progress']),
+)
+
+const droppable = ref(false)
 
 const onDragEnter = () => (droppable.value = allowsUpload.value)
 
@@ -122,12 +214,53 @@ const onDrop = async (event: DragEvent) => {
 const retryAll = () => uploadService.retryAll()
 const removeFailedEntries = () => uploadService.removeFailed()
 
-onMounted(() => uploadService.fetchDuplicates())
+const { showConfirmDialog } = useDialogBox()
+
+const stopAll = async () => {
+  if (await showConfirmDialog('Stop all uploads?')) {
+    uploadService.stopAll()
+  }
+}
+
+watch(
+  () => filterCounts.value.errored,
+  erroredCount => {
+    if (!erroredCount && currentFilter.value === 'errored') {
+      currentFilter.value = 'in-progress'
+    }
+  },
+)
+
+onMounted(async () => {
+  await uploadService.fetchDuplicates()
+
+  if (!hasFiles.value && duplicatedSongs.value.length) {
+    currentFilter.value = 'duplicated'
+  }
+})
 </script>
 
 <style lang="postcss" scoped>
 @reference '@css/app.pcss';
 .droppable {
   @apply border-2 border-dashed border-white/40 bg-black/20 rounded-3xl;
+}
+
+.count {
+  &[data-filter='in-progress'] {
+    @apply bg-k-primary text-white;
+  }
+
+  &[data-filter='done'] {
+    @apply bg-k-success text-white;
+  }
+
+  &[data-filter='errored'] {
+    @apply bg-k-danger text-white;
+  }
+
+  &[data-filter='duplicated'] {
+    @apply bg-k-warning text-white;
+  }
 }
 </style>

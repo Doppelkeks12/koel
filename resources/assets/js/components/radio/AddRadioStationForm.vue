@@ -1,10 +1,15 @@
 <template>
-  <form class="md:w-[420px] min-w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form
+    name="add-radio-station"
+    class="md:w-[420px] min-w-full"
+    @submit.prevent="handleSubmit"
+    @keydown.esc="maybeClose"
+  >
     <header>
       <h1>New Radio Station</h1>
     </header>
 
-    <main class="space-y-5">
+    <main class="flex flex-col gap-5">
       <FormRow>
         <template #label>Name</template>
         <TextInput v-model="data.name" v-koel-focus name="name" placeholder="My Favorite Radio Station" required />
@@ -17,12 +22,12 @@
         <template #label>Homepage URL</template>
         <TextInput v-model="data.homepage_url" type="url" name="homepage_url" placeholder="https://radio.example.com" />
       </FormRow>
-      <FormRow>
+      <FormRow class="description flex-1">
         <template #label>Description</template>
         <TextArea
           v-model="data.description"
           name="description"
-          class="max-h-24"
+          class="grow shrink-0 h-28"
           placeholder="A short description of the station"
         />
       </FormRow>
@@ -36,15 +41,13 @@
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
 
 <script setup lang="ts">
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import type { RadioStationData } from '@/stores/radioStationStore'
 import { radioStationStore } from '@/stores/radioStationStore'
 import { useForm } from '@/composables/useForm'
@@ -58,12 +61,9 @@ import ArtworkField from '@/components/ui/form/ArtworkField.vue'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
-
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<RadioStationData>({
+const { data, loading, handleSubmit, maybeClose } = useForm<RadioStationData>({
   initialValues: {
     name: '',
     logo: null,
@@ -72,16 +72,19 @@ const { data, isPristine, handleSubmit } = useForm<RadioStationData>({
     description: '',
     is_public: false,
   },
-  onSubmit: async data => await radioStationStore.store(data),
-  onSuccess: (station: RadioStation) => {
-    close()
-    toastSuccess(`Station "${station.name}" added.`)
+  toast: {
+    loading: 'Adding station…',
+    success: (station: RadioStation) => `Station "${station.name}" added.`,
   },
+  onSubmit: async data => await radioStationStore.store(data),
+  onSuccess: close,
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>
+
+<style lang="postcss" scoped>
+@reference '@css/app.pcss';
+.description :deep(label) {
+  @apply flex-1 flex flex-col;
+}
+</style>

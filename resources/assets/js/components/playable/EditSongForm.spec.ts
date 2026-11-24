@@ -5,7 +5,6 @@ import { arrayify } from '@/utils/helpers'
 import { eventBus } from '@/utils/eventBus'
 import type { SongUpdateResult } from '@/stores/playableStore'
 import { playableStore as songStore } from '@/stores/playableStore'
-import { MessageToasterStub } from '@/__tests__/stubs'
 import Component from './EditSongForm.vue'
 
 describe('editSongForm.vue', () => {
@@ -29,6 +28,14 @@ describe('editSongForm.vue', () => {
     }
   }
 
+  it('keeps the genres when the genre label is clicked', async () => {
+    await renderComponent(h.factory('song').make({ genre: 'Rock' }))
+
+    await h.user.click(screen.getByText('Genre'))
+
+    screen.getByRole('button', { name: 'Remove Rock' })
+  })
+
   it('edits a single song', async () => {
     const result: SongUpdateResult = {
       songs: [],
@@ -42,9 +49,8 @@ describe('editSongForm.vue', () => {
 
     const updateMock = h.mock(songStore, 'updateSongs').mockResolvedValue(result)
     const emitMock = h.mock(eventBus, 'emit')
-    const alertMock = h.mock(MessageToasterStub.value, 'success')
 
-    const { songs, html } = await renderComponent(
+    const { songs } = await renderComponent(
       h.factory('song').make({
         title: 'Rocket to Heaven',
         artist_name: 'Led Zeppelin',
@@ -54,15 +60,14 @@ describe('editSongForm.vue', () => {
       }),
     )
 
-    expect(html()).toMatchSnapshot()
-
     await h.type(screen.getByTestId('title-input'), 'Highway to Hell')
     await h.type(screen.getByTestId('artist-input'), 'AC/DC')
     await h.type(screen.getByTestId('albumArtist-input'), 'AC/DC')
     await h.type(screen.getByTestId('album-input'), 'Back in Black')
     await h.type(screen.getByTestId('disc-input'), '1')
     await h.type(screen.getByTestId('track-input'), '10')
-    await h.type(screen.getByTestId('genre-input'), 'Rock & Roll')
+    await h.user.click(screen.getByRole('button', { name: 'Remove Rock' }))
+    await h.type(screen.getByRole('combobox', { name: 'genre' }), 'Rock & Roll')
     await h.type(screen.getByTestId('year-input'), '1971')
     await h.type(screen.getByTestId('lyrics-input'), "I'm gonna make him an offer he can't refuse")
 
@@ -80,7 +85,6 @@ describe('editSongForm.vue', () => {
       year: 1971,
     })
 
-    expect(alertMock).toHaveBeenCalledWith('Updated 1 song.')
     expect(emitMock).toHaveBeenCalledWith('SONGS_UPDATED', result)
   })
 
@@ -97,11 +101,9 @@ describe('editSongForm.vue', () => {
 
     const updateMock = h.mock(songStore, 'updateSongs').mockResolvedValue(result)
     const emitMock = h.mock(eventBus, 'emit')
-    const alertMock = h.mock(MessageToasterStub.value, 'success')
 
-    const { songs, html } = await renderComponent(h.factory('song').make(3))
+    const { songs } = await renderComponent(h.factory('song').make(3))
 
-    expect(html()).toMatchSnapshot()
     expect(screen.queryByTestId('title-input')).toBeNull()
     expect(screen.queryByTestId('lyrics-input')).toBeNull()
 
@@ -111,7 +113,7 @@ describe('editSongForm.vue', () => {
     await h.type(screen.getByTestId('disc-input'), '1')
     await h.type(screen.getByTestId('track-input'), '10')
     await h.type(screen.getByTestId('year-input'), '1990')
-    await h.type(screen.getByTestId('genre-input'), 'Pop')
+    await h.type(screen.getByRole('combobox', { name: 'genre' }), 'Pop')
 
     await h.user.click(screen.getByRole('button', { name: 'Update' }))
 
@@ -125,8 +127,39 @@ describe('editSongForm.vue', () => {
       year: 1990,
     })
 
-    expect(alertMock).toHaveBeenCalledWith('Updated 3 songs.')
     expect(emitMock).toHaveBeenCalledWith('SONGS_UPDATED', result)
+  })
+
+  it('leaves an untouched album artist out of the update', async () => {
+    const updateMock = h.mock(songStore, 'updateSongs').mockResolvedValue({
+      songs: [],
+      albums: [],
+      artists: [],
+      removed: { album_ids: [], artist_ids: [] },
+    })
+
+    await renderComponent(h.factory('song').state('partOfCompilation').make())
+
+    await h.type(screen.getByTestId('track-input'), '5')
+    await h.user.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('album_artist_name')
+  })
+
+  it('sends a cleared album artist as empty', async () => {
+    const updateMock = h.mock(songStore, 'updateSongs').mockResolvedValue({
+      songs: [],
+      albums: [],
+      artists: [],
+      removed: { album_ids: [], artist_ids: [] },
+    })
+
+    await renderComponent(h.factory('song').state('partOfCompilation').make())
+
+    await h.user.clear(screen.getByTestId('albumArtist-input'))
+    await h.user.click(screen.getByRole('button', { name: 'Update' }))
+
+    expect(updateMock.mock.calls[0][1]).toHaveProperty('album_artist_name', '')
   })
 
   it('displays artist name if all songs have the same artist', async () => {

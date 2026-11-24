@@ -1,71 +1,93 @@
 <template>
   <div class="artist-table-wrap relative flex flex-col flex-1 overflow-auto" data-testid="artist-table">
-    <div class="artist-table-header sortable flex z-2 bg-k-fg-3 pl-5 sticky top-0">
-      <span
-        class="name"
-        role="button"
-        tabindex="0"
-        title="Sort by name"
-        @click="onSort('name')"
-        @keydown.enter.space.prevent="onSort('name')"
-      >
-        Name
-        <Icon v-if="field === 'name' && order === 'asc'" :icon="faCaretUp" class="ml-2 text-k-highlight" />
-        <Icon v-if="field === 'name' && order === 'desc'" :icon="faCaretDown" class="ml-2 text-k-highlight" />
-      </span>
-      <span
-        v-if="shouldShowColumn('rating')"
-        class="rating"
-        role="button"
-        tabindex="0"
-        title="Sort by rating"
-        @click="onSort('rating')"
-        @keydown.enter.space.prevent="onSort('rating')"
-      >
-        Rating
-        <Icon v-if="field === 'rating' && order === 'asc'" :icon="faCaretUp" class="ml-2 text-k-highlight" />
-        <Icon v-if="field === 'rating' && order === 'desc'" :icon="faCaretDown" class="ml-2 text-k-highlight" />
-      </span>
-      <span
-        v-if="shouldShowColumn('favorite')"
-        class="favorite"
-        role="button"
-        tabindex="0"
-        title="Sort by favorite"
-        @click="onSort('favorite')"
-        @keydown.enter.space.prevent="onSort('favorite')"
-      >
-        <Icon :icon="faHeart" />
-        <Icon v-if="field === 'favorite' && order === 'asc'" :icon="faCaretUp" class="ml-2 text-k-highlight" />
-        <Icon v-if="field === 'favorite' && order === 'desc'" :icon="faCaretDown" class="ml-2 text-k-highlight" />
-      </span>
-      <span class="extra">
-        <ArtistTableHeaderActionMenu :field :order @sort="onSort" />
-      </span>
-    </div>
-
-    <VirtualScroller :items="artists" :item-height="64" @scrolled-to-end="$emit('scrolled-to-end')">
-      <template #default="{ item }: { item: Artist }">
-        <ArtistRow :artist="item" @toggle-favorite="emit('toggle-favorite', $event)" />
+    <VirtualScroller
+      ref="scroller"
+      carries-screen-header
+      tabindex="0"
+      class="focus-visible:outline-hidden"
+      :items="rows"
+      @keydown.a.prevent="selectAllWithKeyboard"
+      @keydown.up.down.prevent.stop="onArrowKey"
+      @keydown.enter.prevent.stop="openSelectedItem"
+      :item-height="64"
+      :loading-more
+      @scrolled-to-end="$emit('scrolled-to-end')"
+    >
+      <template #before>
+        <ScreenHeaderPinned>
+          <div class="artist-table-header sortable flex bg-k-fg-3 pl-5">
+            <SortableColumnHeader :active="field === 'name'" :order class="name" @sort="onSort('name')">
+              Name
+            </SortableColumnHeader>
+            <SortableColumnHeader
+              v-if="shouldShowColumn('rating')"
+              :active="field === 'rating'"
+              :order
+              class="rating"
+              label="Rating"
+              @sort="onSort('rating')"
+            />
+            <SortableColumnHeader
+              v-if="shouldShowColumn('favorite')"
+              :active="field === 'favorite'"
+              :order
+              class="favorite"
+              @sort="onSort('favorite')"
+            >
+              <Icon :icon="faHeart" />
+              <span class="sr-only">Favorite</span>
+            </SortableColumnHeader>
+            <span class="extra">
+              <TableHeaderActionMenu
+                :field
+                :order
+                :items="artistTableMenuItems"
+                :column-config="artistTableColumnConfig"
+                @sort="onSort"
+              />
+            </span>
+          </div>
+        </ScreenHeaderPinned>
+      </template>
+      <template #default="{ item: row }: { item: SelectableRow<Artist> }">
+        <ArtistRow
+          :artist="row.item"
+          :class="{ selected: row.selected }"
+          @click="onRowClick(row, $event)"
+          @open-context-menu="openContextMenuForRow(row, $event)"
+          @toggle-favorite="emit('toggle-favorite', $event)"
+        />
+      </template>
+      <template #placeholder>
+        <ArtistTableRowSkeleton />
       </template>
     </VirtualScroller>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { faCaretDown, faCaretUp, faHeart } from '@fortawesome/free-solid-svg-icons'
-import { toRefs } from 'vue'
+import { faHeart } from '@fortawesome/free-solid-svg-icons'
+import { ref, toRefs } from 'vue'
+import { useContextMenu } from '@/composables/useContextMenu'
+import { useRouter } from '@/composables/useRouter'
+import type { SelectableRow } from '@/composables/useSelectableRows'
+import { useSelectableRows } from '@/composables/useSelectableRows'
+import { defineAsyncComponent } from '@/utils/helpers'
 import { useTableColumnVisibility } from '@/composables/useTableColumnVisibility'
-import { artistTableColumnConfig } from '@/config/tables'
+import { artistTableColumnConfig, artistTableMenuItems } from '@/config/tables'
 
+import SortableColumnHeader from '@/components/ui/SortableColumnHeader.vue'
+import TableHeaderActionMenu from '@/components/ui/TableHeaderActionMenu.vue'
 import VirtualScroller from '@/components/ui/VirtualScroller.vue'
+import ScreenHeaderPinned from '@/components/ui/ScreenHeaderPinned.vue'
 import ArtistRow from '@/components/artist/ArtistRow.vue'
-import ArtistTableHeaderActionMenu from '@/components/artist/ArtistTableHeaderActionMenu.vue'
+import ArtistTableRowSkeleton from '@/components/artist/ArtistTableRowSkeleton.vue'
 
 const props = defineProps<{
   artists: Artist[]
   field: ArtistListSortField
   order: SortOrder
+  loadingMore?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -76,6 +98,36 @@ const emit = defineEmits<{
 
 const { shouldShowColumn } = useTableColumnVisibility(artistTableColumnConfig)
 const { field, order } = toRefs(props)
+
+const ArtistContextMenu = defineAsyncComponent(() => import('@/components/artist/ArtistContextMenu.vue'))
+const SelectedArtistsContextMenu = defineAsyncComponent(
+  () => import('@/components/artist/SelectedArtistsContextMenu.vue'),
+)
+
+const { artists } = toRefs(props)
+const scroller = ref<InstanceType<typeof VirtualScroller>>()
+
+const { openContextMenu } = useContextMenu()
+const { go, url } = useRouter()
+
+const { rows, selectedItems, onRowClick, onArrowKey, selectAllWithKeyboard, selectRowForContextMenu } =
+  useSelectableRows(artists, scroller)
+
+const openContextMenuForRow = async (row: SelectableRow<Artist>, event: MouseEvent) => {
+  await selectRowForContextMenu(row)
+
+  if (selectedItems.value.length > 1) {
+    openContextMenu<'SELECTED_ARTISTS'>(SelectedArtistsContextMenu, event, { artists: selectedItems.value })
+  } else {
+    openContextMenu<'ARTIST'>(ArtistContextMenu, event, { artist: row.item })
+  }
+}
+
+const openSelectedItem = () => {
+  if (selectedItems.value.length === 1) {
+    go(url('artists.show', { id: selectedItems.value[0].id }))
+  }
+}
 
 const onSort = (clicked: ArtistListSortField) => {
   const nextOrder: SortOrder = field.value === clicked && order.value === 'asc' ? 'desc' : 'asc'

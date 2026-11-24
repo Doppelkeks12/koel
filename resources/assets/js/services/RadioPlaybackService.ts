@@ -2,13 +2,34 @@ import { BasePlaybackService } from '@/services/BasePlaybackService'
 import { radioStationStore } from '@/stores/radioStationStore'
 import { use } from '@/utils/helpers'
 import { socketService } from '@/services/socketService'
+import { audioService } from '@/services/audioService'
+import { playbackSpeedService } from '@/services/playbackSpeedService'
 
 export class RadioPlaybackService extends BasePlaybackService {
+  private latestPlayRequest = 0
+
   public async play(station: RadioStation) {
     use(radioStationStore.current, station => (station.playback_state = 'Stopped'))
 
     station.playback_state = 'Playing'
-    this.media.src = radioStationStore.getSourceUrl(station)
+    const playRequest = ++this.latestPlayRequest
+    let sourceUrl: string
+
+    try {
+      sourceUrl = await radioStationStore.resolveSourceUrl(station)
+    } catch (error: unknown) {
+      station.playback_state = 'Stopped'
+      throw error
+    }
+
+    if (playRequest !== this.latestPlayRequest || station.playback_state !== 'Playing') {
+      return
+    }
+
+    this.media.src = sourceUrl
+    playbackSpeedService.applyToMedia(this.media, 1)
+
+    audioService.routeElement(this.media)
     await this.media.play()
 
     radioStationStore.startPolling(station)

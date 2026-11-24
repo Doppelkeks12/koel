@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Facades\License;
 use App\Models\Album;
 use App\Models\User;
+use App\Services\Integrations\MusicBrainzService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,7 +18,9 @@ class AlbumResource extends JsonResource
         'artist_id',
         'artist_name',
         'cover',
+        'small_cover',
         'created_at',
+        'mbid',
         'year',
         'length',
         'rating',
@@ -85,6 +88,7 @@ class AlbumResource extends JsonResource
         $isPlus = once(static fn () => License::isPlus());
         $user = $this->user ?? once(static fn () => auth()->user());
         $embedding = $request->routeIs('embeds.payload');
+        $musicBrainzEnabled = MusicBrainzService::enabled();
 
         return [
             'type' => 'albums',
@@ -93,8 +97,11 @@ class AlbumResource extends JsonResource
             'artist_id' => $this->album->artist->id,
             'artist_name' => $this->album->artist->name,
             'cover' => image_storage_url($this->album->cover),
+            'small_cover' => image_storage_url($this->album->small_cover ?: $this->album->cover),
             'created_at' => $this->unless($embedding, $this->album->created_at),
+            'mbid' => $this->when($musicBrainzEnabled && !$embedding, $this->album->mbid),
             'year' => $this->album->year,
+            'description' => $this->unless($embedding, $this->album->description),
             'is_external' => $this->unless($embedding, fn () => $isPlus && $this->album->user_id !== $user->id),
             'favorite' => $this->unless($embedding, $this->album->favorite),
             'length' => $this->unless($embedding, fn () => (float) ($this->album->length ?? 0)),

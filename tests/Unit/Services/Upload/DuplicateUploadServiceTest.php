@@ -6,10 +6,15 @@ use App\Enums\SongStorageType;
 use App\Exceptions\DuplicateSongUploadException;
 use App\Models\DuplicateUpload;
 use App\Models\Song;
+use App\Repositories\DuplicateUploadRepository;
 use App\Repositories\SongRepository;
+use App\Services\AudioAnalysis\AnalyzeAudioOnScan;
+use App\Services\LibrarySummaryService;
 use App\Services\Scanners\FileScanner;
 use App\Services\SongService;
+use App\Services\SongStorages\LocalStorage;
 use App\Services\SongStorages\SongStorage;
+use App\Services\Transcoding\TranscodeOnScan;
 use App\Services\Upload\DuplicateUploadService;
 use App\Values\UploadReference;
 use Illuminate\Support\Facades\File;
@@ -39,7 +44,16 @@ class DuplicateUploadServiceTest extends TestCase
 
     private function makeService(): DuplicateUploadService
     {
-        return new DuplicateUploadService($this->songRepository, $this->songService, $this->scanner, $this->storage);
+        return new DuplicateUploadService(
+            $this->songRepository,
+            app(DuplicateUploadRepository::class),
+            $this->songService,
+            $this->scanner,
+            $this->storage,
+            new TranscodeOnScan(app(LocalStorage::class)),
+            new AnalyzeAudioOnScan(),
+            Mockery::mock(LibrarySummaryService::class),
+        );
     }
 
     #[Test]
@@ -47,10 +61,14 @@ class DuplicateUploadServiceTest extends TestCase
     {
         $uploader = create_user(['preferences' => ['detect_duplicate_uploads' => true]]);
         $existingSong = Song::factory()->createOne();
-        $reference = UploadReference::make('/media/song.mp3', '/media/song.mp3');
+        $reference = UploadReference::make('/media/song.mp3', '/media/song.mp3', 'song.mp3');
 
-        File::expects('hash')->with('/tmp/song.mp3')->andReturn('abc123');
-        $this->songRepository->expects('findByHash')->with('abc123', $uploader)->andReturn($existingSong);
+        File::expects('hash')->with('/tmp/song.mp3', 'xxh128')->andReturn('fast-hash');
+        File::expects('hash')->with('/tmp/song.mp3', 'md5')->andReturn('legacy-hash');
+        $this->songRepository
+            ->expects('findByAnyHash')
+            ->with(['fast-hash', 'legacy-hash'], $uploader)
+            ->andReturn($existingSong);
 
         try {
             $this->makeService()->detectDuplicate('/tmp/song.mp3', $reference, $uploader);
@@ -59,6 +77,7 @@ class DuplicateUploadServiceTest extends TestCase
             $this->assertDatabaseHas('duplicate_uploads', [
                 'user_id' => $uploader->id,
                 'existing_song_id' => $existingSong->id,
+                'file_name' => 'song.mp3',
             ]);
         }
     }
@@ -67,9 +86,9 @@ class DuplicateUploadServiceTest extends TestCase
     public function skipsDetectionWhenPreferenceIsDisabled(): void
     {
         $uploader = create_user(['preferences' => ['detect_duplicate_uploads' => false]]);
-        $reference = UploadReference::make('/media/song.mp3', '/media/song.mp3');
+        $reference = UploadReference::make('/media/song.mp3', '/media/song.mp3', 'song.mp3');
 
-        $this->songRepository->expects('findByHash')->never();
+        $this->songRepository->expects('findByAnyHash')->never();
 
         $this->makeService()->detectDuplicate('/tmp/song.mp3', $reference, $uploader);
     }
@@ -78,14 +97,42 @@ class DuplicateUploadServiceTest extends TestCase
     public function doesNothingWhenNoDuplicateFound(): void
     {
         $uploader = create_user(['preferences' => ['detect_duplicate_uploads' => true]]);
-        $reference = UploadReference::make('/media/song.mp3', '/media/song.mp3');
+        $reference = UploadReference::make('/media/song.mp3', '/media/song.mp3', 'song.mp3');
 
-        File::expects('hash')->andReturn('abc123');
-        $this->songRepository->expects('findByHash')->with('abc123', $uploader)->andReturnNull();
+        File::expects('hash')->twice()->andReturn('abc123');
+        $this->songRepository->expects('findByAnyHash')->with(['abc123', 'abc123'], $uploader)->andReturnNull();
 
         $this->makeService()->detectDuplicate('/tmp/song.mp3', $reference, $uploader);
 
         self::assertSame(0, DuplicateUpload::query()->count());
+    }
+
+    #[Test]
+    public function keepSkipsADuplicateAlreadyKept(): void
+    {
+        $upload = DuplicateUpload::factory()->createOne();
+        $upload->delete();
+
+        $this->scanner->expects('scan')->never();
+
+        self::assertTrue(
+            $this
+                ->makeService()
+                ->keep(collect([$upload]))
+                ->isEmpty(),
+        );
+    }
+
+    #[Test]
+    public function discardDeletesAFileOnCloudStorageByItsKey(): void
+    {
+        $uploads = DuplicateUpload::factory()->createMany([
+            ['location' => 's3://koel-bucket/songs/duplicate.mp3', 'storage' => SongStorageType::S3],
+        ]);
+
+        $this->mock(SongStorage::class)->expects('delete')->with('songs/duplicate.mp3', Mockery::any());
+
+        $this->makeService()->discard($uploads);
     }
 
     #[Test]

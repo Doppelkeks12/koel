@@ -11,7 +11,7 @@ return [
     // or downloaded podcast episodes. By default, it is set to the system's temporary directory.
     'artifacts_path' => env('ARTIFACTS_PATH') ?: sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'koel',
 
-    'image_storage_dir' => 'storage/images',
+    'image_storage_dir' => env('IMAGE_STORAGE_DIR', 'storage/images'),
 
     /*
      |--------------------------------------------------------------------------
@@ -26,6 +26,12 @@ return [
         'timeout' => env('APP_MAX_SCAN_TIME', 600),
         'memory_limit' => env('MEMORY_LIMIT'),
         'jobs' => env('SCAN_JOBS', 4),
+        'analyze_audio' => env('ANALYZE_AUDIO_ON_SCAN', false),
+        'analysis_queue' => env('AUDIO_ANALYSIS_QUEUE') ?: null,
+    ],
+
+    'upload' => [
+        'presigned_max_size' => (int) (env('PRESIGNED_UPLOAD_MAX_SIZE') ?: 2048) * 1024 * 1024,
     ],
 
     /*
@@ -45,6 +51,8 @@ return [
         'method' => env('STREAMING_METHOD'),
         'ffmpeg_path' => env('FFMPEG_PATH') ?: find_ffmpeg_path(),
         'transcode_flac' => env('TRANSCODE_FLAC', true),
+        'transcode_on_scan' => env('TRANSCODE_ON_SCAN', false),
+        'previews_on_scan' => env('PREVIEWS_ON_SCAN', false),
         'transcode_timeout' => max((int) env('TRANSCODE_TIMEOUT', 300), 0),
         'supported_mime_types' => [
             // Lossy formats
@@ -88,6 +96,12 @@ return [
             'audio/x-monkeys-audio' => 'ape', // APE (alternate)
             'audio/x-voc' => 'voc', // Creative VOC
         ],
+        'natively_playable_lossless_mime_types' => [
+            'flac' => ['audio/flac', 'audio/x-flac'],
+            'alac' => ['audio/x-m4a'],
+            'wav' => ['audio/wav', 'audio/vnd.wave', 'audio/x-wav'],
+            'aiff' => ['audio/aiff', 'audio/x-aiff'],
+        ],
         // Note that this is **not** guaranteed to work 100% of the time, as technically
         // a mime type doesn't tell the actual codec used in the file.
         // However, it's a good enough heuristic for most cases.
@@ -128,6 +142,7 @@ return [
         'musicbrainz' => [
             'enabled' => env('USE_MUSICBRAINZ', true),
             'endpoint' => 'https://musicbrainz.org/ws/2',
+            'cover_art_endpoint' => 'https://coverartarchive.org',
             'user_agent' => env('MUSICBRAINZ_USER_AGENT'),
         ],
         'youtube' => [
@@ -139,6 +154,9 @@ return [
             'secret' => env('LASTFM_API_SECRET'),
             'endpoint' => 'https://ws.audioscrobbler.com/2.0',
         ],
+        'listenbrainz' => [
+            'endpoint' => env('LISTENBRAINZ_API_ENDPOINT', 'https://api.listenbrainz.org'),
+        ],
         'spotify' => [
             'client_id' => env('SPOTIFY_CLIENT_ID'),
             'client_secret' => env('SPOTIFY_CLIENT_SECRET'),
@@ -146,7 +164,7 @@ return [
         'itunes' => [
             'enabled' => env('USE_ITUNES', true),
             'affiliate_id' => '1000lsGu',
-            'endpoint' => 'https://itunes.apple.com/search',
+            'endpoint' => 'https://itunes.apple.com',
         ],
         'ticketmaster' => [
             'key' => env('TICKETMASTER_API_KEY'),
@@ -174,15 +192,26 @@ return [
 
     'download' => [
         'allow' => env('ALLOW_DOWNLOAD', true),
-        'limit' => max((int) env('DOWNLOAD_LIMIT', 0), 0),
     ],
 
     'media_browser' => [
         'enabled' => env('MEDIA_BROWSER_ENABLED', false),
     ],
 
+    'clean_urls' => [
+        'enabled' => env('CLEAN_URLS_ENABLED', false),
+    ],
+
     'embed' => [
         'enabled' => env('EMBED_ENABLED', true),
+    ],
+
+    'podcasts' => [
+        'enabled' => env('PODCASTS_ENABLED', true),
+    ],
+
+    'radio' => [
+        'enabled' => env('RADIO_ENABLED', true),
     ],
 
     /*
@@ -199,6 +228,8 @@ return [
     'backup_on_delete' => env('BACKUP_ON_DELETE', true),
 
     'sync_log_level' => env('SYNC_LOG_LEVEL', 'error'),
+
+    'scan_log_max_files' => env('SCAN_LOG_MAX_FILES', 30),
 
     'proxy_auth' => [
         'enabled' => env('PROXY_AUTH_ENABLED', false),

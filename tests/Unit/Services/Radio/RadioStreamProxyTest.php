@@ -2,22 +2,27 @@
 
 namespace Tests\Unit\Services\Radio;
 
-use App\Services\Network\Network;
+use App\Models\RadioStation;
+use App\Services\Radio\RadioStreamMetadata;
 use App\Services\Radio\RadioStreamProxy;
-use Mockery;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\Fakes\TrickleStream;
 use Tests\TestCase;
 
 class RadioStreamProxyTest extends TestCase
 {
     #[Test]
-    public function openStreamRefusesUnsafeUrl(): void
+    public function readTheWholeMetadataBlockWhenTheStreamDeliversItInPieces(): void
     {
-        $network = Mockery::mock(Network::class);
-        $network->expects('isSafeUrl')->with('http://127.0.0.1/stream')->andReturnFalse();
+        $station = RadioStation::factory()->createOne();
+        $metadata = str_pad("StreamTitle='Daft Punk - Around the World';", 48, "\0");
+        $stream = TrickleStream::open('audio' . chr(3) . $metadata . 'music');
 
-        $proxy = new RadioStreamProxy($network);
+        ob_start();
+        (new RadioStreamProxy())->proxyWithMetadata($stream, $station, icyMetaInt: 5);
+        $output = ob_get_clean();
 
-        self::assertFalse($proxy->openStream('http://127.0.0.1/stream'));
+        self::assertSame('audiomusic', $output);
+        self::assertSame('Daft Punk - Around the World', RadioStreamMetadata::getCached($station)['stream_title']);
     }
 }

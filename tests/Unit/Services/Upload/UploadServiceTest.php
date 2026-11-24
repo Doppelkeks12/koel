@@ -7,10 +7,16 @@ use App\Exceptions\DuplicateSongUploadException;
 use App\Exceptions\SongUploadFailedException;
 use App\Models\DuplicateUpload;
 use App\Models\Song;
+use App\Repositories\DuplicateUploadRepository;
+use App\Repositories\SongRepository;
+use App\Services\AudioAnalysis\AnalyzeAudioOnScan;
+use App\Services\LibrarySummaryService;
 use App\Services\Scanners\FileScanner;
 use App\Services\SongService;
 use App\Services\SongStorages\Contracts\MustDeleteTemporaryLocalFileAfterUpload;
+use App\Services\SongStorages\LocalStorage;
 use App\Services\SongStorages\SongStorage;
+use App\Services\Transcoding\TranscodeOnScan;
 use App\Services\Upload\DuplicateUploadService;
 use App\Services\Upload\UploadService;
 use App\Values\Scanning\ScanConfiguration;
@@ -30,6 +36,7 @@ class UploadServiceTest extends TestCase
     private SongService|MockInterface $songService;
     private FileScanner|MockInterface $scanner;
     private DuplicateUploadService|MockInterface $duplicateUploadService;
+    private LibrarySummaryService|MockInterface $librarySummaryService;
 
     public function setUp(): void
     {
@@ -38,11 +45,22 @@ class UploadServiceTest extends TestCase
         $this->songService = Mockery::mock(SongService::class);
         $this->scanner = Mockery::mock(FileScanner::class);
         $this->duplicateUploadService = Mockery::mock(DuplicateUploadService::class);
+        $this->librarySummaryService = Mockery::spy(LibrarySummaryService::class);
     }
 
     private function makeService(SongStorage $storage): UploadService
     {
-        return new UploadService($this->songService, $storage, $this->scanner, $this->duplicateUploadService);
+        return new UploadService(
+            $this->songService,
+            $storage,
+            $this->scanner,
+            $this->duplicateUploadService,
+            new TranscodeOnScan(app(LocalStorage::class)),
+            new AnalyzeAudioOnScan(),
+            $this->librarySummaryService,
+            app(SongRepository::class),
+            app(DuplicateUploadRepository::class),
+        );
     }
 
     #[Test]
@@ -57,12 +75,13 @@ class UploadServiceTest extends TestCase
         $reference = UploadReference::make(
             location: '/var/media/koel/some-file.mp3',
             localPath: '/var/media/koel/some-file.mp3',
+            originalFileName: 'some-file.mp3',
         );
 
         $storage->expects('storeUploadedFile')->with($file, $uploader)->andReturn($reference);
         $this->duplicateUploadService->expects('detectDuplicate');
 
-        $this->scanner->expects('scan')->with('/var/media/koel/some-file.mp3')->andReturn($scanInfo);
+        $this->scanner->expects('scan')->with('/var/media/koel/some-file.mp3', 'some-file.mp3')->andReturn($scanInfo);
 
         $this->songService
             ->expects('createOrUpdateSongFromScan')
@@ -72,6 +91,7 @@ class UploadServiceTest extends TestCase
         $result = $this->makeService($storage)->handleUpload($file, $uploader);
 
         self::assertTrue($song->is($result));
+        $this->librarySummaryService->shouldHaveReceived('markLibraryChanged');
     }
 
     #[Test]
@@ -86,11 +106,15 @@ class UploadServiceTest extends TestCase
             'storage' => SongStorageType::LOCAL,
         ]);
 
-        $reference = UploadReference::make(location: 's3://koel/some-file.mp3', localPath: '/tmp/some-tmp-file.mp3');
+        $reference = UploadReference::make(
+            location: 's3://koel/some-file.mp3',
+            localPath: '/tmp/some-tmp-file.mp3',
+            originalFileName: 'some-tmp-file.mp3',
+        );
 
         $storage->expects('storeUploadedFile')->with($file, $uploader)->andReturn($reference);
         $this->duplicateUploadService->expects('detectDuplicate');
-        $this->scanner->expects('scan')->with('/tmp/some-tmp-file.mp3')->andReturn($scanInfo);
+        $this->scanner->expects('scan')->with('/tmp/some-tmp-file.mp3', 'some-tmp-file.mp3')->andReturn($scanInfo);
         $this->songService->expects('createOrUpdateSongFromScan')->andReturn($song);
 
         $result = $this->makeService($storage)->handleUpload($file, $uploader);
@@ -98,6 +122,46 @@ class UploadServiceTest extends TestCase
         self::assertTrue($song->is($result));
         self::assertSame('s3://koel/some-file.mp3', $song->path);
         self::assertSame(SongStorageType::S3, $song->storage);
+    }
+
+    #[Test]
+    public function transcodeAndAnalyzeTheTemporaryCopyBeforeDeletingIt(): void
+    {
+        /** @var SongStorage|MustDeleteTemporaryLocalFileAfterUpload|MockInterface $storage */
+        $storage = Mockery::mock(SongStorage::class . ',' . MustDeleteTemporaryLocalFileAfterUpload::class, [
+            'getStorageType' => SongStorageType::S3,
+        ]);
+        $song = Song::factory()->createOne();
+        $reference = UploadReference::make(
+            location: 's3://koel/song.flac',
+            localPath: '/tmp/song.flac',
+            originalFileName: 'song.flac',
+        );
+
+        $storage->expects('storeUploadedFile')->andReturn($reference);
+        $this->duplicateUploadService->expects('detectDuplicate');
+        $this->scanner->expects('scan')->andReturn(ScanInformation::make(path: '/tmp/song.flac'));
+        $this->songService->expects('createOrUpdateSongFromScan')->andReturn($song);
+
+        $transcodeOnScan = Mockery::mock(TranscodeOnScan::class);
+        $transcodeOnScan->expects('transcodeSongIfNeeded')->with($song, '/tmp/song.flac')->globally()->ordered();
+        $analyzeAudioOnScan = Mockery::mock(AnalyzeAudioOnScan::class);
+        $analyzeAudioOnScan->expects('analyzeSongIfEnabled')->with($song)->globally()->ordered();
+        File::expects('delete')->with('/tmp/song.flac')->globally()->ordered();
+
+        $service = new UploadService(
+            $this->songService,
+            $storage,
+            $this->scanner,
+            $this->duplicateUploadService,
+            $transcodeOnScan,
+            $analyzeAudioOnScan,
+            $this->librarySummaryService,
+            app(SongRepository::class),
+            app(DuplicateUploadRepository::class),
+        );
+
+        $service->handleUpload('/tmp/song.flac', create_user());
     }
 
     #[Test]
@@ -113,7 +177,11 @@ class UploadServiceTest extends TestCase
         $file = '/tmp/some-tmp-file.mp3';
         $uploader = create_user();
 
-        $reference = UploadReference::make(location: 's3://koel/some-file.mp3', localPath: '/tmp/some-tmp-file.mp3');
+        $reference = UploadReference::make(
+            location: 's3://koel/some-file.mp3',
+            localPath: '/tmp/some-tmp-file.mp3',
+            originalFileName: 'some-tmp-file.mp3',
+        );
 
         $storage->expects('storeUploadedFile')->andReturn($reference);
         $this->duplicateUploadService->expects('detectDuplicate');
@@ -136,6 +204,7 @@ class UploadServiceTest extends TestCase
         $reference = UploadReference::make(
             location: '/var/media/koel/some-file.mp3',
             localPath: '/var/media/koel/some-file.mp3',
+            originalFileName: 'some-file.mp3',
         );
 
         $storage->expects('storeUploadedFile')->with($file, $uploader)->andReturn($reference);
@@ -156,7 +225,7 @@ class UploadServiceTest extends TestCase
         $file = '/tmp/some-file.mp3';
         $uploader = create_user();
 
-        $reference = UploadReference::make(location: $file, localPath: $file);
+        $reference = UploadReference::make(location: $file, localPath: $file, originalFileName: basename($file));
 
         $storage->expects('storeUploadedFile')->with($file, $uploader)->andReturn($reference);
         $this->duplicateUploadService

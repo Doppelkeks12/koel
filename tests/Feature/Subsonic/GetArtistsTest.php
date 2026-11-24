@@ -4,6 +4,7 @@ namespace Tests\Feature\Subsonic;
 
 use App\Models\Album;
 use App\Models\Artist;
+use App\Models\Song;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -47,17 +48,50 @@ class GetArtistsTest extends TestCase
     }
 
     #[Test]
-    public function excludesArtistsWithoutAlbums(): void
+    public function albumCountIncludesCompilationsTheArtistAppearsOn(): void
+    {
+        $artist = self::createArtistWithOwnAlbumAndACompilationAppearance();
+
+        $response = $this->getJson("/rest/getArtists.view?apiKey={$artist->user->subsonic_api_key}&f=json")->assertOk();
+
+        $listedArtist = collect($response->json('subsonic-response.artists.index'))
+            ->flatMap(static fn (array $index) => $index['artist'])
+            ->firstWhere('id', $artist->id);
+
+        self::assertSame(2, $listedArtist['albumCount']);
+    }
+
+    #[Test]
+    public function coverArtFallsBackToAlbumCoversForArtistsWithoutAnImage(): void
     {
         $user = create_user();
+        $artistWithAlbumCover = Artist::factory()->for($user)->createOne(['image' => '']);
+        $artistWithoutAnyCover = Artist::factory()->for($user)->createOne(['image' => '']);
 
-        Artist::factory()->createOne(['name' => 'Lonely', 'user_id' => $user->id]);
+        Album::factory()->for($artistWithAlbumCover)->for($user)->createOne();
+        Album::factory()->for($artistWithoutAnyCover)->for($user)->createOne(['cover' => '']);
 
-        $response = $this->getJson('/rest/getArtists.view?apiKey=' . $user->subsonic_api_key . '&f=json')->assertOk();
+        $response = $this->getJson("/rest/getArtists.view?apiKey={$user->subsonic_api_key}&f=json")->assertOk();
 
-        $names = collect($response->json('subsonic-response.artists.index') ?? [])
-            ->flatMap(static fn (array $idx) => array_column($idx['artist'], 'name'));
+        $listedArtists = collect($response->json('subsonic-response.artists.index'))
+            ->flatMap(static fn (array $index) => $index['artist'])
+            ->keyBy('id');
 
-        self::assertFalse($names->contains('Lonely'));
+        self::assertSame($artistWithAlbumCover->id, $listedArtists[$artistWithAlbumCover->id]['coverArt']);
+        self::assertArrayNotHasKey('coverArt', $listedArtists[$artistWithoutAnyCover->id]);
+    }
+
+    private static function createArtistWithOwnAlbumAndACompilationAppearance(): Artist
+    {
+        $artist = Artist::factory()->createOne(['name' => 'Tool']);
+        Album::factory()->for($artist)->createOne();
+
+        $compilation = Album::factory()->for(Artist::factory()->createOne([
+            'name' => Artist::VARIOUS_NAME,
+        ]))->createOne();
+
+        Song::factory()->for($compilation)->for($artist)->createMany(2);
+
+        return $artist;
     }
 }

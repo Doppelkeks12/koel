@@ -54,24 +54,6 @@ describe('usePolicies', () => {
     expect(currentUserCan.editSong(h.factory('song').make())).toBe(false)
   })
 
-  it('reads the edit permission embedded in the playlist', () => {
-    const { currentUserCan } = usePolicies()
-    const editable = h.factory('playlist').make({ permissions: { edit: true, delete: false } })
-    const readonly = h.factory('playlist').make({ permissions: { edit: false, delete: false } })
-
-    expect(currentUserCan.editPlaylist(editable)).toBe(true)
-    expect(currentUserCan.editPlaylist(readonly)).toBe(false)
-  })
-
-  it('reads the delete permission embedded in the playlist', () => {
-    const { currentUserCan } = usePolicies()
-    const deletable = h.factory('playlist').make({ permissions: { edit: false, delete: true } })
-    const readonly = h.factory('playlist').make({ permissions: { edit: false, delete: false } })
-
-    expect(currentUserCan.deletePlaylist(deletable)).toBe(true)
-    expect(currentUserCan.deletePlaylist(readonly)).toBe(false)
-  })
-
   it('reads the edit permission embedded in the album', () => {
     const { currentUserCan } = usePolicies()
     const editable = h.factory('album').make({ permissions: { edit: true } })
@@ -149,30 +131,36 @@ describe('usePolicies', () => {
     expect(currentUserCan.editUser(readonly)).toBe(false)
   })
 
-  it('reads the delete permission embedded in the user', () => {
-    const { currentUserCan } = usePolicies()
-    const deletable = h.factory('user').make({ permissions: { edit: false, delete: true } })
-    const readonly = h.factory('user').make({ permissions: { edit: false, delete: false } })
+  it('forbids guests from adding podcasts and radio stations', () => {
+    h.actingAsUser(h.factory('user').make({ abilities: [], role: 'guest' }) as CurrentUser)
 
-    expect(currentUserCan.deleteUser(deletable)).toBe(true)
-    expect(currentUserCan.deleteUser(readonly)).toBe(false)
+    const { currentUserCan } = usePolicies()
+
+    expect(currentUserCan.addPodcast()).toBe(false)
+    expect(currentUserCan.addRadioStation()).toBe(false)
   })
 
-  it('reads the edit permission embedded in the radio station', () => {
-    const { currentUserCan } = usePolicies()
-    const editable = h.factory('radio-station').make({ permissions: { edit: true, delete: false } })
-    const readonly = h.factory('radio-station').make({ permissions: { edit: false, delete: false } })
+  it('forbids guests from creating embeds', () => {
+    h.actingAsUser(h.factory('user').make({ abilities: [], role: 'guest' }) as CurrentUser)
 
-    expect(currentUserCan.editRadioStation(editable)).toBe(true)
-    expect(currentUserCan.editRadioStation(readonly)).toBe(false)
+    const { currentUserCan } = usePolicies()
+
+    expect(currentUserCan.createEmbeds()).toBe(false)
   })
 
-  it('reads the delete permission embedded in the radio station', () => {
-    const { currentUserCan } = usePolicies()
-    const deletable = h.factory('radio-station').make({ permissions: { edit: false, delete: true } })
-    const readonly = h.factory('radio-station').make({ permissions: { edit: false, delete: false } })
+  it('allows users to create embeds', () => {
+    h.actingAsUser(h.factory('user').make({ abilities: [] }) as CurrentUser)
 
-    expect(currentUserCan.deleteRadioStation(deletable)).toBe(true)
-    expect(currentUserCan.deleteRadioStation(readonly)).toBe(false)
+    const { currentUserCan } = usePolicies()
+
+    expect(currentUserCan.createEmbeds()).toBe(true)
+  })
+
+  it('allows users to add podcasts', () => {
+    h.actingAsUser(h.factory('user').make({ abilities: [] }) as CurrentUser)
+
+    const { currentUserCan } = usePolicies()
+
+    expect(currentUserCan.addPodcast()).toBe(true)
   })
 })

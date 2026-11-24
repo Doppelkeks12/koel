@@ -1,7 +1,7 @@
 <template>
   <ScreenBase>
     <template #header>
-      <ScreenHeader :layout="playables.length === 0 ? 'collapsed' : headerLayout">
+      <ScreenHeader :layout="playables.length === 0 ? 'collapsed' : 'expanded'">
         Your Favorites
 
         <template #thumbnail>
@@ -11,19 +11,6 @@
         <template v-if="playables.length" #meta>
           <span>{{ pluralize(playables, 'item') }}</span>
           <span>{{ duration }}</span>
-
-          <a
-            v-if="downloadable"
-            class="download"
-            role="button"
-            title="Download all favorites"
-            @click.prevent="download"
-          >
-            Download All
-          </a>
-          <a v-if="canToggleOffline" role="button" @click.prevent="toggleOffline">
-            {{ allCached ? 'Remove Offline' : 'Make Offline' }}
-          </a>
         </template>
 
         <template #controls>
@@ -33,7 +20,12 @@
             @filter="applyFilter"
             @play-all="playAll"
             @play-selected="playSelected"
-          />
+          >
+            <Btn v-if="hasMoreActions" variant="ghost" @click="requestContextMenu">
+              <Icon :icon="faEllipsis" fixed-width />
+              <span class="sr-only">More Actions</span>
+            </Btn>
+          </PlayableListControls>
         </template>
       </ScreenHeader>
     </template>
@@ -47,7 +39,6 @@
       @sort="sort"
       @press:delete="removeSelected"
       @press:enter="onPressEnter"
-      @swipe="onSwipe"
     />
 
     <ScreenEmptyState v-else>
@@ -64,30 +55,34 @@
 </template>
 
 <script lang="ts" setup>
-import { faHeartBroken } from '@fortawesome/free-solid-svg-icons'
+import { faEllipsis, faHeartBroken } from '@fortawesome/free-solid-svg-icons'
 import { faHeart } from '@fortawesome/free-regular-svg-icons'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { pluralize } from '@/utils/formatters'
+import { defineAsyncComponent } from '@/utils/helpers'
+import { commonStore } from '@/stores/commonStore'
 import { playableStore } from '@/stores/playableStore'
-import { useDownload } from '@/composables/useDownload'
 import { useOfflinePlayback } from '@/composables/useOfflinePlayback'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useRouter } from '@/composables/useRouter'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { usePersistedSort } from '@/composables/usePersistedSort'
+import { useContextMenu } from '@/composables/useContextMenu'
+import { usePolicies } from '@/composables/usePolicies'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
 import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
 import ScreenBase from '@/components/screens/ScreenBase.vue'
 import PlayableListSkeleton from '@/components/playable/playable-list/PlayableListSkeleton.vue'
+import Btn from '@/components/ui/form/Btn.vue'
+
+const ContextMenu = defineAsyncComponent(() => import('@/components/playable/FavoritesContextMenu.vue'))
 
 const allPlayables = ref<Playable[]>([])
 
 const {
   PlayableList,
   ThumbnailStack,
-  headerLayout,
   playables,
   playableList,
   duration,
@@ -98,7 +93,6 @@ const {
   playAll,
   playSelected,
   applyFilter,
-  onSwipe,
   sort: baseSort,
   config: listConfig,
 } = usePlayableList(allPlayables, { type: 'Favorites' })
@@ -107,25 +101,20 @@ listConfig.reorderable = true
 listConfig.hasCustomOrderSort = true
 
 const { PlayableListControls, config } = usePlayableListControls('Favorites')
-const { get: lsGet, set: lsSet } = useLocalStorage()
+const { getSavedSort, saveSort } = usePersistedSort('favorites', 'position')
 
-const { fromFavorites } = useDownload()
-const download = () => fromFavorites()
 const removeSelected = () => selectedPlayables.value.length && playableStore.undoFavorite(selectedPlayables.value)
 
-const { swReady, makePlayablesAvailableOffline, removePlayablesOfflineCache, allPlayablesCached } = useOfflinePlayback()
-const canToggleOffline = computed(() => swReady.value && playables.value.length > 0)
-const allCached = computed(() => allPlayablesCached(playables.value))
+const { swReady, hasOfflineCapablePlayables } = useOfflinePlayback()
+const canToggleOffline = computed(() => swReady.value && hasOfflineCapablePlayables(playables.value))
+const { currentUserCan } = usePolicies()
+const canEmbed = computed(() => commonStore.state.allows_embedding && currentUserCan.createEmbeds())
+const hasMoreActions = computed(() => downloadable.value || canToggleOffline.value || canEmbed.value)
 
-const toggleOffline = () => {
-  if (allCached.value) {
-    removePlayablesOfflineCache(playables.value)
-    useMessageToaster().toastSuccess('Removed offline versions for favorites.')
-  } else {
-    makePlayablesAvailableOffline(playables.value)
-    useMessageToaster().toastSuccess(`Making ${pluralize(playables.value, 'song')} available offline…`)
-  }
-}
+const { openContextMenu } = useContextMenu()
+
+const requestContextMenu = (event: MouseEvent) =>
+  openContextMenu<'FAVORITES'>(ContextMenu, event, { playables: playables.value })
 
 let initialized = false
 const loading = ref(false)
@@ -134,12 +123,9 @@ const fetchFavorites = async () => {
   try {
     loading.value = true
     await playableStore.fetchFavorites()
-    // Keep a direct reference to the store's favorites array so in-place reorder mutations are reflected in the UI
-    allPlayables.value = playableStore.state.favorites
 
-    const restoredField = lsGet<PlayableListSortField>('favorites-sort-field', 'position')!
-    const restoredOrder = lsGet<SortOrder>('favorites-sort-order', 'asc')!
-    sort(restoredField, restoredOrder)
+    const { sortField, sortOrder } = getSavedSort()
+    sort(sortField, sortOrder)
   } finally {
     loading.value = false
   }
@@ -148,8 +134,7 @@ const fetchFavorites = async () => {
 const sort = (field: MaybeArray<PlayableListSortField> | null, order: SortOrder) => {
   listConfig.reorderable = field === 'position'
 
-  lsSet('favorites-sort-field', field)
-  lsSet('favorites-sort-order', order)
+  saveSort(field, order)
 
   baseSort(field, order)
 
@@ -162,6 +147,14 @@ const sort = (field: MaybeArray<PlayableListSortField> | null, order: SortOrder)
 const onReorder = (target: Playable, placement: Placement) => {
   playableStore.moveFavoritesInList(selectedPlayables.value, target, placement)
 }
+
+watch(
+  () => playableStore.state.favorites,
+  favorites => {
+    allPlayables.value = favorites
+  },
+  { immediate: true },
+)
 
 useRouter().onScreenActivated('Favorites', async () => {
   if (!initialized) {

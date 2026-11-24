@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 import { fireEvent, screen, waitFor } from '@testing-library/vue'
 import { createHarness } from '@/__tests__/TestHarness'
-import { MessageToasterStub } from '@/__tests__/stubs'
 import { userStore } from '@/stores/userStore'
 import Component from './AddUserForm.vue'
 
@@ -26,13 +25,11 @@ describe('addUserForm.vue', () => {
       }),
     )
 
-    const toasterMock = h.mock(MessageToasterStub.value, 'success')
-
     renderComponent()
 
     await h.type(screen.getByRole('textbox', { name: 'name' }), 'John Doe')
     await h.type(screen.getByRole('textbox', { name: 'email' }), 'john@doe.com')
-    await h.type(screen.getByTitle('Password'), 'secret-password')
+    await h.type(screen.getByLabelText('Password'), 'secret-password')
     await fireEvent.update(screen.getByTestId('role-picker'), 'admin')
     await h.user.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -43,8 +40,6 @@ describe('addUserForm.vue', () => {
         password: 'secret-password',
         role: 'admin',
       })
-
-      expect(toasterMock).toHaveBeenCalledWith('New user "John Doe" created.')
     })
   })
 })

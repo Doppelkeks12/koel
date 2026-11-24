@@ -1,7 +1,7 @@
 <template>
   <ScreenBase v-if="playlistId" :background-image="playlist?.cover || thumbnails[0]">
     <template #header>
-      <ScreenHeader v-if="playlist" :disabled="loading" :layout="allPlayables.length ? headerLayout : 'collapsed'">
+      <ScreenHeader v-if="playlist" :disabled="loading" :layout="allPlayables.length ? 'expanded' : 'collapsed'">
         {{ playlist.name }}
         <p v-if="playlist.description" class="text-base text-k-fg-70 font-light">
           {{ playlist.description }}
@@ -16,6 +16,9 @@
         <template v-if="filteredPlayables.length || playlist.is_collaborative" #meta>
           <CollaboratorsBadge v-if="collaborators.length" :collaborators />
           <span>{{ pluralize(filteredPlayables, 'item') }}</span>
+          <span v-if="showsFirstSmartPlaylistMatchesOnly" data-testid="smart-playlist-limit-notice">
+            First {{ SMART_PLAYLIST_MATCH_LIMIT }} matches
+          </span>
           <span>{{ duration }}</span>
         </template>
 
@@ -46,7 +49,6 @@
         @sort="sort"
         @press:delete="removeSelected"
         @press:enter="onPressEnter"
-        @swipe="onSwipe"
       />
 
       <ScreenEmptyState v-else>
@@ -57,7 +59,7 @@
         <template v-if="playlist?.is_smart">
           <p>
             No songs match the playlist's
-            <a class="inline" @click.prevent="editPlaylist">criteria</a>.
+            <LinkButton class="inline" variant="highlight" @click.prevent="editPlaylist">criteria</LinkButton>.
           </p>
         </template>
         <template v-else>
@@ -74,8 +76,7 @@
 <script lang="ts" setup>
 import { faFile } from '@fortawesome/free-regular-svg-icons'
 import { faEllipsis } from '@fortawesome/free-solid-svg-icons'
-import { differenceBy } from 'lodash-es'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { eventBus } from '@/utils/eventBus'
 import { pluralize } from '@/utils/formatters'
 import { playlistStore } from '@/stores/playlistStore'
@@ -83,11 +84,12 @@ import { playableStore } from '@/stores/playableStore'
 import { playlistCollaborationService } from '@/services/playlistCollaborationService'
 import { defineAsyncComponent } from '@/utils/helpers'
 import { useRouter } from '@/composables/useRouter'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { usePlaylistContentManagement } from '@/composables/usePlaylistContentManagement'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { usePersistedSort } from '@/composables/usePersistedSort'
 import { useContextMenu } from '@/composables/useContextMenu'
 import { useModal } from '@/composables/useModal'
 
@@ -99,6 +101,7 @@ import ScreenBase from '@/components/screens/ScreenBase.vue'
 import ScreenHeaderSkeleton from '@/components/ui/ScreenHeaderSkeleton.vue'
 import PlayableListSkeleton from '@/components/playable/playable-list/PlayableListSkeleton.vue'
 import Btn from '@/components/ui/form/Btn.vue'
+import LinkButton from '@/components/ui/form/LinkButton.vue'
 
 const ContextMenu = defineAsyncComponent(() => import('@/components/playlist/PlaylistContextMenu.vue'))
 const EditPlaylistForm = defineAsyncComponent(() => import('@/components/playlist/EditPlaylistForm.vue'))
@@ -118,21 +121,25 @@ interface PlaylistScreenState {
 const { triggerNotFound, getRouteParam, onScreenActivated, go, url } = useRouter()
 const { openContextMenu } = useContextMenu()
 const { openModal } = useModal()
-const { get: lsGet, set: lsSet } = useLocalStorage()
 
 const states = new Map<Playlist['id'], PlaylistScreenState>()
 
-const blankState = (id?: Playlist['id']): PlaylistScreenState => {
+const playlistId = ref<Playlist['id']>()
+const { getSavedSort, saveSort } = usePersistedSort(() => `playlist-${playlistId.value}`, null)
+
+const blankState = (): PlaylistScreenState => {
   return {
     filterKeywords: '',
-    sortField: id ? (lsGet<PlayableListSortField>(`playlist-${id}-sort-field`) ?? null) : null,
-    sortOrder: id ? lsGet<SortOrder>(`playlist-${id}-sort-order`, 'asc')! : 'asc',
+    sortField: null,
+    sortOrder: 'asc',
   }
 }
 
-const getState = (id: Playlist['id']) => {
+const getCurrentPlaylistState = () => {
+  const id = playlistId.value!
+
   if (!states.has(id)) {
-    states.set(id, blankState(id))
+    states.set(id, { filterKeywords: '', ...getSavedSort() })
   }
 
   return states.get(id)!
@@ -142,14 +149,20 @@ let currentState = blankState()
 const allPlayables = ref<Playable[]>([])
 const collaborators = ref<PlaylistCollaborator[]>([])
 
-const playlistId = ref<Playlist['id']>()
 const playlist = ref<Playlist>()
 const loading = ref(false)
+
+const SMART_PLAYLIST_MATCH_LIMIT = 500
+
+const showsFirstSmartPlaylistMatchesOnly = computed(
+  () => playlist.value?.is_smart && allPlayables.value.length >= SMART_PLAYLIST_MATCH_LIMIT,
+)
+
+usePageTitle().useScreenTitle('Playlist', () => playlist.value?.name)
 
 const {
   PlayableList,
   ThumbnailStack,
-  headerLayout,
   playables: filteredPlayables,
   playableList,
   duration,
@@ -160,7 +173,6 @@ const {
   onPressEnter,
   playAll,
   playSelected,
-  onSwipe,
   sort: baseSort,
   config: listConfig,
 } = usePlayableList(allPlayables, { type: 'Playlist' })
@@ -180,8 +192,7 @@ const sort = (field: MaybeArray<PlayableListSortField> | null, order: SortOrder)
   currentState.sortOrder = order
 
   if (playlistId.value) {
-    lsSet(`playlist-${playlistId.value}-sort-field`, field)
-    lsSet(`playlist-${playlistId.value}-sort-order`, order)
+    saveSort(field, order)
   }
 
   // We always call the base sort function, which will handle the actual sorting logic.
@@ -205,23 +216,30 @@ const editPlaylist = () => {
 const removeSelected = async () => await removeFromPlaylist(playlist.value!, selectedPlayables.value)
 
 const fetchDetails = async (refresh = false) => {
-  if (loading.value) {
-    return
-  }
+  const requestedPlaylist = playlist.value!
 
   try {
     loading.value = true
 
-    ;[allPlayables.value, collaborators.value] = await Promise.all([
-      playableStore.fetchForPlaylist(playlist.value!, refresh),
-      playlist.value!.is_collaborative
-        ? playlistCollaborationService.fetchCollaborators(playlist.value!)
+    const [playables, playlistCollaborators] = await Promise.all([
+      playableStore.fetchForPlaylist(requestedPlaylist, refresh),
+      requestedPlaylist.is_collaborative
+        ? playlistCollaborationService.fetchCollaborators(requestedPlaylist)
         : Promise.resolve<PlaylistCollaborator[]>([]),
     ])
+
+    if (requestedPlaylist !== playlist.value) {
+      return
+    }
+
+    allPlayables.value = playables
+    collaborators.value = playlistCollaborators
   } catch (error: unknown) {
     useErrorHandler().handleHttpError(error)
   } finally {
-    loading.value = false
+    if (requestedPlaylist === playlist.value) {
+      loading.value = false
+    }
   }
 }
 
@@ -248,12 +266,12 @@ watch(playlistId, async id => {
   // Make sure this value isn't shared among different playlists.
   selectedPlayables.value = []
 
-  currentState = getState(id)
+  currentState = getCurrentPlaylistState()
 
   // (re)apply the filter based on the current state's keywords
   filterKeywords.value = currentState.filterKeywords
 
-  await fetchDetails()
+  await fetchDetails(playlist.value.is_smart)
 
   listConfig.reorderable = currentState.sortField === 'position'
   listConfig.collaborative = playlist.value.is_collaborative
@@ -265,7 +283,15 @@ watch(playlistId, async id => {
   sort(currentState.sortField, currentState.sortOrder)
 })
 
-onScreenActivated('Playlist', () => (playlistId.value = getRouteParam('id')!))
+onScreenActivated('Playlist', () => {
+  const id = getRouteParam('id')!
+
+  if (id === playlistId.value && playlist.value?.is_smart) {
+    fetchDetails(true)
+  }
+
+  playlistId.value = id
+})
 
 const requestContextMenu = (event: MouseEvent) =>
   openContextMenu<'PLAYLIST'>(ContextMenu, event, {
@@ -275,9 +301,9 @@ const requestContextMenu = (event: MouseEvent) =>
 eventBus
   .on('PLAYLIST_UPDATED', async ({ id }) => id === playlistId.value && (await fetchDetails()))
   .on('PLAYLIST_COLLABORATOR_REMOVED', async ({ id }) => id === playlistId.value && (await fetchDetails()))
-  .on('PLAYLIST_CONTENT_REMOVED', async ({ id }, removed) => {
+  .on('PLAYLIST_CONTENT_REMOVED', async ({ id }) => {
     if (id === playlistId.value) {
-      allPlayables.value = differenceBy(allPlayables.value, removed, 'id')
+      allPlayables.value = playlist.value!.playables!
     }
   })
   .on('PLAYLIST_DELETED', async ({ id }) => id === playlistId.value && go(url('home')))

@@ -26,6 +26,7 @@ vi.mock('@/services/authService', () => ({
   },
 }))
 
+import PusherLib from 'pusher-js'
 import { socketService } from './socketService'
 import { userStore } from '@/stores/userStore'
 
@@ -41,10 +42,47 @@ describe('socketService', () => {
   it('inits with a Pusher app key', async () => {
     window.KOEL.pusher = { app_key: 'test-key', app_cluster: 'mt1' }
     window.KOEL.base_url = 'http://localhost/'
+    const user = h.factory('user').make() as CurrentUser
+    userStore.state.current = user
 
     const result = await socketService.init()
     expect(result).toBe(true)
-    expect(mockPusherInstance.subscribe).toHaveBeenCalledWith('private-koel')
+    expect(mockPusherInstance.subscribe).toHaveBeenCalledWith(`private-koel.${user.id}`)
+
+    expect(PusherLib).toHaveBeenCalledWith('test-key', {
+      cluster: 'mt1',
+      forceTLS: true,
+      channelAuthorization: {
+        endpoint: 'http://localhost/api/broadcasting/auth',
+        transport: 'ajax',
+        headers: { Authorization: 'Bearer test-token' },
+      },
+    })
+  })
+
+  it('inits with a self-hosted Reverb server', async () => {
+    window.KOEL.reverb = { app_key: 'reverb-key', host: 'ws.example.com', port: 443, tls: true }
+    window.KOEL.base_url = 'http://localhost/'
+    userStore.state.current = h.factory('user').make() as CurrentUser
+
+    const result = await socketService.init()
+    expect(result).toBe(true)
+
+    expect(PusherLib).toHaveBeenCalledWith('reverb-key', {
+      cluster: '',
+      wsHost: 'ws.example.com',
+      wsPort: 443,
+      wssPort: 443,
+      forceTLS: true,
+      enabledTransports: ['ws', 'wss'],
+      channelAuthorization: {
+        endpoint: 'http://localhost/api/broadcasting/auth',
+        transport: 'ajax',
+        headers: { Authorization: 'Bearer test-token' },
+      },
+    })
+
+    window.KOEL.reverb = null
   })
 
   it('broadcasts events', () => {
@@ -52,7 +90,7 @@ describe('socketService', () => {
     userStore.state.current = user
 
     socketService.broadcast('TEST_EVENT', { foo: 'bar' })
-    expect(mockChannel.trigger).toHaveBeenCalledWith(`client-TEST_EVENT.${user.id}`, { foo: 'bar' })
+    expect(mockChannel.trigger).toHaveBeenCalledWith('client-TEST_EVENT', { foo: 'bar' })
   })
 
   it('listens to events', () => {
@@ -61,7 +99,7 @@ describe('socketService', () => {
 
     const cb = vi.fn()
     socketService.listen('TEST_EVENT', cb)
-    expect(mockChannel.bind).toHaveBeenCalledWith(`client-TEST_EVENT.${user.id}`, expect.any(Function))
+    expect(mockChannel.bind).toHaveBeenCalledWith('client-TEST_EVENT', expect.any(Function))
   })
 
   it('returns itself for chaining', () => {

@@ -2,7 +2,7 @@
   <div>
     <article
       :class="{ playing, selected: item.selected }"
-      class="playable-list-item group gap-4 px-4"
+      class="playable-list-item group gap-4 px-6"
       data-testid="playable-embed-item"
       tabindex="0"
       @dblclick.prevent.stop="play"
@@ -10,7 +10,7 @@
       <span class="track-number flex items-center justify-center min-w-5 overflow-hidden">
         <SoundBars v-if="playable.playback_state === 'Playing'" />
         <span v-else>
-          <template v-if="isSong(playable)">{{ playable.track || '' }}</template>
+          <template v-if="isSong(playable)">{{ playable.track_label || playable.track || '' }}</template>
           <Icon v-else :icon="faPodcast" />
         </span>
       </span>
@@ -21,7 +21,7 @@
         <span class="title text-k-fg">{{ playable.title }}</span>
         <span>{{ artist }} - {{ album }}</span>
       </span>
-      <span class="font-mono">{{ fmtLength }}</span>
+      <span class="tabular-nums">{{ fmtLength }}</span>
     </article>
   </div>
 </template>
@@ -32,20 +32,23 @@ import { computed, toRefs } from 'vue'
 import { getPlayableProp } from '@/utils/helpers'
 import { isSong } from '@/utils/typeGuards'
 import { secondsToHis } from '@/utils/formatters'
+import { EMBED_PREVIEW_MAX_SECONDS } from '@/config/audio'
 
 import SoundBars from '@/components/ui/SoundBars.vue'
 import PlayableThumbnail from '@/components/playable/PlayableThumbnail.vue'
 
-const props = defineProps<{ item: PlayableRow }>()
+const props = defineProps<{ item: PlayableRow; preview: boolean }>()
 
 const emit = defineEmits<{ (e: 'play', playable: Playable): void }>()
 
-const { item } = toRefs(props)
+const { item, preview } = toRefs(props)
 
 const playable = computed<Playable>(() => item.value.playable)
 const playing = computed(() => ['Playing', 'Paused'].includes(playable.value.playback_state!))
 
-const fmtLength = secondsToHis(playable.value.length)
+const fmtLength = computed(() =>
+  secondsToHis(preview.value ? Math.min(playable.value.length, EMBED_PREVIEW_MAX_SECONDS) : playable.value.length),
+)
 const artist = computed(() => getPlayableProp(playable.value, 'artist_name', 'podcast_author'))
 const album = computed(() => getPlayableProp(playable.value, 'album_name', 'podcast_title'))
 

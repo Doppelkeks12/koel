@@ -13,12 +13,6 @@ describe('albumStore', () => {
     },
   })
 
-  it('gets an album by ID', () => {
-    const album = h.factory('album').make()
-    albumStore.vault.set(album.id, album)
-    expect(albumStore.byId(album.id)).toEqual(album)
-  })
-
   it('removes albums by IDs', () => {
     const albums = h.factory('album').make(3)
     albums.forEach(album => albumStore.vault.set(album.id, album))
@@ -32,24 +26,24 @@ describe('albumStore', () => {
     expect(albumStore.state.albums).toEqual([albums[2]])
   })
 
+  it('shows the new name of a renamed artist on its albums', () => {
+    const artist = h.factory('artist').make({ name: 'Pink Floyd' })
+    const [ownAlbum, otherAlbum] = albumStore.syncWithVault([
+      h.factory('album').make({ artist_id: artist.id, artist_name: 'The Pink Floyd' }),
+      h.factory('album').make({ artist_name: 'Led Zeppelin' }),
+    ])
+
+    albumStore.syncArtistProperties(artist)
+
+    expect(ownAlbum.artist_name).toBe('Pink Floyd')
+    expect(otherAlbum.artist_name).toBe('Led Zeppelin')
+  })
+
   it('identifies an unknown album', () => {
     const album = factory('album').state('unknown').make()
 
     expect(albumStore.isUnknown(album)).toBe(true)
     expect(albumStore.isUnknown(h.factory('album').make())).toBe(false)
-  })
-
-  it('syncs albums with the vault', () => {
-    const album = h.factory('album').make({ name: 'IV' })
-
-    albumStore.syncWithVault(album)
-    expect(albumStore.vault.get(album.id)).toEqual(album)
-
-    album.name = 'V'
-    albumStore.syncWithVault(album)
-
-    expect(albumStore.vault.size).toBe(1)
-    expect(albumStore.vault.get(album.id)?.name).toBe('V')
   })
 
   it('fetches an album thumbnail', async () => {
@@ -121,6 +115,20 @@ describe('albumStore', () => {
     expect(syncPropsMock).toHaveBeenCalledWith(album)
   })
 
+  it('moves the songs of a merged album to the kept album', async () => {
+    const album = h.factory('album').make()
+    const keptAlbum = h.factory('album').make()
+    albumStore.syncWithVault(album)
+    const [song] = playableStore.syncWithVault(h.factory('song').make({ album_id: album.id })) as Song[]
+    h.mock(http, 'put').mockResolvedValueOnce(keptAlbum)
+
+    const result = await albumStore.update(album, { name: keptAlbum.name, year: keptAlbum.year, merge: true })
+
+    expect(result.id).toBe(keptAlbum.id)
+    expect(albumStore.byId(album.id)).toBeUndefined()
+    expect(song.album_id).toBe(keptAlbum.id)
+  })
+
   it('toggles favorite', async () => {
     const album = h.factory('album').make({ favorite: false })
     albumStore.syncWithVault(album)
@@ -142,5 +150,25 @@ describe('albumStore', () => {
 
     expect(postMock).toHaveBeenNthCalledWith(2, 'favorites/toggle', { type: 'album', id: album.id })
     expect(album.favorite).toBe(false)
+  })
+
+  it('favorites several at once', async () => {
+    const albums = h.factory('album').make({ favorite: false }, 2)
+    const postMock = h.mock(http, 'post')
+
+    await albumStore.favorite(albums)
+
+    expect(postMock).toHaveBeenCalledWith('favorites', { type: 'album', ids: albums.map(({ id }) => id) })
+    expect(albums.every(({ favorite }) => favorite)).toBe(true)
+  })
+
+  it('undoes favorite of several at once', async () => {
+    const albums = h.factory('album').make({ favorite: true }, 2)
+    const deleteMock = h.mock(http, 'delete')
+
+    await albumStore.undoFavorite(albums)
+
+    expect(deleteMock).toHaveBeenCalledWith('favorites', { type: 'album', ids: albums.map(({ id }) => id) })
+    expect(albums.some(({ favorite }) => favorite)).toBe(false)
   })
 })

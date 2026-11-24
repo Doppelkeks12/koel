@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\API\Playlist;
 
+use App\Http\Requests\API\Playlist\Concerns\ValidatesPlaylistFolder;
 use App\Http\Requests\API\Request;
-use App\Models\PlaylistFolder;
 use App\Rules\AllPlayablesAreAccessibleBy;
 use App\Rules\ValidImageData;
 use App\Rules\ValidSmartPlaylistRulePayload;
@@ -23,22 +23,18 @@ use Illuminate\Validation\Rule;
  */
 class PlaylistStoreRequest extends Request
 {
+    use ValidatesPlaylistFolder;
+
     /** @inheritdoc */
     public function rules(): array
     {
         return [
-            'name' => 'required',
-            'songs' => ['array', new AllPlayablesAreAccessibleBy($this->user())],
-            'description' => ['string', 'sometimes', 'nullable'], // backward compatibility for mobile apps
-            'rules' => ['array', 'nullable', new ValidSmartPlaylistRulePayload()],
-            'folder_id' => [
-                'nullable',
-                'sometimes',
-                'prohibits:folder_name',
-                Rule::exists(PlaylistFolder::class, 'id')->where('user_id', $this->user()->id),
-            ],
-            'folder_name' => ['nullable', 'sometimes', 'prohibits:folder_id', 'string', 'max:191'],
-            'cover' => ['sometimes', 'nullable', new ValidImageData()],
+            'name' => [Rule::required()],
+            'songs' => [Rule::array(), new AllPlayablesAreAccessibleBy($this->user())],
+            'description' => [Rule::string(), Rule::sometimes(), Rule::nullable()], // backward compatibility for mobile apps
+            'rules' => [Rule::array(), Rule::nullable(), new ValidSmartPlaylistRulePayload()],
+            ...$this->playlistFolderRules(),
+            'cover' => [Rule::sometimes(), Rule::nullable(), new ValidImageData()],
         ];
     }
 

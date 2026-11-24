@@ -6,13 +6,14 @@ import EmbedWidgetTrackItem from './EmbedWidgetTrackItem.vue'
 describe('playableEmbedItem.vue', async () => {
   const h = createHarness()
 
-  const renderComponent = (playable: Playable) => {
+  const renderComponent = (playable: Playable, preview = false) => {
     const rendered = h.render(EmbedWidgetTrackItem, {
       props: {
         item: {
           playable,
           selected: false,
         } satisfies PlayableRow,
+        preview,
       },
       global: {
         stubs: {
@@ -27,31 +28,32 @@ describe('playableEmbedItem.vue', async () => {
     }
   }
 
-  it('renders a song', () => {
-    const { html } = renderComponent(
-      h.factory('song').make({
-        title: 'Bohemian Rhapsody',
-        length: 280,
-        artist_name: 'Queen',
-        album_name: 'A Night at the Opera',
-        track: 9,
-      }),
-    )
+  it('shows the track number, artist, and album of a song', () => {
+    const song = h.factory('song').make({ track: 9 })
+    renderComponent(song)
 
-    expect(html()).toMatchSnapshot()
+    screen.getByText('9')
+    screen.getByText(`${song.artist_name} - ${song.album_name}`)
   })
 
-  it('renders a podcast episode', () => {
-    const { html } = renderComponent(
-      h.factory('episode').make({
-        title: 'How to tell people to shut up about Queen',
-        length: 280,
-        podcast_title: 'The Everyday Guide',
-        podcast_author: 'The Everyday Guy',
-      }),
-    )
+  it('shows the vinyl label instead of the track number', () => {
+    renderComponent(h.factory('song').make({ track: 3, track_label: 'B1' }))
 
-    expect(html()).toMatchSnapshot()
+    screen.getByText('B1')
+    expect(screen.queryByText('3')).toBeNull()
+  })
+
+  it('shows the author and podcast of an episode', () => {
+    const episode = h.factory('episode').make()
+    renderComponent(episode)
+
+    screen.getByText(`${episode.podcast_author} - ${episode.podcast_title}`)
+  })
+
+  it('caps the length at 30 seconds in Preview mode', () => {
+    renderComponent(h.factory('song').make({ length: 200 }), true)
+
+    screen.getByText('00:30')
   })
 
   it('emits the play event on double-click', async () => {

@@ -45,6 +45,10 @@ final class SongResource
      *     isVideo: bool,
      *     userRating: ?int,
      *     starred: ?string,
+     *     played: ?string,
+     *     musicBrainzId: ?string,
+     *     displayAlbumArtist: ?string,
+     *     albumArtists: ?array<array{id: string, name: string}>,
      * }
      */
     public static function toArray(Song $song, User $user): array
@@ -70,8 +74,14 @@ final class SongResource
             'type' => 'music',
             'discNumber' => $song->disc ?: null,
             'isVideo' => false,
-            'userRating' => $song->getRatingFor($user) ?: null,
+            'userRating' => (int) ($song->rating ?? 0) ?: null,
             'starred' => $song->favorited_at?->toIso8601String(),
+            'played' => $song->last_played_at?->toIso8601String(),
+            'musicBrainzId' => $song->mbid,
+            'displayAlbumArtist' => $song->album_artist?->name,
+            'albumArtists' => $song->album_artist
+                ? [['id' => $song->album_artist->id, 'name' => $song->album_artist->name]]
+                : null,
         ];
     }
 }

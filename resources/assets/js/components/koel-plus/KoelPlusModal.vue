@@ -1,5 +1,5 @@
 <template>
-  <div class="plus max-w-[480px] flex flex-col items-center" data-testid="koel-plus" tabindex="0">
+  <div class="plus max-w-[480px] flex flex-col items-center" data-testid="koel-plus" tabindex="0" @keydown.esc="close">
     <img
       alt="Koel Plus"
       class="mt-[-48px] rounded-full border-[6px] border-k-fg"
@@ -15,13 +15,15 @@
       </div>
 
       <div v-show="!showingActivateLicenseForm" class="space-x-3" data-testid="buttons">
-        <Btn size="large" variant="destructive" @click.prevent="openPurchaseOverlay">Purchase Koel Plus</Btn>
+        <Btn size="large" variant="destructive" :disabled="openingCheckout" @click.prevent="openPurchaseOverlay">
+          Purchase Koel Plus
+        </Btn>
         <Btn size="large" variant="success" @click.prevent="showActivateLicenseForm">I have a license key</Btn>
       </div>
 
       <div v-if="showingActivateLicenseForm" class="flex gap-3" data-testid="activateForm">
         <ActivateLicenseForm v-if="showingActivateLicenseForm" class="flex-1" />
-        <Btn variant="ghost" class="cancel" @click.prevent="hideActivateLicenseForm">Cancel</Btn>
+        <Btn variant="neutral" class="cancel" @click.prevent="hideActivateLicenseForm">Cancel</Btn>
       </div>
 
       <div class="text-[0.9rem] text-k-fg-70">
@@ -30,33 +32,43 @@
     </main>
 
     <footer class="w-full text-center bg-black/20">
-      <Btn variant="destructive" data-testid="close-modal-btn" rounded @click.prevent="close">Close</Btn>
+      <Btn variant="neutral" data-testid="close-modal-btn" rounded @click.prevent="close">Close</Btn>
     </footer>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useKoelPlus } from '@/composables/useKoelPlus'
+import { useDialogBox } from '@/composables/useDialogBox'
 
 import Btn from '@/components/ui/form/Btn.vue'
 import ActivateLicenseForm from '@/components/koel-plus/ActivateLicenseForm.vue'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-const { checkoutUrl } = useKoelPlus()
+const { checkoutUrl, loadLemonSqueezy } = useKoelPlus()
+const { showErrorDialog } = useDialogBox()
 
 const close = () => emit('close')
 
 const showingActivateLicenseForm = ref(false)
+const openingCheckout = ref(false)
 
-const openPurchaseOverlay = () => {
-  close()
-  window.LemonSqueezy.Url.Open(checkoutUrl.value)
+const openPurchaseOverlay = async () => {
+  openingCheckout.value = true
+
+  try {
+    const lemonSqueezy = await loadLemonSqueezy()
+    lemonSqueezy.Url.Open(checkoutUrl.value)
+    close()
+  } catch {
+    showErrorDialog('Failed to load the checkout. Please try again.')
+  } finally {
+    openingCheckout.value = false
+  }
 }
 
 const showActivateLicenseForm = () => (showingActivateLicenseForm.value = true)
 const hideActivateLicenseForm = () => (showingActivateLicenseForm.value = false)
-
-onMounted(() => window.createLemonSqueezy?.())
 </script>

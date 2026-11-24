@@ -1,16 +1,26 @@
 <template>
   <div class="audio-player" :class="{ loading: isLoading, dragging: isDragging }">
-    <audio id="audio-player" class="hidden" crossorigin="anonymous" />
+    <audio id="audio-player" class="hidden" crossorigin="anonymous" x-webkit-airplay="allow" />
+    <slot :progress />
     <!--
       The hit area is absolutely positioned over the top of the footer,
       extending above and below the visible 4px track for easy clicking.
     -->
     <div
+      :aria-valuemax="durationSeconds"
+      :aria-valuenow="positionSeconds"
+      :aria-valuetext="positionText"
+      aria-label="Seek"
+      aria-valuemin="0"
       class="hit-area"
+      role="slider"
+      tabindex="0"
+      @keydown.home.prevent="seekToStart"
+      @keydown.end.prevent="seekToEnd"
       @pointerdown="onPointerDown"
       @click="onClickSeek"
       @mousemove="onHover"
-      @mouseleave="hoverProgress = 0"
+      @mouseleave="onHoverEnd"
     >
       <div class="track">
         <div class="progress-buffer" :style="{ width: `${bufferProgress}%` }" />
@@ -18,27 +28,56 @@
         <div class="progress-played" :style="{ width: `${progress}%` }" />
       </div>
     </div>
+
+    <template v-if="durationSeconds && hoveredTrackRect">
+      <ProgressTimeTip
+        :track-rect="hoveredTrackRect"
+        :percent="progress"
+        :seconds="positionSeconds"
+        data-testid="playhead-time"
+      />
+      <ProgressTimeTip
+        :track-rect="hoveredTrackRect"
+        :percent="hoverProgress"
+        :seconds="hoverSeconds"
+        data-testid="cursor-time"
+      />
+      <ProgressTimeTip
+        v-if="!nearsTotalTip(progress) && !nearsTotalTip(hoverProgress)"
+        :track-rect="hoveredTrackRect"
+        :percent="100"
+        :seconds="durationSeconds"
+        align="end"
+        data-testid="total-time"
+      />
+    </template>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { onBeforeUnmount, ref } from 'vue'
-import { playback } from '@/services/playbackManager'
-import { crossfadeService } from '@/services/crossfadeService'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { getActiveMedia, playback } from '@/services/playbackManager'
+import { secondsToHis } from '@/utils/formatters'
+
+import ProgressTimeTip from '@/components/layout/app-footer/ProgressTimeTip.vue'
 
 const progress = ref(0)
 const bufferProgress = ref(0)
 const hoverProgress = ref(0)
 const isLoading = ref(false)
 const isDragging = ref(false)
+const positionSeconds = ref(0)
+const durationSeconds = ref(0)
 
-const getActiveMedia = (): HTMLMediaElement | null => {
-  if (crossfadeService.active && crossfadeService.state) {
-    return crossfadeService.state.incomingAudio
-  }
+const hoverSeconds = computed(() => Math.round((hoverProgress.value / 100) * durationSeconds.value))
+const hoveredTrackRect = ref<DOMRect | null>(null)
 
-  return playback('current')?.media ?? null
-}
+const TOTAL_TIP_CLEARANCE_PX = 100
+
+const nearsTotalTip = (percent: number) =>
+  (hoveredTrackRect.value!.width * (100 - percent)) / 100 < TOTAL_TIP_CLEARANCE_PX
+
+const positionText = computed(() => `${secondsToHis(positionSeconds.value)} of ${secondsToHis(durationSeconds.value)}`)
 
 const updateProgress = () => {
   const media = getActiveMedia()
@@ -54,6 +93,11 @@ const updateProgress = () => {
   } else {
     progress.value = 0
   }
+
+  const hasKnownDuration = Number.isFinite(duration) && duration > 0
+
+  positionSeconds.value = hasKnownDuration ? Math.round(currentTime) : 0
+  durationSeconds.value = hasKnownDuration ? Math.round(duration) : 0
 
   // Buffer progress
   if (buffered.length > 0 && duration > 0) {
@@ -80,13 +124,27 @@ const computeRatio = (clientX: number, track: HTMLElement) => {
 
 const seekFromEvent = (e: MouseEvent | PointerEvent) => {
   const service = playback('current')
+  const media = getActiveMedia()
   const targetTrack = trackEl ?? (e.currentTarget as HTMLElement)?.querySelector<HTMLElement>('.track')
 
-  if (!service?.media?.duration || !targetTrack) {
+  if (!service || !media?.duration || !targetTrack) {
     return
   }
 
-  service.seekTo(computeRatio(e.clientX, targetTrack) * service.media.duration)
+  service.seekTo(computeRatio(e.clientX, targetTrack) * media.duration)
+}
+
+const seekToStart = () => playback('current')?.seekTo(0)
+
+const seekToEnd = () => {
+  const service = playback('current')
+  const media = getActiveMedia()
+
+  if (!service || !media?.duration) {
+    return
+  }
+
+  service.seekTo(media.duration)
 }
 
 const onClickSeek = (e: MouseEvent) => {
@@ -138,7 +196,13 @@ const onHover = (e: MouseEvent) => {
   }
 
   const track = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.track')!
+  hoveredTrackRect.value = track.getBoundingClientRect()
   hoverProgress.value = computeRatio(e.clientX, track) * 100
+}
+
+const onHoverEnd = () => {
+  hoverProgress.value = 0
+  hoveredTrackRect.value = null
 }
 
 const progressInterval = setInterval(updateProgress, 250)

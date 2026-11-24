@@ -5,11 +5,11 @@
   >
     <button
       class="fixed top-4 right-4 z-20 text-k-fg-50 hover:text-k-fg transition-colors cursor-pointer"
-      title="Close"
       type="button"
       @click="goBack"
     >
       <XIcon class="w-6 h-6" />
+      <span class="sr-only">Close</span>
     </button>
 
     <!-- Initial state: centered prompt -->
@@ -81,6 +81,10 @@ const handleSubmit = async (text: string) => {
       toastSuccess(`Playlist "${result.resource.name}" created.`)
     } else if (result.action === 'add_radio_station') {
       toastSuccess(`Station "${result.resource.name}" added.`)
+    } else if (result.action === 'add_podcast') {
+      toastSuccess(`Podcast "${result.resource.title}" added.`)
+    } else if (result.action === 'play_episode') {
+      await playback().play(result.resource.episode, result.resource.position)
     } else if (result.action === 'play_radio_station') {
       await playback('radio').play(result.resource)
     } else if (result.action === 'play_songs') {

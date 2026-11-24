@@ -9,16 +9,19 @@ use App\Models\Genre;
 use App\Models\Interaction;
 use App\Models\Playlist;
 use App\Models\Podcast;
+use App\Models\SongAnalysis;
+use App\Models\Transcode;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 trait HasSongRelationships
 {
     public function owner(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->without(['roles', 'permissions']);
     }
 
     public function artist(): BelongsTo
@@ -54,5 +57,15 @@ trait HasSongRelationships
     public function genres(): BelongsToMany
     {
         return $this->belongsToMany(Genre::class);
+    }
+
+    public function analysis(): HasOne
+    {
+        return $this->hasOne(SongAnalysis::class);
+    }
+
+    public function preview(): HasOne
+    {
+        return $this->hasOne(Transcode::class)->where('is_preview', true)->without('song');
     }
 }

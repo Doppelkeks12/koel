@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
-import { commonStore } from '@/stores/commonStore'
-import { authService } from '@/services/authService'
+import { signedUrlService } from '@/services/signedUrlService'
 import { http } from '@/services/http'
 import { radioStationStore as store } from '@/stores/radioStationStore'
 
@@ -35,12 +34,12 @@ describe('radioStationStore', () => {
     expect(store.state.stations[0].name).toBe('Updated Station')
   })
 
-  it('gets source URL', () => {
-    commonStore.state.cdn_url = 'http://test/'
+  it('resolves a signed source URL', async () => {
     const station = h.factory('radio-station').make()
-    h.mock(authService, 'getAudioToken', 'hadouken')
+    const fetchMock = h.mock(signedUrlService, 'fetch').mockResolvedValue('http://test/radio/stream/signed')
 
-    expect(store.getSourceUrl(station)).toBe(`http://test/radio/stream/${station.id}?t=hadouken`)
+    expect(await store.resolveSourceUrl(station)).toBe('http://test/radio/stream/signed')
+    expect(fetchMock).toHaveBeenCalledWith(`radio/stations/${station.id}/stream-url`)
   })
 
   it('gets the currently playing station', () => {
@@ -174,5 +173,25 @@ describe('radioStationStore', () => {
     h.mock(http, 'post').mockResolvedValue(null)
     await store.toggleFavorite(station)
     expect(station.favorite).toBe(false)
+  })
+
+  it('favorites several at once', async () => {
+    const stations = h.factory('radio-station').make({ favorite: false }, 2)
+    const postMock = h.mock(http, 'post')
+
+    await store.favorite(stations)
+
+    expect(postMock).toHaveBeenCalledWith('favorites', { type: 'radio-station', ids: stations.map(({ id }) => id) })
+    expect(stations.every(({ favorite }) => favorite)).toBe(true)
+  })
+
+  it('undoes favorite of several at once', async () => {
+    const stations = h.factory('radio-station').make({ favorite: true }, 2)
+    const deleteMock = h.mock(http, 'delete')
+
+    await store.undoFavorite(stations)
+
+    expect(deleteMock).toHaveBeenCalledWith('favorites', { type: 'radio-station', ids: stations.map(({ id }) => id) })
+    expect(stations.some(({ favorite }) => favorite)).toBe(false)
   })
 })

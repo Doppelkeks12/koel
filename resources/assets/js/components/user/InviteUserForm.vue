@@ -1,5 +1,5 @@
 <template>
-  <form novalidate @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="invite-user" novalidate @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header>
       <h1>Invite Users</h1>
     </header>
@@ -7,23 +7,15 @@
     <main class="space-y-5">
       <FormRow>
         <template #label>Emails</template>
-        <TextArea
-          ref="emailsEl"
-          v-model="data.raw_emails"
-          v-koel-focus
-          class="min-h-32!"
-          name="emails"
-          required
-          title="Emails"
-        />
+        <TextArea ref="emailsEl" v-model="data.raw_emails" v-koel-focus class="h-48 min-h-32" name="emails" required />
         <template #help>To invite multiple users, input one email per line.</template>
       </FormRow>
       <RolePicker v-model="data.role" />
     </main>
 
     <footer>
-      <Btn class="btn-add" type="submit">Invite</Btn>
-      <Btn variant="ghost" class="btn-cancel" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn class="btn-add" :disabled="loading" type="submit">Invite</Btn>
+      <Btn variant="neutral" class="btn-cancel" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -31,8 +23,6 @@
 <script lang="ts" setup>
 import { ref, watch } from 'vue'
 import { invitationService } from '@/services/invitationService'
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useForm } from '@/composables/useForm'
 
 import Btn from '@/components/ui/form/Btn.vue'
@@ -41,9 +31,6 @@ import FormRow from '@/components/ui/form/FormRow.vue'
 import RolePicker from '@/components/user/RolePicker.vue'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
-
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
 
 const emailsEl = ref<InstanceType<typeof TextArea>>()
 
@@ -64,7 +51,7 @@ const collectValidEmails = () => {
 
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<{ raw_emails: string; role: Role }>({
+const { data, loading, handleSubmit, maybeClose } = useForm<{ raw_emails: string; role: Role }>({
   initialValues: {
     raw_emails: '',
     role: 'user',
@@ -86,11 +73,13 @@ const { data, isPristine, handleSubmit } = useForm<{ raw_emails: string; role: R
 
     return true
   },
-  onSubmit: async ({ role }) => invitationService.invite(collectValidEmails(), role),
-  onSuccess: () => {
-    toastSuccess('Invitation(s) sent.')
-    close()
+  toast: {
+    loading: 'Sending invitations…',
+    success: 'Invitation(s) sent.',
   },
+  onSubmit: async ({ role }) => invitationService.invite(collectValidEmails(), role),
+  onSuccess: close,
+  onClose: close,
 })
 
 watch(
@@ -104,10 +93,4 @@ watch(
     emailEntries = [...new Set(emailEntries)]
   },
 )
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

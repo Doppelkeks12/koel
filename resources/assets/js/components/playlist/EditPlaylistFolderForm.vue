@@ -1,5 +1,5 @@
 <template>
-  <form @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="edit-playlist-folder" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header>
       <h1>Edit Playlist Folder</h1>
     </header>
@@ -9,10 +9,10 @@
         <TextInput
           v-model="data.name"
           v-koel-focus
+          aria-label="Folder name"
           name="name"
           placeholder="Folder name"
           required
-          title="Folder name"
         />
       </FormRow>
       <FormRow>
@@ -27,8 +27,8 @@
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -37,8 +37,6 @@
 import { orderBy, pick } from 'lodash-es'
 import { computed } from 'vue'
 import { playlistFolderStore } from '@/stores/playlistFolderStore'
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useForm } from '@/composables/useForm'
 
 import Btn from '@/components/ui/form/Btn.vue'
@@ -50,9 +48,6 @@ const props = defineProps<{ folder: PlaylistFolder }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { folder } = props
-
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
 
 const parentFolders = computed(() => {
   const unavailableParentIds = new Set([
@@ -68,18 +63,14 @@ const parentFolders = computed(() => {
 
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<Pick<PlaylistFolder, 'name' | 'parent_id'>>({
+const { data, loading, handleSubmit, maybeClose } = useForm<Pick<PlaylistFolder, 'name' | 'parent_id'>>({
   initialValues: pick(folder, 'name', 'parent_id'),
-  onSubmit: async changes => await playlistFolderStore.update(folder, changes),
-  onSuccess: () => {
-    toastSuccess('Playlist folder updated.')
-    close()
+  toast: {
+    loading: 'Saving folder…',
+    success: 'Playlist folder updated.',
   },
+  onSubmit: async changes => await playlistFolderStore.update(folder, changes),
+  onSuccess: close,
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

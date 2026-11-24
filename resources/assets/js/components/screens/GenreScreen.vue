@@ -1,7 +1,7 @@
 <template>
   <ScreenBase>
     <template #header>
-      <ScreenHeader v-if="genre" :layout="headerLayout">
+      <ScreenHeader v-if="genre">
         <template v-if="genre.name">
           <span class="font-thin">Genre:</span>
           {{ genre.name }}
@@ -36,7 +36,6 @@
       class="-m-6"
       @sort="fetchWithSort"
       @press:enter="onPressEnter"
-      @swipe="onSwipe"
       @scrolled-to-end="fetch"
     />
 
@@ -59,13 +58,14 @@ import { eventBus } from '@/utils/eventBus'
 import { defineAsyncComponent } from '@/utils/helpers'
 import { genreStore } from '@/stores/genreStore'
 import { playableStore } from '@/stores/playableStore'
-import { playback } from '@/services/playbackManager'
 import { useRouter } from '@/composables/useRouter'
+import { usePageTitle } from '@/composables/usePageTitle'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { usePlayableList } from '@/composables/usePlayableList'
 import { usePlayableListControls } from '@/composables/usePlayableListControls'
-import { useLocalStorage } from '@/composables/useLocalStorage'
+import { usePersistedSort } from '@/composables/usePersistedSort'
 import { useContextMenu } from '@/composables/useContextMenu'
+import { usePlayCollection } from '@/composables/usePlayCollection'
 
 import ScreenHeader from '@/components/ui/ScreenHeader.vue'
 import ScreenEmptyState from '@/components/ui/ScreenEmptyState.vue'
@@ -81,78 +81,101 @@ const songs = ref<Song[]>([])
 const {
   PlayableList: SongList,
   ThumbnailStack,
-  headerLayout,
   playableList: songList,
   thumbnails,
   onPressEnter,
   playSelected,
-  onSwipe,
   sort: composableSort,
-} = usePlayableList(songs, { type: 'Genre' }, { sortable: true, filterable: false })
+} = usePlayableList(songs, { type: 'Genre' }, { sortable: true, filterable: false, sortedOnServer: true })
 
 const { PlayableListControls: SongListControls, config } = usePlayableListControls('Genre')
-const { getRouteParam, isCurrentScreen, go, onRouteChanged, url } = useRouter()
+const { getRouteParam, isCurrentScreen, onRouteChanged } = useRouter()
 const { openContextMenu } = useContextMenu()
-const { get: lsGet, set: lsSet } = useLocalStorage()
+const { playCollection } = usePlayCollection()
+const { getSavedSort, saveSort } = usePersistedSort('genre', 'title')
 
-let sortField: MaybeArray<PlayableListSortField> = lsGet<PlayableListSortField>('genre-sort-field', 'title')!
-let sortOrder: SortOrder = lsGet<SortOrder>('genre-sort-order', 'asc')!
+let { sortField, sortOrder } = getSavedSort()
 
 const id = ref<Genre['id'] | null>(null)
 const genre = ref<Genre | null>(null)
 const loading = ref(false)
 const cursor = ref<string | null>('')
 
+usePageTitle().useScreenTitle('Genre', () => (genre.value ? genre.value.name || 'No Genre' : null))
+
 const moreSongsAvailable = computed(() => cursor.value !== null)
 const showSkeletons = computed(() => loading.value && songs.value.length === 0)
 const duration = computed(() => (genre.value ? secondsToHumanReadable(genre.value.length) : ''))
+
+let songListVersion = 0
 
 const fetch = async () => {
   if (!moreSongsAvailable.value || loading.value) {
     return
   }
 
+  const requestedSongListVersion = songListVersion
   loading.value = true
 
   try {
-    let fetched: { songs: Song[]; nextCursor: string | null }
+    const fetched = await playableStore.paginateSongsByGenre(id.value!, {
+      sort: sortField,
+      order: sortOrder,
+      cursor: cursor.value,
+    })
 
-    ;[genre.value, fetched] = await Promise.all([
-      genreStore.fetchOne(id.value!),
-      playableStore.paginateSongsByGenre(id.value!, {
-        sort: sortField,
-        order: sortOrder,
-        cursor: cursor.value,
-      }),
-    ])
-
-    cursor.value = fetched.nextCursor
-    songs.value.push(...fetched.songs)
+    if (requestedSongListVersion === songListVersion) {
+      cursor.value = fetched.nextCursor
+      songs.value.push(...fetched.songs)
+    }
   } catch (error: unknown) {
     useErrorHandler('dialog').handleHttpError(error)
   } finally {
     loading.value = false
   }
+
+  if (requestedSongListVersion !== songListVersion) {
+    await refetchSongsFromStart()
+  }
+}
+
+const refetchSongsFromStart = async () => {
+  songListVersion++
+  cursor.value = ''
+  songs.value = []
+
+  await fetch()
+}
+
+const fetchGenre = async () => {
+  const requestedId = id.value!
+
+  try {
+    const fetchedGenre = await genreStore.fetchOne(requestedId)
+
+    if (id.value === requestedId) {
+      genre.value = fetchedGenre
+    }
+  } catch (error: unknown) {
+    if (id.value === requestedId) {
+      useErrorHandler('dialog').handleHttpError(error)
+    }
+  }
 }
 
 const refresh = async () => {
   genre.value = null
-  cursor.value = ''
-  songs.value = []
 
-  await fetch()
+  await Promise.all([fetchGenre(), refetchSongsFromStart()])
 }
 
 const fetchWithSort = async (field: MaybeArray<PlayableListSortField>, order: SortOrder) => {
-  cursor.value = ''
-  songs.value = []
   sortField = field
   sortOrder = order
 
-  lsSet('genre-sort-field', field)
-  lsSet('genre-sort-order', order)
+  saveSort(field, order)
 
-  await fetch()
+  await refetchSongsFromStart()
 }
 
 const getIdFromRoute = () => getRouteParam('id') ?? null
@@ -163,18 +186,16 @@ onRouteChanged(route => {
   }
 })
 
-const playAll = async (shuffle = false) => {
-  if (!genre.value) {
+const playAll = async (random = false) => {
+  const currentGenre = genre.value
+
+  if (!currentGenre) {
     return
   }
 
-  go(url('queue'))
-
-  if (shuffle) {
-    await playback().queueAndPlay(await playableStore.fetchSongsByGenre(genre.value!, true))
-  } else {
-    await playback().queueAndPlay(await playableStore.fetchSongsByGenre(genre.value!, false))
-  }
+  await playCollection(() => playableStore.fetchSongsByGenre(currentGenre, random), {
+    emptyMessage: 'The genre is empty.',
+  })
 }
 
 const requestContextMenu = (event: MouseEvent) =>

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { http } from '@/services/http'
 import { defaultPreferences, preferenceStore } from '@/stores/preferenceStore'
@@ -8,22 +8,35 @@ describe('preferenceStore', () => {
     beforeEach: () => preferenceStore.init(),
   })
 
-  it('sets preferences and saves the state', () => {
+  it('sets preferences and saves the state', async () => {
     const user = h.factory('user').make()
     user.preferences = defaultPreferences
     const mock = h.mock(http, 'patch')
     preferenceStore.set('volume', 5)
-    expect(mock).toHaveBeenCalledWith('me/preferences', { key: 'volume', value: 5 })
+    await vi.waitFor(() => expect(mock).toHaveBeenCalledWith('me/preferences', { key: 'volume', value: 5 }))
 
-    // test the proxy
     preferenceStore.volume = 6
-    expect(mock).toHaveBeenCalledWith('me/preferences', { key: 'volume', value: 6 })
+    await vi.waitFor(() => expect(mock).toHaveBeenCalledWith('me/preferences', { key: 'volume', value: 6 }))
   })
 
   it('does not trigger a request if the value is the same', () => {
     const mock = h.mock(http, 'patch')
     preferenceStore.set('volume', preferenceStore.volume)
     expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('proxies preferences that only the server knows about', async () => {
+    preferenceStore.init({ ...defaultPreferences, extension_feature_enabled: false })
+    const mock = h.mock(http, 'patch')
+
+    expect(preferenceStore.extension_feature_enabled).toBe(false)
+
+    preferenceStore.extension_feature_enabled = true
+
+    expect(preferenceStore.get('extension_feature_enabled')).toBe(true)
+    await vi.waitFor(() =>
+      expect(mock).toHaveBeenCalledWith('me/preferences', { key: 'extension_feature_enabled', value: true }),
+    )
   })
 
   it('returns preference values', () => {

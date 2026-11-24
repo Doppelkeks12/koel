@@ -1,80 +1,69 @@
 <template>
-  <form @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="edit-album" class="md:w-[560px]" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header>
       <h1>Edit Album</h1>
     </header>
 
-    <main class="space-y-5">
-      <FormRow>
-        <template #label>Name</template>
-        <TextInput v-model="data.name" v-koel-focus name="name" placeholder="Album name" required title="Album name" />
-      </FormRow>
-      <div class="grid grid-cols-2 gap-2">
+    <main class="flex flex-col">
+      <AlbumOrArtistEditTabs v-model:description="data.description">
         <FormRow>
-          <template #label>Artist</template>
-          <TextInput v-model="album.artist_name" name="artist" disabled title="Artist name cannot be changed" />
+          <template #label>Name</template>
+          <TextInput v-model="data.name" v-koel-focus name="name" placeholder="Album name" required />
         </FormRow>
-        <FormRow>
-          <template #label>Release year</template>
-          <TextInput v-model="data.year" type="number" name="year" title="Release year" min="1000" />
-        </FormRow>
-      </div>
-      <ArtworkField v-model="data.cover">Pick or paste a cover (optional)</ArtworkField>
+        <div class="grid grid-cols-2 gap-2">
+          <FormRow>
+            <template #label>Artist</template>
+            <TextInput v-model="album.artist_name" name="artist" disabled />
+          </FormRow>
+          <FormRow>
+            <template #label>Release year</template>
+            <TextInput v-model="data.year" type="number" name="year" min="1000" />
+          </FormRow>
+        </div>
+        <ArtworkField v-model="data.cover">Pick or paste a cover (optional)</ArtworkField>
+      </AlbumOrArtistEditTabs>
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
 
 <script setup lang="ts">
 import { pick } from 'lodash-es'
-import { toRaw } from 'vue'
 
-import { useMessageToaster } from '@/composables/useMessageToaster'
-import { useDialogBox } from '@/composables/useDialogBox'
 import type { AlbumUpdateData } from '@/stores/albumStore'
 import { albumStore } from '@/stores/albumStore'
-import { useForm } from '@/composables/useForm'
+import { useAlbumOrArtistEditForm } from '@/composables/useAlbumOrArtistEditForm'
+import { encyclopediaService } from '@/services/encyclopediaService'
+import { eventBus } from '@/utils/eventBus'
 
 import FormRow from '@/components/ui/form/FormRow.vue'
 import Btn from '@/components/ui/form/Btn.vue'
 import TextInput from '@/components/ui/form/TextInput.vue'
 import ArtworkField from '@/components/ui/form/ArtworkField.vue'
+import AlbumOrArtistEditTabs from '@/components/ui/album-artist/AlbumOrArtistEditTabs.vue'
 
 const props = defineProps<{ album: Album }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { album } = props
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
-
 const close = () => emit('close')
 
-const { data, isPristine, handleSubmit } = useForm<AlbumUpdateData>({
-  initialValues: { ...pick(album, 'name', 'year', 'cover') },
-  onSubmit: async data => {
-    const formData = structuredClone(toRaw(data))
-
-    if (formData.cover === album.cover) {
-      // If the image is the same, don't send it (the image URL) to the server.
-      delete formData.cover
-    }
-
-    await albumStore.update(album, formData)
+const { data, loading, handleSubmit, maybeClose } = useAlbumOrArtistEditForm<AlbumUpdateData>({
+  initialValues: { ...pick(album, 'name', 'year', 'cover'), description: album.description ?? '' },
+  artworkField: 'cover',
+  fetchOnlineDescription: async () => (await encyclopediaService.fetchForAlbum(album))?.wiki?.full ?? '',
+  onSubmit: async data => await albumStore.update(album, data),
+  mergeConfirmation: 'An album with the same name already exists. Merge them?',
+  onMerge: async data => {
+    eventBus.emit('ALBUM_MERGED', album, await albumStore.update(album, { ...data, merge: true }))
   },
-  onSuccess: () => {
-    toastSuccess('Album updated.')
-    close()
-  },
+  successMessage: 'Album updated.',
+  onSuccess: close,
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

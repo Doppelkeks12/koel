@@ -5,9 +5,13 @@
     data-testid="sidebar-item"
   >
     <a
-      :href="props.href"
-      class="flex items-center overflow-x-hidden gap-3 h-11 relative active:pt-0.5 active:pr-0 active:pb-0 active:pl-0.5 text-k-fg-70 hover:text-k-fg"
-      @click.prevent="onClick"
+      :aria-current="active ? 'page' : undefined"
+      :aria-disabled="disabledReason ? true : undefined"
+      :class="disabledReason ? 'opacity-50 cursor-not-allowed' : 'hover:text-k-fg'"
+      :href="disabledReason ? undefined : props.href"
+      :title="disabledReason ?? undefined"
+      class="flex items-center overflow-x-hidden gap-3 h-11 relative active:pt-0.5 active:pr-0 active:pb-0 active:pl-0.5 text-k-fg-70"
+      @click="onClick"
       @dblclick.prevent="onDblClick"
     >
       <span>
@@ -19,11 +23,20 @@
           <slot />
         </MarqueeText>
       </span>
+
+      <span
+        v-if="$slots.badge"
+        class="shrink-0 rounded-full px-2 py-0.5 text-[0.6875rem] leading-none bg-k-fg-10 text-k-fg-70"
+        data-testid="sidebar-item-badge"
+      >
+        <slot name="badge" />
+      </span>
     </a>
   </li>
 </template>
 
 <script lang="ts" setup>
+import { onBeforeUnmount } from 'vue'
 import { useRouter } from '@/composables/useRouter'
 import { eventBus } from '@/utils/eventBus'
 import MarqueeText from '@/components/ui/MarqueeText.vue'
@@ -32,34 +45,51 @@ const props = withDefaults(
   defineProps<{
     href?: string | undefined
     active?: boolean
+    disabledReason?: string | null
+    onDblclick?: () => void
   }>(),
   {
     active: false,
+    disabledReason: null,
   },
 )
-
-const emit = defineEmits<{ dblclick: [] }>()
 
 const { go } = useRouter()
 
 let clickTimer = 0
 
 const navigate = () => {
-  if (props.href) {
+  if (props.href && !props.disabledReason) {
     go(props.href)
     eventBus.emit('TOGGLE_SIDEBAR')
   }
 }
 
-const onClick = () => {
+const opensInNewTabOrWindow = (event: MouseEvent) =>
+  event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0
+
+const onClick = (event: MouseEvent) => {
+  if (opensInNewTabOrWindow(event)) {
+    return
+  }
+
+  event.preventDefault()
+
+  if (!props.onDblclick) {
+    navigate()
+    return
+  }
+
   clearTimeout(clickTimer)
   clickTimer = window.setTimeout(navigate, 150)
 }
 
 const onDblClick = () => {
   clearTimeout(clickTimer)
-  emit('dblclick')
+  props.onDblclick?.()
 }
+
+onBeforeUnmount(() => clearTimeout(clickTimer))
 </script>
 
 <style lang="postcss" scoped>

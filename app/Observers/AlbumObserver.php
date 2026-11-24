@@ -3,46 +3,45 @@
 namespace App\Observers;
 
 use App\Facades\Dispatcher;
+use App\Jobs\GenerateAlbumSmallCoverJob;
 use App\Jobs\GenerateAlbumThumbnailJob;
 use App\Models\Album;
+use App\Services\Image\ImageStorage;
 use App\Services\Image\ModelImageObserver;
-use Illuminate\Support\Facades\File;
 
 class AlbumObserver
 {
     private ModelImageObserver $coverObserver;
+    private ModelImageObserver $smallCoverObserver;
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ImageStorage $imageStorage,
+    ) {
         $this->coverObserver = ModelImageObserver::make(fieldName: 'cover', hasThumbnail: true);
+        $this->smallCoverObserver = ModelImageObserver::make(fieldName: 'small_cover');
     }
 
     public function saved(Album $album): void
     {
-        if ($album->cover && !File::exists(image_storage_path($album->thumbnail))) {
+        if ($album->cover && !$this->imageStorage->exists($album->thumbnail)) {
             Dispatcher::dispatch(new GenerateAlbumThumbnailJob($album));
+        }
+
+        if ($album->cover && !$album->small_cover) {
+            Dispatcher::dispatch(new GenerateAlbumSmallCoverJob($album));
         }
     }
 
     public function updating(Album $album): void
     {
-        if (!$album->isDirty('cover')) {
-            return;
+        $this->coverObserver->onModelUpdating($album);
+
+        if ($album->isDirty('cover')) {
+            $this->deleteFullScreenCover($album->getRawOriginal('cover'));
+            $album->small_cover = null;
         }
 
-        $oldCover = $album->getRawOriginal('cover');
-
-        // If the cover is being updated, delete the old cover and thumbnail files
-        rescue_if($oldCover, static function () use ($oldCover): void {
-            $oldCoverPath = image_storage_path($oldCover);
-            $parts = pathinfo($oldCoverPath);
-            $oldFullScreenCover = sprintf('%s_fullscreen.%s', $parts['filename'], $parts['extension']);
-            File::delete([
-                image_storage_path($oldFullScreenCover),
-            ]);
-        });
-
-        $this->coverObserver->onModelUpdating($album);
+        $this->smallCoverObserver->onModelUpdating($album);
     }
 
     public function updated(Album $album): void
@@ -58,11 +57,16 @@ class AlbumObserver
     public function deleted(Album $album): void
     {
         $this->coverObserver->onModelDeleted($album);
+        $this->smallCoverObserver->onModelDeleted($album);
+        $this->deleteFullScreenCover($album->getRawOriginal('cover'));
+    }
 
-        $fullScreenCover = image_storage_path($album->full_screen_cover);
+    private function deleteFullScreenCover(?string $cover): void
+    {
+        if (!$cover) {
+            return;
+        }
 
-        rescue_if($fullScreenCover, static fn () => File::delete([
-            $fullScreenCover,
-        ]));
+        rescue(fn () => $this->imageStorage->delete(Album::makeFullScreenCoverName($cover)), report: false);
     }
 }

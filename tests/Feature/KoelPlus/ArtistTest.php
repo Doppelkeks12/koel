@@ -3,7 +3,9 @@
 namespace Tests\Feature\KoelPlus;
 
 use App\Http\Resources\ArtistResource;
+use App\Models\Album;
 use App\Models\Artist;
+use App\Models\Song;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\PlusTestCase;
 
@@ -70,5 +72,145 @@ class ArtistTest extends PlusTestCase
         $artist = Artist::factory()->createOne();
 
         $this->getAs("api/artists/{$artist->id}", $artist->user)->assertJsonPath('permissions.edit', true);
+    }
+
+    #[Test]
+    public function albumArtistOfAnotherUsersPublicAlbumIsAccessible(): void
+    {
+        $owner = create_user();
+        $curator = Artist::factory()->for($owner)->createOne();
+        $album = Album::factory()->for($curator)->for($owner)->createOne();
+
+        Song::factory()
+            ->for($album)
+            ->for(Artist::factory()->for($owner)->createOne())
+            ->for($owner, 'owner')
+            ->public()
+            ->createOne();
+
+        $viewer = create_user();
+        $viewer->preferences->includePublicMedia = true;
+        $viewer->save();
+
+        $this->getAs("api/artists/{$curator->id}", $viewer)->assertOk();
+    }
+
+    #[Test]
+    public function performerOfAnotherUsersPublicSongIsAccessible(): void
+    {
+        $owner = create_user();
+        $performer = Artist::factory()->for($owner)->createOne();
+
+        Song::factory()
+            ->for(Album::factory()->for($owner)->createOne())
+            ->for($performer)
+            ->for($owner, 'owner')
+            ->public()
+            ->createOne();
+
+        $viewer = create_user();
+        $viewer->preferences->includePublicMedia = true;
+        $viewer->save();
+
+        $this->getAs("api/artists/{$performer->id}", $viewer)->assertOk();
+    }
+
+    #[Test]
+    public function showLeavesOutTheCoverOfAnotherUsersPrivateAlbum(): void
+    {
+        $owner = create_user();
+        $artist = Artist::factory()->for($owner)->createOne(['image' => '']);
+        $sharedAlbum = Album::factory()
+            ->for($artist)
+            ->for($owner)
+            ->createOne([
+                'cover' => 'shared.webp',
+                'created_at' => now()->subYear(),
+            ]);
+        $privateAlbum = Album::factory()->for($artist)->for($owner)->createOne(['cover' => 'private.webp']);
+
+        Song::factory()
+            ->for($sharedAlbum)
+            ->for($artist)
+            ->for($owner, 'owner')
+            ->public()
+            ->createOne();
+        Song::factory()
+            ->for($privateAlbum)
+            ->for($artist)
+            ->for($owner, 'owner')
+            ->private()
+            ->createOne();
+
+        $viewer = create_user();
+        $viewer->preferences->includePublicMedia = true;
+        $viewer->save();
+
+        $this->getAs("api/artists/{$artist->id}", $viewer)->assertJsonPath(
+            'album_cover',
+            image_storage_url('shared.webp'),
+        );
+    }
+
+    #[Test]
+    public function updateToTheNameOfAnotherUsersArtist(): void
+    {
+        Artist::factory()->createOne(['name' => 'Maydup Nem']);
+        $artist = Artist::factory()->createOne();
+
+        $this
+            ->putAs("api/artists/{$artist->id}", ['name' => 'Maydup Nem'], $artist->user)
+            ->assertOk()
+            ->assertJsonPath('id', $artist->id);
+    }
+
+    #[Test]
+    public function mergingFailsIfANamesakeAlbumIsOwnedBySomeoneElse(): void
+    {
+        $existingArtist = Artist::factory()->createOne(['name' => 'Maydup Nem']);
+        $artist = Artist::factory()->for($existingArtist->user)->createOne();
+        Album::factory()->for($existingArtist)->createOne(['name' => 'Greatest Hits']);
+        Album::factory()->for($artist)->for($artist->user)->createOne(['name' => 'greatest hits']);
+
+        $this->putAs(
+            "api/artists/{$artist->id}",
+            ['name' => 'Maydup Nem', 'merge' => true],
+            $artist->user,
+        )->assertJsonValidationErrors(['name' => 'An artist with the same name already exists.']);
+
+        self::assertModelExists($artist);
+    }
+
+    #[Test]
+    public function mergingFailsIfAnAlbumToMoveIsOwnedBySomeoneElse(): void
+    {
+        $existingArtist = Artist::factory()->createOne(['name' => 'Maydup Nem']);
+        $artist = Artist::factory()->for($existingArtist->user)->createOne();
+        Album::factory()->for($artist)->createOne(['name' => 'Live']);
+
+        $this->putAs(
+            "api/artists/{$artist->id}",
+            ['name' => 'Maydup Nem', 'merge' => true],
+            $artist->user,
+        )->assertJsonValidationErrors(['name' => 'An artist with the same name already exists.']);
+
+        self::assertModelExists($artist);
+    }
+
+    #[Test]
+    public function mergeOwnArtists(): void
+    {
+        $existingArtist = Artist::factory()->createOne(['name' => 'Maydup Nem']);
+        $artist = Artist::factory()->for($existingArtist->user)->createOne();
+        Album::factory()->for($existingArtist)->for($existingArtist->user)->createOne(['name' => 'Greatest Hits']);
+        Album::factory()->for($artist)->for($artist->user)->createOne(['name' => 'Greatest Hits']);
+
+        $this->putAs(
+            "api/artists/{$artist->id}",
+            ['name' => 'Maydup Nem', 'merge' => true],
+            $artist->user,
+        )->assertJsonPath('id', $existingArtist->id);
+
+        self::assertModelMissing($artist);
     }
 }

@@ -6,6 +6,7 @@ import { http } from '@/services/http'
 import { flattenParams } from '@/utils/helpers'
 import { logger } from '@/utils/logger'
 import { useVault } from '@/composables/useVault'
+import { albumStore } from '@/stores/albumStore'
 import { playableStore as songStore } from '@/stores/playableStore'
 
 const UNKNOWN_ARTIST_NAME = 'Unknown Artist'
@@ -14,6 +15,8 @@ const VARIOUS_ARTISTS_NAME = 'Various Artists'
 export interface ArtistUpdateData {
   name: Artist['name']
   image?: Artist['image'] | null
+  description?: string
+  merge?: boolean
 }
 
 interface ArtistListPaginateParams extends CursorPaginateParams<ArtistListSortField> {
@@ -33,7 +36,10 @@ export const artistStore = {
       ids.map(id => this.byId(id)),
       'id',
     )
-    ids.forEach(id => this.vault.delete(id))
+    ids.forEach(id => {
+      this.vault.delete(id)
+      cache.remove(['artist', id])
+    })
   },
 
   isVarious: (artist: Artist | Artist['name']) =>
@@ -47,9 +53,43 @@ export const artistStore = {
   },
 
   async update(artist: Artist, data: ArtistUpdateData) {
-    const updated = await http.put<Artist>(`artists/${artist.id}`, data)
-    this.state.artists = unionBy(this.state.artists, this.syncWithVault(updated), 'id')
+    const [updated] = this.syncWithVault(await http.put<Artist>(`artists/${artist.id}`, data))
+    cache.remove(['artist.info', artist.id])
+    this.state.artists = unionBy(this.state.artists, [updated], 'id')
+
+    if (updated.id !== artist.id) {
+      await this.syncMergedArtist(artist, updated)
+    }
+
     songStore.syncArtistProperties(updated)
+    albumStore.syncArtistProperties(updated)
+
+    return updated
+  },
+
+  async syncMergedArtist(source: Artist, target: Artist) {
+    songStore.byArtist(source).forEach(song => (song.artist_id = target.id))
+    songStore.byAlbumArtist(source).forEach(song => (song.album_artist_id = target.id))
+
+    cache.remove(['artist.songs', source.id])
+    cache.remove(['artist.songs', target.id])
+    cache.remove(['artist-albums', source.id])
+    cache.remove(['artist-albums', target.id])
+
+    const targetAlbums = await albumStore.fetchForArtist(target)
+    const mergedAlbums = Array.from(albumStore.vault.values()).filter(album => album.artist_id === source.id)
+
+    mergedAlbums.forEach(mergedAlbum => {
+      const keptAlbum = targetAlbums.find(album => album.name.toLowerCase() === mergedAlbum.name.toLowerCase())
+
+      if (keptAlbum) {
+        albumStore.syncMergedAlbum(mergedAlbum, keptAlbum)
+      } else {
+        albumStore.removeByIds([mergedAlbum.id])
+      }
+    })
+
+    this.removeByIds([source.id])
   },
 
   async resolve(id: Artist['id']) {
@@ -68,6 +108,11 @@ export const artistStore = {
     return artist
   },
 
+  async search(keywords: string, favoritesOnly = false) {
+    const query = new URLSearchParams({ q: keywords, favorites_only: favoritesOnly ? '1' : '0' })
+    return this.syncWithVault(await http.get<Artist[]>(`search/artists?${query}`))
+  },
+
   async paginate(params: ArtistListPaginateParams) {
     const query = new URLSearchParams(flattenParams(params))
     query.set('cursor', params.cursor ?? '')
@@ -81,6 +126,18 @@ export const artistStore = {
   reset() {
     this.vault.clear()
     this.state.artists = []
+  },
+
+  async favorite(artists: Reactive<Artist>[]) {
+    artists.forEach(artist => (artist.favorite = true))
+
+    await http.post('favorites', { type: 'artist', ids: artists.map(({ id }) => id) })
+  },
+
+  async undoFavorite(artists: Reactive<Artist>[]) {
+    artists.forEach(artist => (artist.favorite = false))
+
+    await http.delete('favorites', { type: 'artist', ids: artists.map(({ id }) => id) })
   },
 
   async toggleFavorite(artist: Reactive<Artist>) {
@@ -116,6 +173,6 @@ export const artistStore = {
   },
 
   async fetchEvents(artist: Artist) {
-    return await http.get<LiveEvent[]>(`artists/${artist.id}/events`)
+    return await http.get<{ events: LiveEvent[]; nearby: boolean }>(`artists/${artist.id}/events`)
   },
 }

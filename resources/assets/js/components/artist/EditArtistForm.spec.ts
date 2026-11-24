@@ -1,11 +1,41 @@
-import { describe, expect, it } from 'vite-plus/test'
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { createHarness } from '@/__tests__/TestHarness'
 import { screen, waitFor } from '@testing-library/vue'
+import { HTTPError } from 'ky'
 import { artistStore } from '@/stores/artistStore'
+import { encyclopediaService } from '@/services/encyclopediaService'
+import { eventBus } from '@/utils/eventBus'
 import Component from './EditArtistForm.vue'
+
+const mockShowConfirmDialog = vi.fn()
+
+vi.mock('@/composables/useDialogBox', () => ({
+  useDialogBox: () => ({ showConfirmDialog: mockShowConfirmDialog }),
+}))
+
+const createConflictError = () =>
+  new HTTPError(new Response(null, { status: 409 }), new Request('http://test/api/test'), {} as any)
+
+vi.mock('@/components/ui/form/RichTextEditor.vue', async () => {
+  const { defineComponent } = await import('vue')
+
+  return {
+    __esModule: true,
+    default: defineComponent({
+      props: ['modelValue'],
+      emits: ['update:modelValue'],
+      template:
+        '<textarea data-testid="description-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+    }),
+  }
+})
 
 describe('editArtistForm.vue', () => {
   const h = createHarness()
+
+  beforeEach(() => {
+    h.mock(encyclopediaService, 'fetchForArtist').mockResolvedValue(null)
+  })
 
   const renderComponent = (artist?: Artist) => {
     artist = artist ?? h.factory('artist').make()
@@ -29,11 +59,12 @@ describe('editArtistForm.vue', () => {
 
     // there should be a "remove cover" button, though we're not clicking it
     screen.getByRole('button', { name: 'Remove' })
-    await h.type(screen.getByTitle('Artist name'), 'Dude')
+    await h.type(screen.getByPlaceholderText('Artist name'), 'Dude')
     await h.user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(updateMock).toHaveBeenCalledWith(artist, {
       name: 'Dude',
+      description: '',
     })
   })
 
@@ -41,7 +72,7 @@ describe('editArtistForm.vue', () => {
     const updateMock = h.mock(artistStore, 'update')
     const { artist } = renderComponent(h.factory('artist').make({ image: '' }))
 
-    await h.type(screen.getByTitle('Artist name'), 'Dude')
+    await h.type(screen.getByPlaceholderText('Artist name'), 'Dude')
 
     await h.user.upload(
       screen.getByLabelText('Pick or paste an image (optional)'),
@@ -55,6 +86,7 @@ describe('editArtistForm.vue', () => {
     expect(updateMock).toHaveBeenCalledWith(artist, {
       name: 'Dude',
       image: 'data:image/png;base64,Ynl0ZXM=',
+      description: '',
     })
   })
 
@@ -64,12 +96,83 @@ describe('editArtistForm.vue', () => {
 
     await h.user.click(screen.getByRole('button', { name: 'Remove' }))
 
-    await h.type(screen.getByTitle('Artist name'), 'Dude')
+    await h.type(screen.getByPlaceholderText('Artist name'), 'Dude')
     await h.user.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(updateMock).toHaveBeenCalledWith(artist, {
       name: 'Dude',
       image: '',
+      description: '',
     })
+  })
+
+  it('saves no description when the pre-filled online text is left unchanged', async () => {
+    h.mock(encyclopediaService, 'fetchForArtist').mockResolvedValue({
+      bio: { summary: '', full: '<p>Found online</p>' },
+    })
+    const updateMock = h.mock(artistStore, 'update')
+    renderComponent(h.factory('artist').make({ description: null }))
+    await h.tick(2)
+
+    await h.user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(updateMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ description: '' }))
+  })
+
+  it('keeps the description written for the artist without fetching the online one', async () => {
+    const fetchMock = h.mock(encyclopediaService, 'fetchForArtist')
+    const updateMock = h.mock(artistStore, 'update')
+    renderComponent(h.factory('artist').make({ description: '<p>My own words</p>' }))
+    await h.tick(2)
+
+    await h.user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ description: '<p>My own words</p>' }),
+    )
+  })
+
+  it('closes without asking when the pre-filled online text is left unchanged', async () => {
+    mockShowConfirmDialog.mockClear()
+    h.mock(encyclopediaService, 'fetchForArtist').mockResolvedValue({
+      bio: { summary: '', full: '<p>Found online</p>' },
+    })
+    const { emitted } = renderComponent(h.factory('artist').make({ description: null }))
+    await h.tick(2)
+
+    await h.user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(mockShowConfirmDialog).not.toHaveBeenCalled()
+    expect(emitted().close).toBeTruthy()
+  })
+
+  it('asks before discarding a cleared description', async () => {
+    renderComponent(h.factory('artist').make({ description: '<p>My own words</p>' }))
+    await h.tick(2)
+
+    await h.user.clear(await screen.findByTestId('description-editor'))
+    await h.user.keyboard('{Escape}')
+
+    expect(mockShowConfirmDialog).toHaveBeenCalledWith('Discard all changes?')
+  })
+
+  it('merges into the existing artist once confirmed', async () => {
+    const existingArtist = h.factory('artist').make()
+    const updateMock = h
+      .mock(artistStore, 'update')
+      .mockRejectedValueOnce(createConflictError())
+      .mockResolvedValueOnce(existingArtist)
+    const emitMock = h.mock(eventBus, 'emit')
+    mockShowConfirmDialog.mockResolvedValue(true)
+    const { artist } = renderComponent()
+
+    await h.type(screen.getByPlaceholderText('Artist name'), existingArtist.name)
+    await h.user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(mockShowConfirmDialog).toHaveBeenCalledWith('An artist with the same name already exists. Merge them?')
+    expect(updateMock).toHaveBeenLastCalledWith(artist, expect.objectContaining({ merge: true }))
+    expect(emitMock).toHaveBeenCalledWith('ARTIST_MERGED', artist, existingArtist)
   })
 })

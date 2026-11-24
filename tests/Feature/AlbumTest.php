@@ -5,12 +5,14 @@ namespace Tests\Feature;
 use App\Helpers\Ulid;
 use App\Http\Resources\AlbumResource;
 use App\Models\Album;
+use App\Models\Favorite;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
 use function Tests\create_admin;
 use function Tests\create_user;
 use function Tests\minimal_base64_encoded_image;
+use function Tests\stored_image_name;
 
 class AlbumTest extends TestCase
 {
@@ -45,13 +47,13 @@ class AlbumTest extends TestCase
     #[Test]
     public function indexWithCursorReturnsCursorPagination(): void
     {
-        Album::factory()->createMany(22);
+        Album::factory()->createMany(61);
 
         $response = $this->getAs(
             'api/albums?cursor=',
         )->assertJsonStructure(AlbumResource::CURSOR_PAGINATION_JSON_STRUCTURE);
 
-        self::assertCount(21, $response->json('data'));
+        self::assertCount(60, $response->json('data'));
         self::assertNotNull($response->json('meta.next_cursor'));
         self::assertNull($response->json('meta.prev_cursor'));
 
@@ -67,7 +69,7 @@ class AlbumTest extends TestCase
     #[Test]
     public function indexWithCursorTraversesAllSupportedSortsWithoutDuplicates(): void
     {
-        Album::factory()->createMany(30);
+        Album::factory()->createMany(70);
 
         foreach (['name', 'year', 'created_at', 'artist_name', 'length', 'rating', 'favorite'] as $sort) {
             $allIds = [];
@@ -85,8 +87,8 @@ class AlbumTest extends TestCase
                 $cursor = $r->json('meta.next_cursor');
             }
 
-            self::assertCount(30, $allIds, "sort={$sort} returned wrong total");
-            self::assertCount(30, array_unique($allIds), "sort={$sort} returned duplicates");
+            self::assertCount(70, $allIds, "sort={$sort} returned wrong total");
+            self::assertCount(70, array_unique($allIds), "sort={$sort} returned duplicates");
         }
     }
 
@@ -95,6 +97,39 @@ class AlbumTest extends TestCase
     {
         $this->getAs('api/albums/'
         . Album::factory()->createOne()->id)->assertJsonStructure(AlbumResource::JSON_STRUCTURE);
+    }
+
+    #[Test]
+    public function showIncludesTheSmallCover(): void
+    {
+        $album = Album::factory()->createOne(['cover' => 'cover.webp', 'small_cover' => 'small.webp']);
+
+        $this->getAs("api/albums/{$album->id}")->assertJsonPath('small_cover', image_storage_url('small.webp'));
+    }
+
+    #[Test]
+    public function showFallsBackToTheFullCoverWithoutASmallCover(): void
+    {
+        $album = Album::factory()->createOne(['cover' => 'cover.webp', 'small_cover' => null]);
+
+        $this->getAs("api/albums/{$album->id}")->assertJsonPath('small_cover', image_storage_url('cover.webp'));
+    }
+
+    #[Test]
+    public function showIncludesTheMusicBrainzIdentifier(): void
+    {
+        $album = Album::factory()->createOne(['mbid' => '4d1f7b6e-1d6e-4b3f-9a0d-8c2f1a5b6c7d']);
+
+        $this->getAs("api/albums/{$album->id}")->assertJsonPath('mbid', '4d1f7b6e-1d6e-4b3f-9a0d-8c2f1a5b6c7d');
+    }
+
+    #[Test]
+    public function showOmitsTheMusicBrainzIdentifierWhenMusicBrainzIsDisabled(): void
+    {
+        config(['koel.services.musicbrainz.enabled' => false]);
+        $album = Album::factory()->createOne(['mbid' => '4d1f7b6e-1d6e-4b3f-9a0d-8c2f1a5b6c7d']);
+
+        $this->getAs("api/albums/{$album->id}")->assertJsonMissingPath('mbid');
     }
 
     #[Test]
@@ -121,7 +156,32 @@ class AlbumTest extends TestCase
 
         self::assertEquals('Updated Album Name', $album->name);
         self::assertEquals(2023, $album->year);
-        self::assertEquals("$ulid.webp", $album->cover);
+        self::assertEquals(stored_image_name($ulid), $album->cover);
+    }
+
+    #[Test]
+    public function updateWithDescription(): void
+    {
+        $album = Album::factory()->createOne();
+
+        $this->putAs(
+            "api/albums/{$album->id}",
+            [
+                'name' => $album->name,
+                'description' => '<h2>Recording</h2><p onclick="x()">Done in a week.</p>',
+            ],
+            create_admin(),
+        )->assertJsonPath('description', '<h2>Recording</h2><p>Done in a week.</p>');
+    }
+
+    #[Test]
+    public function updateKeepingDescriptionIntact(): void
+    {
+        $album = Album::factory()->createOne(['description' => '<p>Mine</p>']);
+
+        $this->putAs("api/albums/{$album->id}", ['name' => 'Updated Album Name'], create_admin())->assertOk();
+
+        self::assertSame('<p>Mine</p>', $album->refresh()->description);
     }
 
     #[Test]
@@ -166,21 +226,35 @@ class AlbumTest extends TestCase
     }
 
     #[Test]
-    public function updatingToExistingNameFails(): void
+    public function updatingToExistingNameRespondsWithConflict(): void
     {
         $existingAlbum = Album::factory()->createOne(['name' => 'Black Album']);
         $album = Album::factory()->for($existingAlbum->artist)->createOne();
 
         $this->putAs(
             "api/albums/{$album->id}",
-            [
-                'name' => 'Black Album',
-                'year' => 2023,
-            ],
+            ['name' => 'Black Album', 'year' => 2023],
             create_admin(),
-        )->assertJsonValidationErrors([
-            'name' => 'An album with the same name already exists for this artist.',
-        ]);
+        )->assertConflict();
+
+        self::assertModelExists($album);
+    }
+
+    #[Test]
+    public function updatingToExistingNameWithMergeMergesIntoTheExistingAlbum(): void
+    {
+        $existingAlbum = Album::factory()->createOne(['name' => 'Black Album']);
+        $album = Album::factory()->for($existingAlbum->artist)->createOne();
+        $admin = create_admin();
+        Favorite::factory()->for($admin)->for($album, 'favoriteable')->createOne();
+
+        $this
+            ->putAs("api/albums/{$album->id}", ['name' => 'Black Album', 'merge' => true], $admin)
+            ->assertOk()
+            ->assertJsonPath('id', $existingAlbum->id)
+            ->assertJsonPath('favorite', true);
+
+        self::assertModelMissing($album);
     }
 
     #[Test]

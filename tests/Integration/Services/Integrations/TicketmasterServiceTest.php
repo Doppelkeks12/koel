@@ -11,6 +11,7 @@ use App\Values\Ticketmaster\TicketmasterEvent;
 use App\Values\Ticketmaster\TicketmasterVenue;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Saloon\Http\Faking\MockResponse;
 use Saloon\Http\PendingRequest;
@@ -80,8 +81,35 @@ class TicketmasterServiceTest extends TestCase
             'name' => 'Slayer',
         ]);
 
-        $events = $this->service->searchEventForArtist($artist->name, '84.124.22.13');
-        self::assertCount(2, $events);
+        $result = $this->service->searchEventForArtist($artist, '84.124.22.13');
+
+        self::assertCount(2, $result->events);
+        self::assertTrue($result->nearby);
+    }
+
+    #[Test]
+    public function searchEventsWorldwideWhenThereAreNoneNearby(): void
+    {
+        Saloon::fake([
+            AttractionSearchRequest::class => MockResponse::make(body: File::json(test_path(
+                'fixtures/ticketmaster/attraction-search.json',
+            ))),
+            EventSearchRequest::class => static fn (PendingRequest $request) => (
+                $request->query()->get('countryCode')
+                    ? MockResponse::make(body: ['page' => ['totalElements' => 0]])
+                    : MockResponse::make(body: File::json(test_path('fixtures/ticketmaster/event-search.json')))
+            ),
+            GetLiteDataRequest::class => MockResponse::make(body: File::json(test_path(
+                'fixtures/ipinfo/lite-data.json',
+            ))),
+        ]);
+
+        $artist = Artist::factory()->createOne(['name' => 'Slayer']);
+
+        $result = $this->service->searchEventForArtist($artist, '84.124.22.13');
+
+        self::assertCount(2, $result->events);
+        self::assertFalse($result->nearby);
     }
 
     #[Test]
@@ -108,7 +136,30 @@ class TicketmasterServiceTest extends TestCase
         Cache::put(cache_key('Ticketmaster events', 'Coolio', 'BR'), $events, now()->addDay());
         Cache::put(cache_key('IP to country code', '84.124.22.13'), 'BR', now()->addDay());
 
-        self::assertSame($events, $this->service->searchEventForArtist('Coolio', '84.124.22.13'));
+        $artist = Artist::factory()->createOne(['name' => 'Coolio']);
+
+        self::assertSame($events, $this->service->searchEventForArtist($artist, '84.124.22.13')->events);
+        Saloon::assertNothingSent();
+    }
+
+    /** @return array<string, array{string}> */
+    public static function provideNonStandardArtistNames(): array
+    {
+        return [
+            'Various Artists' => [Artist::VARIOUS_NAME],
+            'Unknown Artist' => [Artist::UNKNOWN_NAME],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('provideNonStandardArtistNames')]
+    public function skipNonStandardArtists(string $name): void
+    {
+        Saloon::fake([]);
+
+        $artist = Artist::factory()->createOne(['name' => $name]);
+
+        self::assertEmpty($this->service->searchEventForArtist($artist, '84.124.22.13')->events);
         Saloon::assertNothingSent();
     }
 }

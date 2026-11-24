@@ -3,9 +3,13 @@
 namespace App\Http\Requests\API\Settings;
 
 use App\Http\Requests\API\Request;
+use App\Models\User;
 use App\Rules\ValidImageData;
-use Closure;
-use Illuminate\Support\Facades\URL;
+use App\Services\SettingService;
+use Illuminate\Contracts\Validation\Factory;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Support\Fluent;
+use Illuminate\Validation\Rule;
 
 /**
  * @property-read string $name
@@ -17,18 +21,32 @@ class UpdateBrandingRequest extends Request
     /** @inheritdoc */
     public function rules(): array
     {
-        $validImageDataOrUrl = static function (string $attribute, mixed $value, Closure $fail): void {
-            if (URL::isValidUrl($value)) {
-                return;
-            }
-
-            (new ValidImageData())->validate($attribute, $value, $fail);
-        };
-
         return [
-            'name' => ['required', 'string'],
-            'logo' => ['sometimes', 'nullable', $validImageDataOrUrl],
-            'cover' => ['sometimes', 'nullable', $validImageDataOrUrl],
+            'name' => [Rule::required(), Rule::string()],
+            'logo' => [Rule::sometimes(), Rule::nullable(), Rule::string()],
+            'cover' => [Rule::sometimes(), Rule::nullable(), Rule::string()],
         ];
+    }
+
+    public function validator(Factory $factory, SettingService $settingService): Validator
+    {
+        $validator = $this->createDefaultValidator($factory);
+        /** @var User $user */
+        $user = $this->user();
+        $currentBranding = $settingService->getBranding($user->organization);
+
+        $validator->sometimes(
+            'logo',
+            [new ValidImageData()],
+            static fn (Fluent $input): bool => $input->get('logo') !== $currentBranding->logo,
+        );
+
+        $validator->sometimes(
+            'cover',
+            [new ValidImageData()],
+            static fn (Fluent $input): bool => $input->get('cover') !== $currentBranding->cover,
+        );
+
+        return $validator;
     }
 }

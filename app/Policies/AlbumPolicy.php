@@ -6,12 +6,22 @@ use App\Enums\Acl\Permission;
 use App\Facades\License;
 use App\Models\Album;
 use App\Models\User;
+use App\Repositories\AlbumRepository;
 
 class AlbumPolicy
 {
+    public function __construct(
+        private readonly AlbumRepository $albumRepository,
+    ) {}
+
     public function access(User $user, Album $album): bool
     {
-        return License::isCommunity() || $album->belongsToUser($user);
+        return License::isCommunity() || $this->albumRepository->isAccessibleByUser($album, $user);
+    }
+
+    public function embed(User $user, Album $album): bool
+    {
+        return !$user->isGuest() && $this->access($user, $album);
     }
 
     /**
@@ -20,7 +30,7 @@ class AlbumPolicy
     public function update(User $user, Album $album): bool
     {
         // Unknown albums are not editable.
-        if ($album->is_unknown) {
+        if (!$album->is_standard) {
             return false;
         }
 
@@ -36,5 +46,10 @@ class AlbumPolicy
     public function edit(User $user, Album $album): bool
     {
         return $this->update($user, $album);
+    }
+
+    public function merge(User $user, Album $source, Album $target): bool
+    {
+        return $this->update($user, $source) && $this->update($user, $target);
     }
 }

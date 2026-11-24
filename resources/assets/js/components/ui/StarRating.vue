@@ -8,8 +8,6 @@
     <label
       v-for="star in 5"
       :key="star"
-      v-koel-tooltip
-      :title="titleFor(star)"
       class="cursor-pointer transition-[color] duration-150"
       :class="(hover || currentRating) >= star ? 'text-k-fg-70' : 'text-k-fg-40'"
       @click="onClick($event, star)"
@@ -24,7 +22,7 @@
         @change="onChange(star)"
       />
       <Icon :icon="(hover || currentRating) >= star ? faStar : faEmptyStar" :size="size" />
-      <span class="sr-only">Rate {{ star }} of 5</span>
+      <span class="sr-only">{{ labelFor(star) }}</span>
     </label>
   </span>
 </template>
@@ -38,8 +36,6 @@ import { albumStore } from '@/stores/albumStore'
 import { artistStore } from '@/stores/artistStore'
 import { playableStore } from '@/stores/playableStore'
 import { podcastStore } from '@/stores/podcastStore'
-
-type Rateable = Song | Album | Artist | Podcast
 
 const props = withDefaults(
   defineProps<{
@@ -57,8 +53,7 @@ const groupName = `rating-${useId()}`
 
 const currentRating = computed(() => props.rateable?.rating ?? props.rating ?? 0)
 
-const titleFor = (star: number) =>
-  currentRating.value === star ? 'Remove rating' : `${star} star${star === 1 ? '' : 's'}`
+const labelFor = (star: number) => (currentRating.value === star ? 'Remove rating' : `Rate ${star} of 5`)
 
 const persist = (entity: Rateable, value: number) => {
   if (entity.type === 'songs') {

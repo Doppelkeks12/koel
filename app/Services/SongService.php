@@ -14,7 +14,9 @@ use App\Models\Song;
 use App\Models\User;
 use App\Repositories\SongRepository;
 use App\Repositories\TranscodeRepository;
+use App\Services\Image\ImageStorage;
 use App\Services\Scanners\Contracts\ScannerCacheStrategy as CacheStrategy;
+use App\Services\SongStorages\SongStorageFactory;
 use App\Values\Scanning\ScanConfiguration;
 use App\Values\Scanning\ScanInformation;
 use App\Values\Song\SongFileInfo;
@@ -25,16 +27,22 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
+use Illuminate\Support\LazyCollection;
 
 // @mago-ignore lint:cyclomatic-complexity
+// @mago-ignore lint:too-many-methods,kan-defect
 class SongService
 {
+    private const int DELETION_BATCH_SIZE = 500;
+
     public function __construct(
         private readonly SongRepository $songRepository,
         private readonly TranscodeRepository $transcodeRepository,
         private readonly AlbumService $albumService,
+        private readonly ImageStorage $imageStorage,
         private readonly CacheStrategy $cache,
+        private readonly LibrarySummaryService $librarySummaryService,
+        private readonly LibraryManager $libraryManager,
     ) {}
 
     public function updateSongs(array $ids, SongUpdateData $data): SongUpdateResult
@@ -119,13 +127,14 @@ class SongService
         // (i.e., when multiple songs are being updated and the user did not provide a value).
         // This allows us to clear those fields (when the user provides an empty string).
         // Album artist handling:
-        // If the user provided an explicit album artist, use it.
-        // If not (null/empty), check if this is a compilation (album artist ≠ song artist).
-        // For compilations, preserve the existing album artist (e.g. "Various Artists").
-        // For non-compilations, let the album artist follow the (potentially updated) song artist.
-        if (!$data->albumArtistName) {
+        // An explicit album artist is used as-is, and an empty one (the user cleared it) means
+        // "same as the song artist". When none is given, a compilation (album artist ≠ song artist)
+        // keeps its album artist (e.g. "Various Artists"), and any other song follows its artist.
+        if ($data->albumArtistName === null) {
             $isCompilation = !$song->album_artist->is($song->artist);
             $data->albumArtistName = $isCompilation ? $song->album_artist->name : $data->artistName;
+        } elseif ($data->albumArtistName === '') {
+            $data->albumArtistName = $data->artistName;
         }
         $data->lyrics ??= $song->lyrics;
         $data->track ??= $song->track;
@@ -144,6 +153,11 @@ class SongService
         $song->title = $data->title;
         $song->lyrics = $data->lyrics;
         $song->track = $data->track;
+
+        if ($song->isDirty('track')) {
+            $song->track_label = null;
+        }
+
         $song->disc = $data->disc;
         $song->year = $data->year;
 
@@ -151,6 +165,7 @@ class SongService
 
         if (!$song->genreEqualsTo($data->genre)) {
             $song->syncGenres($data->genre);
+            $this->librarySummaryService->markLibraryChanged();
         }
 
         return $this->songRepository->getOne($song->id);
@@ -159,6 +174,8 @@ class SongService
     public function markSongsAsPublic(EloquentCollection $songs): void
     {
         $songs->toQuery()->update(['is_public' => true]);
+
+        $this->librarySummaryService->markLibraryChanged();
     }
 
     /** @return array<string> IDs of songs that are marked as private */
@@ -174,16 +191,40 @@ class SongService
             ->toQuery()
             ->join('playlist_song', 'songs.id', '=', 'playlist_song.song_id')
             ->join('playlist_user', 'playlist_song.playlist_id', '=', 'playlist_user.playlist_id')
+            ->where('playlist_user.role', 'collaborator')
             ->select('songs.id')
             ->distinct()
             ->pluck('songs.id')
             ->all();
 
-        $applicableSongIds = $songs->whereNotIn('id', $collaborativeSongs)->modelKeys();
+        $applicableSongIds = $songs->whereNotIn('id', $collaborativeSongs)->values()->modelKeys();
 
         Song::query()->whereKey($applicableSongIds)->update(['is_public' => false]);
 
+        $this->librarySummaryService->markLibraryChanged();
+
         return $applicableSongIds;
+    }
+
+    /**
+     * @return bool Whether the file was found and its size recorded.
+     */
+    public function fillMissingFileSize(Song $song): bool
+    {
+        $fileSize = SongStorageFactory::make($song->storage)->getFileSize($song->storage_metadata->getPath());
+
+        if ($fileSize === null) {
+            return false;
+        }
+
+        $song->updateQuietly(['file_size' => $fileSize]);
+
+        return true;
+    }
+
+    public function deleteSongsByUser(User $user): void
+    {
+        $this->deleteSongsInBatches($this->songRepository->lazyGetIdsByOwner($user));
     }
 
     /**
@@ -191,34 +232,56 @@ class SongService
      */
     public function deleteSongs(array|string $ids): void
     {
-        $ids = Arr::wrap($ids);
+        $this->deleteSongsInBatches(LazyCollection::make(Arr::wrap($ids)));
+    }
 
+    /**
+     * @param LazyCollection<int, string> $ids
+     */
+    private function deleteSongsInBatches(LazyCollection $ids): void
+    {
+        $deletedCount = $ids->chunk(self::DELETION_BATCH_SIZE)->sum(
+            fn (LazyCollection $batchIds): int => $this->deleteSongsAndQueueFileRemoval($batchIds->all()),
+        );
+
+        if ($deletedCount > 0) {
+            // Instruct the system to prune the library, i.e., remove empty albums and artists.
+            event(new LibraryChanged());
+        }
+    }
+
+    /**
+     * @param array<string> $ids
+     */
+    private function deleteSongsAndQueueFileRemoval(array $ids): int
+    {
         // Since song (and cascadingly, transcode) records will be deleted, we query them first and, if there are any,
         // dispatch a job to delete their associated files.
-        $songFiles = Song::query()->findMany($ids)->map(SongFileInfo::fromSong(...)); // @phpstan-ignore-line
+        $songs = $this->songRepository->getManyForFileRemoval($ids);
 
         $transcodeFiles = $this->transcodeRepository->findBySongIds($ids)->map(TranscodeFileInfo::fromTranscode(...)); // @phpstan-ignore-line
 
-        if (Song::destroy($ids) === 0) {
-            return;
+        $deletedCount = Song::query()->whereKey($songs->modelKeys())->delete();
+
+        if ($deletedCount === 0) {
+            return 0;
         }
 
-        Dispatcher::dispatch(new DeleteSongFilesJob($songFiles));
+        (new Song())->queueRemoveFromSearch($songs);
+        $this->libraryManager->pruneAlbumsAndArtistsOfSongs($songs);
 
-        if ($transcodeFiles->isNotEmpty()) {
-            Dispatcher::dispatch(new DeleteTranscodeFilesJob($transcodeFiles));
-        }
+        Dispatcher::dispatch(new DeleteSongFilesJob($songs->map(SongFileInfo::fromSong(...))));
 
-        // Instruct the system to prune the library, i.e., remove empty albums and artists.
-        event(new LibraryChanged());
+        $transcodeFiles->whenNotEmpty(static function (Collection $files): void {
+            Dispatcher::dispatch(new DeleteTranscodeFilesJob($files));
+        });
+
+        return $deletedCount;
     }
 
-    public function createOrUpdateSongFromScan(
-        ScanInformation $info,
-        ScanConfiguration $config,
-        ?Song $song = null,
-    ): ?Song {
-        $song ??= $this->songRepository->findOneByPath($info->path);
+    public function createOrUpdateSongFromScan(ScanInformation $info, ScanConfiguration $config): ?Song
+    {
+        $song = $this->songRepository->findOneByPath($info->path);
 
         $isFileNew = !$song;
         $isFileModified = $song && $song->isFileModified($info->mTime);
@@ -234,18 +297,24 @@ class SongService
         // If the file is new, we take all necessary metadata, totally discarding the "ignores" config.
         // Otherwise, we only take the metadata not in the "ignores" config.
         if (!$isFileNew) {
-            Arr::forget($data, $config->ignores);
+            Arr::forget($data, [...$config->ignores, ...self::getKeysTiedToIgnoredNames($config->ignores)]);
+            $data += self::getCurrentArtistAndAlbumNames($song);
         }
 
-        $artist = $this->resolveArtist($config->owner, Arr::get($data, 'artist'));
+        $libraryOwner = $isFileNew ? $config->owner : $song->loadMissing('owner')->owner;
+        $artist = $this->resolveArtist($libraryOwner, Arr::get($data, 'artist'));
 
         $albumArtist = Arr::get($data, 'albumartist')
-            ? $this->resolveArtist($config->owner, $data['albumartist'])
+            ? $this->resolveArtist($libraryOwner, $data['albumartist'])
             : $artist;
 
         $album = $this->resolveAlbum($albumArtist, Arr::get($data, 'album'));
 
-        $hasCover = $album->cover && File::exists(image_storage_path($album->cover));
+        $artist->setMbidIfMissing(Arr::get($data, 'artist_mbid'));
+        $albumArtist->setMbidIfMissing(Arr::get($data, 'albumartist_mbid'));
+        $album->setMbidIfMissing(Arr::get($data, 'album_mbid'));
+
+        $hasCover = $this->imageStorage->exists($album->cover);
 
         if (!$hasCover && !in_array('cover', $config->ignores, true)) {
             $coverData = Arr::get($data, 'cover.data');
@@ -257,36 +326,89 @@ class SongService
             }
         }
 
-        Arr::forget($data, ['album', 'artist', 'albumartist', 'cover']);
+        Arr::forget($data, [
+            'album',
+            'artist',
+            'albumartist',
+            'cover',
+            'album_mbid',
+            'artist_mbid',
+            'albumartist_mbid',
+        ]);
 
         $data['album_id'] = $album->id;
         $data['artist_id'] = $artist->id;
-        $data['is_public'] = $config->makePublic;
         $data['album_name'] = $album->name;
         $data['artist_name'] = $artist->name;
 
         if ($isFileNew) {
-            // Only set the owner if the song is new, i.e., don't override the owner if the song is being updated.
+            // Only set the owner and visibility if the song is new, i.e., don't override them on an update.
             $data['owner_id'] = $config->owner->id;
+            $data['is_public'] = $config->makePublic;
             /** @var Song $song */
             $song = Song::query()->create($data);
         } else {
             $song->update($data);
         }
 
-        if ($genre !== $song->genre) {
+        $keepsCurrentGenre = !$isFileNew && in_array('genre', $config->ignores, true);
+
+        if (!$keepsCurrentGenre && $genre !== $song->genre) {
             $song->syncGenres($genre);
+        }
+
+        if ($song->track_label && Arr::has($data, 'track')) {
+            $this->numberLabeledTracksInLabelOrder($album, $song->disc);
+            $song->refresh();
         }
 
         if (!$album->year && $song->year) {
             $album->update(['year' => $song->year]);
         }
 
-        if ($config->extractFolderStructure) {
+        if ($config->extractFolderStructure && !$song->folder_id) {
             Dispatcher::dispatch(new ExtractSongFolderStructureJob($song));
         }
 
         return $song;
+    }
+
+    /**
+     * @param array<string> $ignores
+     *
+     * @return array<string>
+     */
+    private static function getKeysTiedToIgnoredNames(array $ignores): array
+    {
+        return array_values(Arr::only([
+            'artist' => 'artist_mbid',
+            'albumartist' => 'albumartist_mbid',
+            'album' => 'album_mbid',
+            'track' => 'track_label',
+        ], $ignores));
+    }
+
+    private function numberLabeledTracksInLabelOrder(Album $album, int $disc): void
+    {
+        $this->songRepository
+            ->getLabeledTracksOnDisc($album, $disc)
+            ->sortBy('track_label', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->each(static function (Song $song, int $index): void {
+                $song->update(['track' => $index + 1]);
+            });
+    }
+
+    /**
+     * @return array{artist: string, albumartist: string, album: string}
+     */
+    private static function getCurrentArtistAndAlbumNames(Song $song): array
+    {
+        return [
+            'artist' => $song->artist->name,
+            'albumartist' => $song->album_artist->name,
+            'album' => $song->album->name,
+        ];
     }
 
     private function resolveArtist(User $user, ?string $name): Artist

@@ -5,7 +5,7 @@
     </h4>
 
     <article
-      :class="{ playing, selected: item.selected }"
+      :class="{ playing, selected: item.selected, muted: hiddenByUser }"
       class="song-item group pl-2 playable-list-item"
       data-testid="song-item"
       tabindex="0"
@@ -14,7 +14,7 @@
       <span v-if="shouldShowColumn('track')" class="track-number">
         <SoundBars v-if="playable.playback_state === 'Playing'" />
         <span v-else>
-          <template v-if="isSong(playable)">{{ playable.track || '' }}</template>
+          <template v-if="isSong(playable)">{{ playable.track_label || playable.track || '' }}</template>
           <Icon v-else :icon="faPodcast" />
         </span>
       </span>
@@ -24,20 +24,18 @@
       <span class="title-artist flex flex-col gap-1 overflow-hidden">
         <span class="title text-k-fg flex! gap-2 items-center">
           <ExternalMark v-if="external" />
+          <EyeOffIcon v-if="hiddenByUser" v-koel-tooltip="'Hidden'" :size="14" class="shrink-0" aria-label="Hidden" />
           <Icon
             v-if="cachingOffline"
             :icon="faSpinner"
             class="opacity-50!"
             spin
-            title="Caching for offline playback"
             aria-label="Caching for offline playback"
           />
-          <Icon
-            v-else-if="cachingFailed"
-            :icon="faExclamationTriangle"
-            class="text-k-danger opacity-75!"
-            :title="`Error: ${cachingErrorMessage}`"
-          />
+          <span v-else-if="cachingFailed" v-koel-tooltip class="text-k-danger opacity-75!">
+            <Icon :icon="faExclamationTriangle" />
+            <span class="sr-only">Error: {{ cachingErrorMessage }}</span>
+          </span>
           <OfflineMark v-else-if="cachedOffline" />
           <span class="flex-1">{{ playable.title }}</span>
         </span>
@@ -46,7 +44,7 @@
       <span v-if="shouldShowColumn('album')" class="album">{{ album }}</span>
       <template v-if="config.collaborative && isSong(playable) && playable.collaboration">
         <span v-if="shouldShowColumn('playlist_collaborator')" class="collaborator">
-          <UserAvatar :user="collaborator" width="24" />
+          <UserAvatar v-koel-tooltip="collaborator.name" :user="collaborator" width="24" />
         </span>
         <span
           v-if="shouldShowColumn('playlist_added_at')"
@@ -70,12 +68,9 @@
         <FavoriteButton :favorite="playable.favorite" @toggle="toggleFavorite" />
       </span>
       <span class="extra">
-        <button
-          class="text-k-fg-50 hover:text-k-fg p-1"
-          title="More actions"
-          @click.stop="emit('request-context-menu', $event)"
-        >
+        <button class="text-k-fg-50 hover:text-k-fg p-1" @click.stop="emit('request-context-menu', $event)">
           <Icon :icon="faEllipsis" />
+          <span class="sr-only">More actions</span>
         </button>
       </span>
     </article>
@@ -84,6 +79,7 @@
 
 <script lang="ts" setup>
 import { faEllipsis, faExclamationTriangle, faPodcast, faSpinner } from '@fortawesome/free-solid-svg-icons'
+import { EyeOffIcon } from 'lucide-vue-next'
 import { computed, toRefs } from 'vue'
 import { getPlayableProp, requireInjection } from '@/utils/helpers'
 import { isSong } from '@/utils/typeGuards'
@@ -120,6 +116,7 @@ const { item } = toRefs(props)
 const playable = computed<Playable>(() => item.value.playable)
 const playing = computed(() => ['Playing', 'Paused'].includes(playable.value.playback_state!))
 const external = computed(() => isSong(playable.value) && playable.value.is_external)
+const hiddenByUser = computed(() => isSong(playable.value) && Boolean(playable.value.hidden))
 const { isCached, isCaching, hasCachingError, getCachingError } = useOfflinePlayback()
 const cachedOffline = computed(() => isSong(playable.value) && isCached(playable.value))
 const cachingOffline = computed(() => isSong(playable.value) && isCaching(playable.value))
@@ -148,7 +145,11 @@ article {
     }
   }
 
-  &.playing {
+  &.muted:not(.selected) {
+    @apply opacity-50;
+  }
+
+  &.playing:not(.selected) {
     .title,
     .track-number,
     .favorite {

@@ -5,6 +5,11 @@ namespace App\Observers;
 use App\Helpers\Uuid;
 use App\Models\User;
 use App\Services\Image\ModelImageObserver;
+use App\Services\LibraryManager;
+use App\Services\Playlist\PlaylistService;
+use App\Services\Podcast\PodcastService;
+use App\Services\RadioService;
+use App\Services\SongService;
 use App\Services\Subsonic\AuthenticationService as SubsonicAuthenticationService;
 
 class UserObserver
@@ -13,6 +18,11 @@ class UserObserver
 
     public function __construct(
         private readonly SubsonicAuthenticationService $subsonicAuth,
+        private readonly SongService $songService,
+        private readonly LibraryManager $libraryManager,
+        private readonly PlaylistService $playlistService,
+        private readonly RadioService $radioService,
+        private readonly PodcastService $podcastService,
     ) {
         $this->avatarObserver = ModelImageObserver::make('avatar');
     }
@@ -29,6 +39,15 @@ class UserObserver
     public function updating(User $user): void
     {
         $this->avatarObserver->onModelUpdating($user);
+    }
+
+    public function deleting(User $user): void
+    {
+        $this->libraryManager->handOverScannedLibraryOfUser($user);
+        $this->songService->deleteSongsByUser($user);
+        $this->playlistService->deletePlaylistsByUser($user);
+        $this->radioService->deleteRadioStationsByUser($user);
+        $this->podcastService->unsubscribeUserFromAllPodcasts($user);
     }
 
     public function deleted(User $user): void

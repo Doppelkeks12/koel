@@ -2,11 +2,11 @@
 
 namespace App\Services\Scanners;
 
+use App\Exceptions\UnreadableMediaFileException;
 use App\Services\SimpleLrcReader;
 use App\Values\Scanning\ScanInformation;
 use getID3;
 use Illuminate\Support\Arr;
-use RuntimeException;
 use SplFileInfo;
 
 class FileScanner
@@ -16,7 +16,7 @@ class FileScanner
         private readonly SimpleLrcReader $lrcReader,
     ) {}
 
-    public function scan(string|SplFileInfo $path): ScanInformation
+    public function scan(string|SplFileInfo $path, ?string $originalFileName = null): ScanInformation
     {
         $file = $path instanceof SplFileInfo ? $path : new SplFileInfo($path);
         $filePath = $file->getRealPath();
@@ -29,14 +29,15 @@ class FileScanner
             $syncError = Arr::get($raw, 'error.0') ?: 'Empty file';
         }
 
-        throw_if($syncError, new RuntimeException($syncError));
+        throw_if($syncError, UnreadableMediaFileException::create(...), $syncError);
 
         $this->getID3->CopyTagsToComments($raw);
 
-        return tap(ScanInformation::fromGetId3Info($raw, $filePath), function (ScanInformation $info) use (
-            $filePath,
-        ): void {
-            $info->lyrics = $info->lyrics ?: $this->lrcReader->tryReadForMediaFile($filePath);
-        });
+        return tap(
+            ScanInformation::fromGetId3Info($raw, $filePath, $originalFileName),
+            function (ScanInformation $info) use ($filePath): void {
+                $info->lyrics = $info->lyrics ?: $this->lrcReader->tryReadForMediaFile($filePath);
+            },
+        );
     }
 }

@@ -14,6 +14,11 @@ class SongPolicy
         return License::isCommunity() || $song->accessibleBy($user);
     }
 
+    public function embed(User $user, Song $song): bool
+    {
+        return !$user->isGuest() && $this->access($user, $song);
+    }
+
     public function own(User $user, Song $song): bool
     {
         return $song->ownedBy($user);
@@ -26,7 +31,7 @@ class SongPolicy
 
     public function edit(User $user, Song $song): bool
     {
-        return License::isCommunity() ? $user->hasPermissionTo(Permission::MANAGE_SONGS) : $song->accessibleBy($user);
+        return License::isCommunity() ? $user->hasPermissionTo(Permission::MANAGE_SONGS) : $song->ownedBy($user);
     }
 
     public function download(User $user, Song $song): bool

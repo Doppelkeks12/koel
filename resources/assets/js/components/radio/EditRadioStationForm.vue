@@ -1,10 +1,15 @@
 <template>
-  <form class="md:w-[420px] min-w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form
+    name="edit-radio-station"
+    class="md:w-[420px] min-w-full"
+    @submit.prevent="handleSubmit"
+    @keydown.esc="maybeClose"
+  >
     <header>
       <h1>Edit Radio Station</h1>
     </header>
 
-    <main class="space-y-5">
+    <main class="flex flex-col gap-5">
       <FormRow>
         <template #label>Name</template>
         <TextInput v-model="data.name" v-koel-focus name="name" placeholder="My Favorite Radio Station" required />
@@ -17,12 +22,12 @@
         <template #label>Homepage URL</template>
         <TextInput v-model="data.homepage_url" type="url" name="homepage_url" placeholder="https://radio.example.com" />
       </FormRow>
-      <FormRow>
+      <FormRow class="description flex-1">
         <template #label>Description</template>
         <TextArea
           v-model="data.description"
           name="description"
-          class="max-h-24"
+          class="grow shrink-0 h-28"
           placeholder="A short description of the station"
         />
       </FormRow>
@@ -36,8 +41,8 @@
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
@@ -46,8 +51,6 @@
 import { pick } from 'lodash-es'
 import { toRaw } from 'vue'
 
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import type { RadioStationData } from '@/stores/radioStationStore'
 import { radioStationStore } from '@/stores/radioStationStore'
 import { useForm } from '@/composables/useForm'
@@ -67,11 +70,12 @@ const { station } = props
 
 const close = () => emit('close')
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
-
-const { data, isPristine, handleSubmit } = useForm<RadioStationData>({
+const { data, loading, handleSubmit, maybeClose } = useForm<RadioStationData>({
   initialValues: { ...pick(station, 'name', 'url', 'homepage_url', 'description', 'is_public', 'logo') },
+  toast: {
+    loading: 'Saving station…',
+    success: 'Station updated.',
+  },
   onSubmit: async data => {
     const formData = structuredClone(toRaw(data))
 
@@ -88,15 +92,14 @@ const { data, isPristine, handleSubmit } = useForm<RadioStationData>({
       await playback('radio').play(updated)
     }
   },
-  onSuccess: () => {
-    close()
-    toastSuccess('Station updated.')
-  },
+  onSuccess: close,
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>
+
+<style lang="postcss" scoped>
+@reference '@css/app.pcss';
+.description :deep(label) {
+  @apply flex-1 flex flex-col;
+}
+</style>

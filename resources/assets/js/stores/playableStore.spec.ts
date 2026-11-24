@@ -1,8 +1,8 @@
 import { reactive } from 'vue'
-import { describe, expect, it } from 'vite-plus/test'
+import { describe, expect, it, vi } from 'vite-plus/test'
 import isMobile from 'ismobilejs'
 import { createHarness } from '@/__tests__/TestHarness'
-import { authService } from '@/services/authService'
+import { signedUrlService } from '@/services/signedUrlService'
 import { cache } from '@/services/cache'
 import { http } from '@/services/http'
 import type { SongUpdateResult } from '@/stores/playableStore'
@@ -19,6 +19,7 @@ describe('playableStore', () => {
     afterEach: () => {
       isMobile.any = false
       preferenceStore.temporary.transcode_on_mobile = false
+      preferenceStore.temporary.stream_lossless_when_supported = true
       playlistStore.state.playlists = []
     },
   })
@@ -91,9 +92,14 @@ describe('playableStore', () => {
       }),
     )
 
+    const refreshMock = h.mock(overviewStore, 'refreshPlayStats')
+
     await playableStore.registerPlay(song)
+    await h.tick()
+
     expect(postMock).toHaveBeenCalledWith('interaction/play', { song: song.id })
     expect(song.play_count).toBe(50)
+    expect(refreshMock).toHaveBeenCalledOnce()
   })
 
   it('scrobbles', async () => {
@@ -146,16 +152,90 @@ describe('playableStore', () => {
     expect(removeArtistsMock).toHaveBeenCalledWith(['led-zeppelin'])
   })
 
-  it('gets source URL', () => {
+  it('forgets the cached songs of the albums and artists a song moves between', async () => {
+    const song = h.factory('song').make({ album_id: 'old-album', artist_id: 'old-artist' })
+    const updated = { ...song, album_id: 'new-album', artist_id: 'new-artist' }
+    const removeMock = h.mock(cache, 'remove')
+
+    h.mock(http, 'put').mockResolvedValueOnce({
+      songs: [updated],
+      albums: [],
+      artists: [],
+      removed: { album_ids: [], artist_ids: [] },
+    } satisfies SongUpdateResult)
+
+    await playableStore.updateSongs([song], { album_name: 'New Album' })
+
+    expect(removeMock).toHaveBeenCalledWith(['album.songs', 'old-album'])
+    expect(removeMock).toHaveBeenCalledWith(['artist.songs', 'old-artist'])
+    expect(removeMock).toHaveBeenCalledWith(['album.songs', 'new-album'])
+    expect(removeMock).toHaveBeenCalledWith(['artist.songs', 'new-artist'])
+  })
+
+  it('gets the unsigned source URL', () => {
     commonStore.state.cdn_url = 'http://test/'
     const song = h.factory('song').make()
-    h.mock(authService, 'getAudioToken', 'hadouken')
 
-    expect(playableStore.getSourceUrl(song)).toBe(`http://test/play/${song.id}?t=hadouken`)
+    expect(playableStore.getUnsignedSourceUrl(song)).toBe(`http://test/play/${song.id}`)
 
     isMobile.any = true
     preferenceStore.temporary.transcode_on_mobile = true
-    expect(playableStore.getSourceUrl(song)).toBe(`http://test/play/${song.id}/1?t=hadouken`)
+    expect(playableStore.getUnsignedSourceUrl(song)).toBe(`http://test/play/${song.id}/1`)
+  })
+
+  it('resolves a signed source URL', async () => {
+    const song = h.factory('song').make()
+    const fetchMock = h.mock(signedUrlService, 'fetch').mockResolvedValue('http://test/play/signed')
+
+    isMobile.any = false
+
+    expect(await playableStore.resolveSourceUrl(song)).toBe('http://test/play/signed')
+    expect(fetchMock).toHaveBeenCalledWith(`songs/${song.id}/play-url`)
+
+    isMobile.any = true
+    preferenceStore.temporary.transcode_on_mobile = true
+    await playableStore.resolveSourceUrl(song)
+    expect(fetchMock).toHaveBeenLastCalledWith(`songs/${song.id}/play-url?transcode=1`)
+  })
+
+  it('asks for the lossless codecs this browser can play', async () => {
+    const song = h.factory('song').make()
+    const fetchMock = h.mock(signedUrlService, 'fetch').mockResolvedValue('http://test/play/signed')
+    h.mock(HTMLMediaElement.prototype, 'canPlayType').mockImplementation((type: string) =>
+      ['audio/flac', 'audio/wav'].includes(type) ? 'maybe' : '',
+    )
+
+    await playableStore.resolveSourceUrl(song)
+    expect(fetchMock).toHaveBeenLastCalledWith(`songs/${song.id}/play-url?lossless%5B%5D=flac&lossless%5B%5D=wav`)
+
+    preferenceStore.temporary.stream_lossless_when_supported = false
+    await playableStore.resolveSourceUrl(song)
+    expect(fetchMock).toHaveBeenLastCalledWith(`songs/${song.id}/play-url`)
+  })
+
+  it('falls back to the unsigned source URL of an offline copy when signing fails', async () => {
+    commonStore.state.cdn_url = 'http://test/'
+    const song = h.factory('song').make()
+    h.mock(signedUrlService, 'fetch').mockRejectedValue(new Error('offline'))
+    const matchMock = vi.fn().mockResolvedValue(new Response('audio'))
+    vi.stubGlobal('caches', { match: matchMock })
+
+    isMobile.any = false
+
+    expect(await playableStore.resolveSourceUrl(song)).toBe(`http://test/play/${song.id}`)
+    expect(matchMock).toHaveBeenCalledWith(`http://test/play/${song.id}`)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('fails to resolve a source URL when signing fails and there is no offline copy', async () => {
+    const song = h.factory('song').make()
+    h.mock(signedUrlService, 'fetch').mockRejectedValue(new Error('offline'))
+    vi.stubGlobal('caches', { match: vi.fn().mockResolvedValue(undefined) })
+
+    await expect(playableStore.resolveSourceUrl(song)).rejects.toThrow('offline')
+
+    vi.unstubAllGlobals()
   })
 
   it('gets shareable URL', () => {
@@ -178,21 +258,27 @@ describe('playableStore', () => {
     expect(resynced).toBe(synced)
   })
 
-  it('refreshes play stats when a vaulted song play count changes', async () => {
+  it('refreshes play stats when syncing changes a vaulted song play count', async () => {
     const refreshMock = h.mock(overviewStore, 'refreshPlayStats')
-
     const [synced] = playableStore.syncWithVault(h.factory('song').make({ play_count: 98 }))
-    synced.play_count = 100
 
+    playableStore.syncWithVault({ ...synced, play_count: 98 } as Song)
+    await h.tick()
+    expect(refreshMock).not.toHaveBeenCalled()
+
+    playableStore.syncWithVault({ ...synced, play_count: 100 } as Song)
     await h.tick()
     expect(refreshMock).toHaveBeenCalledTimes(1)
+  })
 
-    // re-syncing the same song does not double up the watcher
-    playableStore.syncWithVault({ ...synced, play_count: 101 } as Song)
-    synced.play_count = 102
+  it('refreshes play stats once when syncing changes many play counts at once', async () => {
+    const refreshMock = h.mock(overviewStore, 'refreshPlayStats')
+    const synced = playableStore.syncWithVault(h.factory('song').make({ play_count: 1 }, 3))
 
+    playableStore.syncWithVault(synced.map(song => ({ ...song, play_count: 2 }) as Song))
     await h.tick()
-    expect(refreshMock).toHaveBeenCalledTimes(2)
+
+    expect(refreshMock).toHaveBeenCalledOnce()
   })
 
   it('fetches for album', async () => {
@@ -205,6 +291,55 @@ describe('playableStore', () => {
 
     expect(getMock).toHaveBeenCalledWith(`albums/${album.id}/songs`)
     expect(syncMock).toHaveBeenCalledWith(songs)
+  })
+
+  it('fetches songs for several albums in order', async () => {
+    const albums = h.factory('album').make(2)
+    const firstSongs = h.factory('song').make(2)
+    const secondSongs = h.factory('song').make(3)
+    h.mock(playableStore, 'fetchSongsForAlbum').mockResolvedValueOnce(firstSongs).mockResolvedValueOnce(secondSongs)
+
+    expect(await playableStore.fetchSongsForAlbums(albums)).toEqual([...firstSongs, ...secondSongs])
+  })
+
+  it('fetches songs for many albums a few at a time', async () => {
+    const albums = h.factory('album').make(12)
+    let inFlight = 0
+    let maxInFlight = 0
+
+    const fetchMock = h.mock(playableStore, 'fetchSongsForAlbum').mockImplementation(async () => {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await Promise.resolve()
+      inFlight--
+      return []
+    })
+
+    await playableStore.fetchSongsForAlbums(albums)
+
+    expect(fetchMock).toHaveBeenCalledTimes(12)
+    expect(maxInFlight).toBe(5)
+  })
+
+  it('fetches songs for several artists in order', async () => {
+    const artists = h.factory('artist').make(2)
+    const firstSongs = h.factory('song').make(2)
+    const secondSongs = h.factory('song').make(3)
+    h.mock(playableStore, 'fetchSongsForArtist').mockResolvedValueOnce(firstSongs).mockResolvedValueOnce(secondSongs)
+
+    expect(await playableStore.fetchSongsForArtists(artists)).toEqual([...firstSongs, ...secondSongs])
+  })
+
+  it('fetches a song shared by several selected artists once', async () => {
+    const artists = h.factory('artist').make(2)
+    const sharedSong = h.factory('song').make()
+    const otherSong = h.factory('song').make()
+
+    h.mock(playableStore, 'fetchSongsForArtist')
+      .mockResolvedValueOnce([sharedSong])
+      .mockResolvedValueOnce([sharedSong, otherSong])
+
+    expect(await playableStore.fetchSongsForArtists(artists)).toEqual([sharedSong, otherSong])
   })
 
   it('fetches for artist', async () => {
@@ -293,6 +428,26 @@ describe('playableStore', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, playlists[2])
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(songs).toEqual([sharedSong, firstSong, secondSong, thirdSong])
+  })
+
+  it('fetches songs for all playlists at once and keeps the playlist order', async () => {
+    const playlists = h.factory('playlist').make(2)
+    const firstSong = h.factory('song').make()
+    const secondSong = h.factory('song').make()
+    const pendingFetches: Array<(songs: Song[]) => void> = []
+
+    const fetchMock = h
+      .mock(playableStore, 'fetchForPlaylist')
+      .mockImplementation(() => new Promise<Song[]>(resolve => pendingFetches.push(resolve)))
+
+    const result = playableStore.fetchForPlaylists(playlists)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    pendingFetches[1]([secondSong])
+    pendingFetches[0]([firstSong])
+
+    expect(await result).toEqual([firstSong, secondSong])
   })
 
   it('paginates', async () => {
@@ -444,7 +599,7 @@ describe('playableStore', () => {
   })
 
   it('removes from favorites', async () => {
-    const songs = h.factory('song').make(3)
+    const songs = h.factory('song').make({ favorite: true }, 3)
     const deleteMock = h.mock(http, 'delete')
 
     await playableStore.undoFavorite(songs)
@@ -453,6 +608,7 @@ describe('playableStore', () => {
       type: 'playable',
       ids: songs.map(song => song.id),
     })
+    expect(songs.every(song => !song.favorite)).toBe(true)
   })
 
   it('syncs album properties', () => {
@@ -468,12 +624,14 @@ describe('playableStore', () => {
 
     album.name = 'New Album Name'
     album.cover = 'https://test/new-album-cover.jpg'
+    album.small_cover = 'https://test/new-album-small-cover.jpg'
 
     playableStore.syncAlbumProperties(album)
 
     playableStore.byIds<Song>(songs.map(song => song.id)).forEach(song => {
       expect(song.album_name).toBe('New Album Name')
       expect(song.album_cover).toBe('https://test/new-album-cover.jpg')
+      expect(song.album_small_cover).toBe('https://test/new-album-small-cover.jpg')
     })
   })
 

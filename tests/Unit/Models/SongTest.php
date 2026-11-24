@@ -3,13 +3,18 @@
 namespace Tests\Unit\Models;
 
 use App\Enums\SongStorageType;
+use App\Models\Artist;
 use App\Models\Genre;
+use App\Models\Organization;
 use App\Models\Song;
 use App\Values\SongStorageMetadata\S3CompatibleMetadata;
 use App\Values\SongStorageMetadata\S3LambdaMetadata;
+use Illuminate\Database\Eloquent\Builder;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
+
+use function Tests\create_user;
 
 class SongTest extends TestCase
 {
@@ -92,8 +97,81 @@ class SongTest extends TestCase
     {
         Song::factory()->createMany(5);
 
-        Song::deleteByChunk(Song::query()->get()->modelKeys(), 1);
-
+        self::assertSame(5, Song::deleteByChunk(Song::query()->get()->modelKeys(), 1));
         self::assertSame(0, Song::query()->count());
+    }
+
+    #[Test]
+    public function deletingWhereValueNotInKeepsRowsExcludedByTheModifierWhenDeletingInChunks(): void
+    {
+        $episode = Song::factory()->asEpisode()->createOne();
+        Song::factory()->createMany(999);
+
+        Song::deleteWhereValueNotIn(
+            array_map(static fn (int $i) => "/missing/$i.mp3", range(1, 1_000)),
+            'path',
+            static fn (Builder $builder) => $builder->whereNull('podcast_id'),
+        );
+
+        self::assertSame([$episode->id], Song::query()->pluck('id')->all());
+    }
+
+    #[Test]
+    public function deletingWhereValueNotInKeepsRowsWithListedValuesWhenDeletingInChunks(): void
+    {
+        $kept = Song::factory()->createOne();
+        $deleted = Song::factory()->createOne();
+
+        $values = array_map(static fn (int $i) => "/missing/$i.mp3", range(1, 1_000));
+        $values[] = $kept->path;
+
+        self::assertSame(1, Song::deleteWhereValueNotIn($values, 'path'));
+        self::assertModelExists($kept);
+        self::assertModelMissing($deleted);
+    }
+
+    #[Test]
+    public function skipTheOwnerRoles(): void
+    {
+        $song = Song::factory()->createOne();
+
+        $loadedSong = Song::query()->findOrFail($song->id);
+
+        self::assertFalse($loadedSong->owner->relationLoaded('roles'));
+        self::assertFalse($loadedSong->owner->relationLoaded('permissions'));
+    }
+
+    #[Test]
+    public function songIsScrobbleable(): void
+    {
+        self::assertTrue(Song::factory()->createOne()->isScrobbleable());
+    }
+
+    #[Test]
+    public function episodeIsNotScrobbleable(): void
+    {
+        self::assertFalse(Song::factory()->asEpisode()->createOne()->isScrobbleable());
+    }
+
+    #[Test]
+    public function songByUnknownArtistIsNotScrobbleable(): void
+    {
+        $artist = Artist::factory()->createOne(['name' => Artist::UNKNOWN_NAME]);
+
+        self::assertFalse(Song::factory()->for($artist)->createOne()->isScrobbleable());
+    }
+
+    #[Test]
+    public function grantAccessToPublicSongsOfTheSameOrganizationOnly(): void
+    {
+        $user = create_user();
+        $songOfSameOrganization = Song::factory()->for(create_user(), 'owner')->public()->createOne();
+        $songOfOtherOrganization = Song::factory()
+            ->for(create_user(['organization_id' => Organization::factory()]), 'owner')
+            ->public()
+            ->createOne();
+
+        self::assertTrue($songOfSameOrganization->accessibleBy($user));
+        self::assertFalse($songOfOtherOrganization->accessibleBy($user));
     }
 }

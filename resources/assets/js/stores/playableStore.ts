@@ -1,14 +1,14 @@
 import isMobile from 'ismobilejs'
-import { differenceBy, orderBy, unionBy, uniqBy } from 'lodash-es'
-import { Reactive, reactive, watch } from 'vue'
+import { chunk, differenceBy, orderBy, unionBy, uniqBy } from 'lodash-es'
+import { nextTick, Reactive, reactive } from 'vue'
 import { arrayify, flattenParams, moveItemsInList, use } from '@/utils/helpers'
 import { isSong } from '@/utils/typeGuards'
 import { logger } from '@/utils/logger'
 import { sha256 } from '@/utils/crypto'
 import { normalizeForComparison, secondsToHumanReadable } from '@/utils/formatters'
-import { authService } from '@/services/authService'
 import { cache } from '@/services/cache'
 import { http } from '@/services/http'
+import { signedUrlService } from '@/services/signedUrlService'
 import { useVault } from '@/composables/useVault'
 import { preferenceStore } from '@/stores/preferenceStore'
 import { commonStore } from '@/stores/commonStore'
@@ -16,6 +16,20 @@ import { albumStore } from '@/stores/albumStore'
 import { artistStore } from '@/stores/artistStore'
 import { overviewStore } from '@/stores/overviewStore'
 import { playlistStore } from '@/stores/playlistStore'
+import { clientUrl } from '@/utils/clientUrl'
+import { getNativelyPlayableLosslessFormats } from '@/utils/supports'
+
+const BULK_FETCH_BATCH_SIZE = 5
+
+const fetchSongsInBatches = async <T>(entities: T[], fetchSongs: (entity: T) => Promise<Song[]>) => {
+  const songs: Song[] = []
+
+  for (const batch of chunk(entities, BULK_FETCH_BATCH_SIZE)) {
+    songs.push(...(await Promise.all(batch.map(fetchSongs))).flat())
+  }
+
+  return songs
+}
 
 export interface SongUpdateData {
   title?: string
@@ -43,18 +57,50 @@ export interface SongUpdateResult {
 export type SongListPaginateParams = PaginateParams<PlayableListSortField>
 export type SongListCursorPaginateParams = CursorPaginateParams<PlayableListSortField>
 
-const watchPlayCount = (playable: Playable) => {
-  watch(
-    () => playable.play_count,
-    () => overviewStore.refreshPlayStats(),
-  )
+const shouldTranscode = () => isMobile.any && preferenceStore.transcode_on_mobile
+
+const hasOfflineCopy = async (unsignedUrl: string) => 'caches' in window && Boolean(await caches.match(unsignedUrl))
+
+const getPlayUrlEndpoint = (playable: Playable) => {
+  const endpoint = `songs/${playable.id}/play-url`
+
+  if (shouldTranscode()) {
+    return `${endpoint}?transcode=1`
+  }
+
+  if (!preferenceStore.stream_lossless_when_supported) {
+    return endpoint
+  }
+
+  const params = new URLSearchParams(getNativelyPlayableLosslessFormats().map(format => ['lossless[]', format]))
+
+  return params.size ? `${endpoint}?${params}` : endpoint
+}
+
+let isPlayStatsRefreshScheduled = false
+
+const schedulePlayStatsRefresh = () => {
+  if (isPlayStatsRefreshScheduled) {
+    return
+  }
+
+  isPlayStatsRefreshScheduled = true
+
+  nextTick(() => {
+    isPlayStatsRefreshScheduled = false
+    overviewStore.refreshPlayStats()
+  })
 }
 
 export const playableStore = {
   ...useVault<Playable>({
     onItemAdded: playable => {
       playable.playback_state = 'Stopped'
-      watchPlayCount(playable)
+    },
+    beforeItemMerged: (existing, incoming) => {
+      if (incoming.play_count !== undefined && incoming.play_count !== existing.play_count) {
+        schedulePlayStatsRefresh()
+      }
     },
   }),
 
@@ -65,16 +111,6 @@ export const playableStore = {
 
   getFormattedLength: (playables: MaybeArray<Playable>) =>
     secondsToHumanReadable(arrayify(playables).reduce((total, p) => total + p.length, 0)),
-
-  findPlaying() {
-    for (const playable of this.vault.values()) {
-      if (playable.playback_state !== 'Stopped') {
-        return playable
-      }
-    }
-
-    return undefined
-  },
 
   byId(id: Playable['id']) {
     const playable = this.vault.get(id)
@@ -105,6 +141,7 @@ export const playableStore = {
   syncAlbumProperties(album: Album) {
     this.byAlbum(album).forEach(a => {
       a.album_cover = album.cover
+      a.album_small_cover = album.small_cover
       a.album_name = album.name
     })
   },
@@ -154,10 +191,15 @@ export const playableStore = {
    * Increase the play count for a playable.
    */
   registerPlay: async (playable: Playable) => {
-    const interaction = await http.silently.post<Interaction>('interaction/play', { song: playable.id })
+    const interaction = await http.silently.withRetriesWhenUnprocessed.post<Interaction>('interaction/play', {
+      song: playable.id,
+    })
 
     // Use the data from the server to make sure we don't miss a play from another device.
-    playable.play_count = interaction.play_count
+    if (playable.play_count !== interaction.play_count) {
+      playable.play_count = interaction.play_count
+      schedulePlayStatsRefresh()
+    }
   },
 
   scrobble: async (song: Song) => {
@@ -165,7 +207,7 @@ export const playableStore = {
       throw new Error('Scrobble is only supported for songs.')
     }
 
-    return await http.silently.post(`songs/${song.id}/scrobble`, {
+    return await http.silently.withRetriesWhenUnprocessed.post(`songs/${song.id}/scrobble`, {
       timestamp: song.play_start_time,
     })
   },
@@ -180,6 +222,9 @@ export const playableStore = {
       songs: songsToUpdate.map(song => song.id),
     })
 
+    songsToUpdate.forEach(song => this.invalidateAlbumAndArtistSongCaches(song))
+    result.songs.forEach(song => this.invalidateAlbumAndArtistSongCaches(song))
+
     this.syncWithVault(result.songs)
 
     albumStore.syncWithVault(result.albums)
@@ -191,13 +236,31 @@ export const playableStore = {
     return result
   },
 
-  getSourceUrl: (playable: Playable) => {
-    return isMobile.any && preferenceStore.transcode_on_mobile
-      ? `${commonStore.state.cdn_url}play/${playable.id}/1?t=${authService.getAudioToken()}`
-      : `${commonStore.state.cdn_url}play/${playable.id}?t=${authService.getAudioToken()}`
+  getUnsignedSourceUrl: (playable: Playable) => {
+    return shouldTranscode()
+      ? `${commonStore.state.cdn_url}play/${playable.id}/1`
+      : `${commonStore.state.cdn_url}play/${playable.id}`
   },
 
-  getShareableUrl: (song: Playable) => `${window.KOEL.base_url}#/songs/${song.id}`,
+  async resolveSourceUrl(playable: Playable) {
+    try {
+      return await signedUrlService.fetch(getPlayUrlEndpoint(playable))
+    } catch (error: unknown) {
+      const unsignedUrl = this.getUnsignedSourceUrl(playable)
+
+      if (await hasOfflineCopy(unsignedUrl)) {
+        return unsignedUrl
+      }
+
+      throw error
+    }
+  },
+
+  getResolvedSourceUrl: (playable: Playable) => signedUrlService.getCached(getPlayUrlEndpoint(playable)),
+
+  forgetResolvedSourceUrl: (playable: Playable) => signedUrlService.forget(getPlayUrlEndpoint(playable)),
+
+  getShareableUrl: (song: Playable) => clientUrl(`/songs/${song.id}`),
 
   ensureNotDeleted: (songs: MaybeArray<Song>) => arrayify(songs).filter(({ deleted }) => !deleted),
 
@@ -209,6 +272,10 @@ export const playableStore = {
         this.syncWithVault(await http.get<Song[]>(`albums/${id}/songs`)),
       )) as Song[],
     )
+  },
+
+  async fetchSongsForAlbums(albums: Album[]) {
+    return await fetchSongsInBatches(albums, album => this.fetchSongsForAlbum(album))
   },
 
   invalidateAlbumAndArtistSongCaches(song: Song) {
@@ -224,6 +291,10 @@ export const playableStore = {
         this.syncWithVault(await http.get<Song[]>(`artists/${id}/songs`)),
       )) as Song[],
     )
+  },
+
+  async fetchSongsForArtists(artists: Artist[]) {
+    return uniqBy(await fetchSongsInBatches(artists, artist => this.fetchSongsForArtist(artist)), 'id')
   },
 
   async fetchForPlaylist(playlist: Playlist | Playlist['id'], refresh = false) {
@@ -245,13 +316,9 @@ export const playableStore = {
   },
 
   async fetchForPlaylists(playlists: Playlist[]) {
-    const playables: Playable[] = []
+    const playablesPerPlaylist = await Promise.all(playlists.map(playlist => this.fetchForPlaylist(playlist)))
 
-    for await (const playlist of playlists) {
-      playables.push(...(await this.fetchForPlaylist(playlist)))
-    }
-
-    return uniqBy(playables, 'id')
+    return uniqBy(playablesPerPlaylist.flat(), 'id')
   },
 
   async fetchEpisodesInPodcast(podcast: Podcast | Podcast['id'], refresh = false) {
@@ -357,6 +424,20 @@ export const playableStore = {
     return privatizedIds
   },
 
+  async hideSongs(songs: Song[]) {
+    await http.post('songs/hide', { songs: songs.map(({ id }) => id) })
+    songs.forEach(song => (song.hidden = true))
+  },
+
+  async unhideSongs(songs: Song[]) {
+    await http.post('songs/unhide', { songs: songs.map(({ id }) => id) })
+    songs.forEach(song => (song.hidden = false))
+  },
+
+  async fetchHiddenSongs() {
+    return this.syncWithVault(await http.get<Song[]>('songs/hidden')) as Song[]
+  },
+
   async resolveSongsFromMediaReferences(data: MediaReference[], shuffle = false) {
     const songReferences = data.filter(item => item.type === 'songs') as Array<Pick<Song, 'type' | 'id'>>
     const songs = this.byIds(songReferences.map(item => item.id)) as Song[]
@@ -434,7 +515,7 @@ export const playableStore = {
 
   async undoFavorite(playables: MaybeArray<Playable>) {
     playables = arrayify(playables)
-    playables.forEach(playable => (playable.favorite = true))
+    playables.forEach(playable => (playable.favorite = false))
 
     await http.delete('favorites', {
       type: 'playable',

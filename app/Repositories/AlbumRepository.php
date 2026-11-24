@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Builders\AlbumBuilder;
 use App\Models\Album;
 use App\Models\Artist;
 use App\Models\User;
@@ -11,16 +12,81 @@ use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\JoinClause;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\LazyCollection;
 
 /**
  * @extends Repository<Album>
  * @implements ScoutableRepository<Album>
  */
-// @mago-ignore lint:too-many-methods,cyclomatic-complexity
+// @mago-ignore lint:too-many-methods
 class AlbumRepository extends Repository implements ScoutableRepository
 {
+    private const int RANDOM_SONGS_SAMPLED_PER_ALBUM = 4;
+
+    public function isAccessibleByUser(Album $album, User $user): bool
+    {
+        return Album::query()->whereAccessibleByUser($user)->whereKey($album->id)->exists();
+    }
+
+    /** @return LazyCollection<array-key, Album> */
+    public function lazyGetWithIncompleteMbids(): LazyCollection
+    {
+        return self::queryWithIncompleteMbids()->lazyById();
+    }
+
+    public function countWithIncompleteMbids(): int
+    {
+        return self::queryWithIncompleteMbids()->count();
+    }
+
+    /** @return LazyCollection<array-key, Album> */
+    public function lazyGetWithoutSmallCover(): LazyCollection
+    {
+        return self::queryWithoutSmallCover()->lazyById();
+    }
+
+    public function countWithoutSmallCover(): int
+    {
+        return self::queryWithoutSmallCover()->count();
+    }
+
+    public function countAccessibleByUser(User $user): int
+    {
+        return Album::query()->onlyStandard()->setScopedUser($user)->accessible()->count();
+    }
+
+    private static function queryWithoutSmallCover(): AlbumBuilder
+    {
+        return Album::query()->where('albums.cover', '<>', '')->whereNull('albums.small_cover');
+    }
+
+    /**
+     * An album is incomplete while it lacks an identifier of its own or any of its songs lacks one. A
+     * tagged file commonly names the release without naming the recording, so the two run out separately.
+     */
+    private static function queryWithIncompleteMbids(): AlbumBuilder
+    {
+        return Album::query()
+            ->onlyStandard()
+            ->where(static fn (AlbumBuilder $query) => $query->whereNull(
+                'albums.mbid',
+            )->orWhereHas('songs', static fn (Builder $songs) => $songs->whereNull('songs.mbid')));
+    }
+
+    public function findOneByArtistAndNameIgnoringCase(
+        string $artistId,
+        string $name,
+        ?Album $excludedAlbum = null,
+    ): ?Album {
+        return Album::query()
+            ->where('artist_id', $artistId)
+            ->whereRaw('LOWER(name) = LOWER(?)', [$name])
+            ->when($excludedAlbum, static fn (Builder $query) => $query->whereKeyNot($excludedAlbum->id))
+            ->first();
+    }
+
     /**
      * @param string $id
      */
@@ -41,48 +107,68 @@ class AlbumRepository extends Repository implements ScoutableRepository
 
     public function getRecentlyAdded(int $count = 6, int $offset = 0, ?User $user = null): Collection
     {
-        return Album::query()
+        $user ??= $this->auth->user();
+
+        $ids = Album::query()
+            ->select('albums.id')
             ->onlyStandard()
-            ->withUserContext(user: $user ?? $this->auth->user())
-            ->latest()
+            ->setScopedUser($user)
+            ->accessible()
+            ->orderByDesc('albums.created_at')
+            ->orderBy('albums.id')
             ->offset($offset)
             ->limit($count)
-            ->get();
+            ->pluck('albums.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, user: $user);
     }
 
     public function getMostPlayed(int $count = 6, int $offset = 0, ?User $user = null): Collection
     {
-        return Album::query()
+        $user ??= $this->auth->user();
+
+        $ids = Album::query()
+            ->select('albums.id')
             ->onlyStandard()
-            ->withUserContext(user: $user ?? $this->auth->user(), includePlayCount: true)
+            ->setScopedUser($user)
+            ->accessible()
+            ->withPlayCount(playedOnly: true)
             ->orderByDesc('play_count')
+            ->orderBy('albums.id')
             ->offset($offset)
             ->limit($count)
-            ->get();
+            ->pluck('albums.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, user: $user);
     }
 
     public function getRecentlyPlayed(int $count = 6, int $offset = 0, ?User $user = null): Collection
     {
         $user ??= $this->auth->user();
 
-        return Album::query()
+        $lastPlayedAtByAlbum = DB::table('interactions')
+            ->join('songs as recently_played_songs', 'recently_played_songs.id', 'interactions.song_id')
+            ->where('interactions.user_id', $user->id)
+            ->whereNotNull('interactions.last_played_at')
+            ->groupBy('recently_played_songs.album_id')
+            ->select('recently_played_songs.album_id')
+            ->selectRaw('MAX(interactions.last_played_at) as last_played_at');
+
+        $ids = Album::query()
+            ->select('albums.id')
             ->onlyStandard()
-            ->withUserContext(user: $user)
-            ->whereExists(static function (QueryBuilder $query) use ($user): void {
-                $query
-                    ->selectRaw('1')
-                    ->from('interactions')
-                    ->join('songs as recently_played_songs', 'recently_played_songs.id', 'interactions.song_id')
-                    ->whereColumn('recently_played_songs.album_id', 'albums.id')
-                    ->where('interactions.user_id', $user->id)
-                    ->whereNotNull('interactions.last_played_at');
-            })
-            ->orderByDesc('last_played_at')
+            ->setScopedUser($user)
+            ->accessible()
+            ->joinSub($lastPlayedAtByAlbum, 'album_last_played', 'album_last_played.album_id', 'albums.id')
+            ->orderByDesc('album_last_played.last_played_at')
             ->offset($offset)
             ->limit($count)
-            ->get();
+            ->pluck('albums.id');
+
+        return $this->getMany($ids->all(), preserveOrder: true, user: $user);
     }
 
+    /** @return Collection<int, Album> */
     public function getByYearRange(
         int $fromYear,
         int $toYear,
@@ -110,8 +196,16 @@ class AlbumRepository extends Repository implements ScoutableRepository
         return Album::query()
             ->onlyStandard()
             ->withUserContext(user: $user ?? $this->auth->user())
-            ->whereHas('songs.genres', static fn (Builder $query) => $query->where('genres.name', $genreName))
+            ->whereIn(
+                'albums.id',
+                DB::table('songs')
+                    ->join('genre_song', 'genre_song.song_id', 'songs.id')
+                    ->join('genres', 'genres.id', 'genre_song.genre_id')
+                    ->where('genres.name', $genreName)
+                    ->select('songs.album_id'),
+            )
             ->orderBy('albums.name')
+            ->orderBy('albums.id')
             ->offset($offset)
             ->limit($size)
             ->get();
@@ -132,8 +226,22 @@ class AlbumRepository extends Repository implements ScoutableRepository
             })
             ->orderByDesc('ratings.rating')
             ->orderBy('albums.name')
+            ->orderBy('albums.id')
             ->offset($offset)
             ->limit($size)
+            ->get();
+    }
+
+    /**
+     * The user's albums that songs owned by others still use.
+     *
+     * @return Collection<int, Album>
+     */
+    public function getOwnedByUserButUsedByOthers(User $user): Collection
+    {
+        return Album::query()
+            ->where('user_id', $user->id)
+            ->whereHas('songs', static fn (Builder $songs) => $songs->where('owner_id', '<>', $user->id))
             ->get();
     }
 
@@ -142,8 +250,7 @@ class AlbumRepository extends Repository implements ScoutableRepository
         $albums = Album::query()
             ->onlyStandard()
             ->withUserContext(user: $user ?? $this->auth->user())
-            ->whereIn('albums.id', $ids)
-            ->get();
+            ->getWhereInChunks('albums.id', $ids);
 
         return $preserveOrder ? $albums->orderByArray($ids) : $albums;
     }
@@ -151,15 +258,16 @@ class AlbumRepository extends Repository implements ScoutableRepository
     /** @return Collection<int, Album> */
     public function getByArtist(Artist $artist, ?User $user = null): Collection
     {
+        $albumIdsOfArtistSongs = DB::table('songs')->select('songs.album_id')->where('songs.artist_id', $artist->id);
+
+        $albumIds = DB::table('albums')
+            ->select('albums.id')
+            ->where('albums.artist_id', $artist->id)
+            ->union($albumIdsOfArtistSongs);
+
         return Album::query()
             ->withUserContext(user: $user ?? $this->auth->user())
-            ->where(static function (Builder $query) use ($artist): void {
-                $query->whereBelongsTo($artist)->orWhereHas('songs', static function (Builder $songQuery) use (
-                    $artist,
-                ): void {
-                    $songQuery->whereBelongsTo($artist);
-                });
-            })
+            ->whereIn('albums.id', $albumIds)
             ->orderBy('albums.name')
             ->get();
     }
@@ -179,12 +287,30 @@ class AlbumRepository extends Repository implements ScoutableRepository
     /** @return Collection<int, Album> */
     public function getRandom(int $limit, ?User $user = null): Collection
     {
-        return Album::query()
-            ->onlyStandard()
-            ->withUserContext(user: $user ?? $this->auth->user())
-            ->inRandomOrder()
-            ->limit($limit)
-            ->get();
+        $user ??= $this->auth->user();
+
+        $ids = collect();
+
+        do {
+            $missingCount = $limit - $ids->count();
+
+            $newIdsOfRandomSongs = self::pluckFromRandomHash(
+                Album::query()
+                    ->select('albums.id')
+                    ->onlyStandard()
+                    ->setScopedUser($user)
+                    ->accessible()
+                    ->whereNotIn('albums.id', $ids->all())
+                    ->join('songs as random_songs', 'random_songs.album_id', 'albums.id'),
+                hashColumn: 'random_songs.path_hash',
+                idColumn: 'albums.id',
+                limit: $missingCount * self::RANDOM_SONGS_SAMPLED_PER_ALBUM,
+            );
+
+            $ids = $ids->merge($newIdsOfRandomSongs->unique()->take($missingCount));
+        } while ($newIdsOfRandomSongs->isNotEmpty() && $ids->count() < $limit);
+
+        return $this->getMany($ids->shuffle()->all(), preserveOrder: true, user: $user);
     }
 
     /** @return Collection<int, Album> */
@@ -218,16 +344,16 @@ class AlbumRepository extends Repository implements ScoutableRepository
                 ->withUserContext(user: $user ?? $this->auth->user(), favoritesOnly: $favoritesOnly)
                 ->sort($sortColumn, $sortDirection),
             idColumn: 'albums.id',
-            perPage: 21,
+            perPage: 60,
         );
     }
 
     public function search(string $keywords, int $limit, ?User $user = null): Collection
     {
         return $this->getMany(
-            ids: Album::search($keywords)->take($limit)->get()->modelKeys(),
+            ids: Album::search($keywords)->take(self::SEARCH_CANDIDATE_LIMIT)->keys()->all(),
             preserveOrder: true,
             user: $user,
-        );
+        )->take($limit);
     }
 }

@@ -1,12 +1,12 @@
 <template>
-  <form class="md:w-[420px] min-w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
+  <form name="add-podcast" class="md:w-[420px] min-w-full" @submit.prevent="handleSubmit" @keydown.esc="maybeClose">
     <header>
       <h1>New Podcast</h1>
     </header>
 
     <main>
       <FormRow>
-        <template #label>Podcast feed URL</template>
+        <template #label>Podcast URL</template>
         <TextInput
           v-model="data.url"
           v-koel-focus
@@ -16,19 +16,18 @@
           required
           type="url"
         />
+        <template #help>An RSS feed URL or an Apple Podcasts link.</template>
       </FormRow>
     </main>
 
     <footer>
-      <Btn type="submit">Save</Btn>
-      <Btn variant="ghost" :disabled="loading" @click.prevent="maybeClose">Cancel</Btn>
+      <Btn :disabled="loading" type="submit">Save</Btn>
+      <Btn variant="neutral" :disabled="loading" @click.prevent="maybeClose">Cancel</Btn>
     </footer>
   </form>
 </template>
 
 <script setup lang="ts">
-import { useDialogBox } from '@/composables/useDialogBox'
-import { useMessageToaster } from '@/composables/useMessageToaster'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { podcastStore } from '@/stores/podcastStore'
 import { useForm } from '@/composables/useForm'
@@ -39,29 +38,22 @@ import FormRow from '@/components/ui/form/FormRow.vue'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-const { toastSuccess } = useMessageToaster()
-const { showConfirmDialog } = useDialogBox()
-
 const close = () => emit('close')
 
-const { loading, handleSubmit, data, isPristine } = useForm<Pick<Podcast, 'url'>>({
+const { loading, handleSubmit, data, maybeClose } = useForm<Pick<Podcast, 'url'>>({
   initialValues: {
     url: '',
   },
-  onSubmit: async ({ url }) => await podcastStore.store(url),
-  onSuccess: (podcast: Podcast) => {
-    close()
-    toastSuccess(`Podcast "${podcast.title}" added.`)
+  toast: {
+    loading: 'Adding podcast…',
+    success: (podcast: Podcast) => `Podcast "${podcast.title}" added.`,
   },
+  onSubmit: async ({ url }) => await podcastStore.store(url),
+  onSuccess: close,
   onError: error =>
     useErrorHandler('dialog').handleHttpError(error, {
       409: 'You have already subscribed to this podcast.',
     }),
+  onClose: close,
 })
-
-const maybeClose = async () => {
-  if (isPristine() || (await showConfirmDialog('Discard all changes?'))) {
-    close()
-  }
-}
 </script>

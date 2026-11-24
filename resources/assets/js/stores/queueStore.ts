@@ -1,26 +1,32 @@
 import { reactive } from 'vue'
-import { differenceBy, unionBy } from 'lodash-es'
+import { debounce, differenceBy, unionBy } from 'lodash-es'
 import { arrayify, moveItemsInList } from '@/utils/helpers'
-import { logger } from '@/utils/logger'
-import { isSong } from '@/utils/typeGuards'
 import { http } from '@/services/http'
+import { lastWriteWins } from '@/utils/lastWriteWins'
 import { playableStore } from '@/stores/playableStore'
 
+const saveQueueState = lastWriteWins((songs: Playable['id'][]) =>
+  http.silently.withRetries.put('queue/state', { songs }),
+)
+
 export const queueStore = {
-  state: reactive<{ playables: Playable[] }>({
+  state: reactive<{ playables: Playable[]; currentOutsideQueue: Playable | null }>({
     playables: [],
+    currentOutsideQueue: null,
   }),
 
   init(savedState: QueueState) {
     // don't set this.all here, as it would trigger saving state
-    this.state.playables = playableStore.syncWithVault(savedState.songs)
+    this.replacePlayables(playableStore.syncWithVault(savedState.songs))
 
     if (!this.state.playables.length) {
       return
     }
 
     if (savedState.current_song) {
-      playableStore.syncWithVault(savedState.current_song)[0].playback_state = 'Paused'
+      const [currentPlayable] = playableStore.syncWithVault(savedState.current_song)
+      currentPlayable.playback_state = 'Paused'
+      this.state.currentOutsideQueue = this.contains(currentPlayable) ? null : currentPlayable
     } else {
       this.all[0].playback_state = 'Paused'
     }
@@ -31,8 +37,7 @@ export const queueStore = {
   },
 
   set all(playables: Playable[]) {
-    this.state.playables = playables
-    playableStore.syncWithVault(playables.filter(isSong))
+    this.replacePlayables(playableStore.syncWithVault(playables))
     this.saveState()
   },
 
@@ -52,8 +57,8 @@ export const queueStore = {
    * Add playable(s) to the end of the current queue.
    */
   queue(playables: MaybeArray<Playable>) {
-    this.unqueue(playables)
-    this.all = unionBy(this.all, arrayify(playables), 'id')
+    playables = arrayify(playables)
+    this.all = unionBy(differenceBy(this.all, playables, 'id'), playables, 'id')
   },
 
   queueIfNotQueued(playable: Playable, position: 'top' | 'bottom' | 'after-current' = 'after-current') {
@@ -84,22 +89,31 @@ export const queueStore = {
 
   queueAfterCurrent(playables: MaybeArray<Playable>) {
     playables = arrayify(playables)
+    const current = this.current
 
-    if (!this.current || !this.all.length) {
+    if (!current || !this.all.length) {
       return this.queue(playables)
     }
 
-    // First we unqueue the songs to make sure there are no duplicates.
-    this.unqueue(playables)
-
-    const head = this.all.splice(0, this.indexOf(this.current) + 1)
-    this.all = head.concat(reactive(playables), this.all)
+    const playablesToMove = playables.filter(({ id }) => id !== current.id)
+    const remaining = differenceBy(this.all, playablesToMove, 'id')
+    const head = remaining.splice(0, remaining.indexOf(reactive(current)) + 1)
+    this.all = head.concat(reactive(playablesToMove), remaining)
   },
 
   unqueue(playables: MaybeArray<Playable>) {
     playables = arrayify(playables)
-    playables.forEach(song => (song.playback_state = 'Stopped'))
+    playables.forEach(playable => (playable.playback_state = 'Stopped'))
     this.all = differenceBy(this.all, playables, 'id')
+  },
+
+  /**
+   * The first playable after the current one that would still be queued once the given playables are removed.
+   */
+  findNextRemaining(playablesToRemove: Playable[]) {
+    const removedIds = new Set(playablesToRemove.map(({ id }) => id))
+
+    return this.all.slice(this.indexOf(this.current!) + 1).find(({ id }) => !removedIds.has(id))
   },
 
   /**
@@ -118,7 +132,17 @@ export const queueStore = {
    * Clear the queue without saving the state.
    */
   clearSilently() {
-    this.state.playables = []
+    this.replacePlayables([])
+  },
+
+  /**
+   * Swap the queued playables while still tracking the current playable if it's no longer queued.
+   */
+  replacePlayables(playables: Playable[]) {
+    const current = this.current
+
+    this.state.currentOutsideQueue = current && !playables.some(({ id }) => id === current.id) ? current : null
+    this.state.playables = playables
   },
 
   indexOf(playable: Playable) {
@@ -146,9 +170,15 @@ export const queueStore = {
   },
 
   get current() {
-    // Search the queue first (reactive array — triggers Vue computed re-evaluation).
-    // Fall back to the vault for songs removed from the queue (e.g. after replaceQueueWith).
-    return this.all.find(({ playback_state }) => playback_state !== 'Stopped') || playableStore.findPlaying()
+    const currentInQueue = this.all.find(({ playback_state }) => playback_state !== 'Stopped')
+
+    if (currentInQueue) {
+      return currentInQueue
+    }
+
+    const { currentOutsideQueue } = this.state
+
+    return currentOutsideQueue && currentOutsideQueue.playback_state !== 'Stopped' ? currentOutsideQueue : undefined
   },
 
   async fetchRandom(limit = 500) {
@@ -162,10 +192,14 @@ export const queueStore = {
   },
 
   saveState() {
-    try {
-      http.silently.put('queue/state', { songs: this.state.playables.map(({ id }) => id) })
-    } catch (error: unknown) {
-      logger.error(error)
-    }
+    saveQueueStateSoon()
   },
 }
+
+const saveQueueStateSoon = debounce(() => saveQueueState(queueStore.state.playables.map(({ id }) => id)), 1_000)
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    saveQueueStateSoon.flush()
+  }
+})

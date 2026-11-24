@@ -75,6 +75,13 @@ describe('playableListItem.vue', () => {
     screen.getByRole('button', { name: 'Undo Favorite' })
   })
 
+  it('shows the vinyl label instead of the track number', () => {
+    renderComponent(h.factory('song').make({ track: 3, track_label: 'B1' }))
+
+    screen.getByText('B1')
+    expect(screen.queryByText('3')).toBeNull()
+  })
+
   it('emits play event on double click', async () => {
     const { emitted } = renderComponent()
     await h.user.dblClick(screen.getByTestId('song-item'))
@@ -142,24 +149,18 @@ describe('playableListItem.vue', () => {
     expect(toggleFavoriteMock).toHaveBeenCalledWith(row.playable)
   })
 
-  it('shows spinner when caching offline', () => {
-    isCachingMock.mockReturnValue(true)
-    renderComponent()
-    screen.getByTitle('Caching for offline playback')
-  })
-
   it('shows spinner instead of offline mark when caching', () => {
     isCachingMock.mockReturnValue(true)
     isCachedMock.mockReturnValue(true)
     renderComponent()
-    screen.getByTitle('Caching for offline playback')
-    expect(screen.queryByTitle('Available offline')).toBeNull()
+    screen.getByLabelText('Caching for offline playback')
+    expect(screen.queryByText('Available offline')).toBeNull()
   })
 
   it('shows error icon when caching fails', () => {
     hasCachingErrorMock.mockReturnValue(true)
     getCachingErrorMock.mockReturnValue('Network error')
     renderComponent()
-    screen.getByTitle('Error: Network error')
+    screen.getByText('Error: Network error')
   })
 })

@@ -2,98 +2,178 @@
 
 namespace App\Services\Image;
 
+use App\Services\Network\SafeHttp;
 use App\Values\ImageWritingConfig;
+use Illuminate\Container\Attributes\Config;
+use Illuminate\Image\Image as ProcessableImage;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Image;
 use Illuminate\Support\Str;
-use Intervention\Image\FileExtension;
-use Intervention\Image\Interfaces\ImageInterface;
+use Intervention\Image\Drivers\Gd\Driver as GdDriver;
+use Intervention\Image\Drivers\Imagick\Driver as ImagickDriver;
+use Intervention\Image\ImageManager;
 use Intervention\Image\Interfaces\ImageManagerInterface;
-use Intervention\Image\Laravel\Facades\Image;
 use RuntimeException;
 use Throwable;
 
 class ImageWriter
 {
-    public readonly FileExtension $extension;
+    /** In descending order of preference: the first format the driver supports wins. */
+    private const array FORMATS = ['avif', 'webp', 'jpg'];
 
-    public function __construct()
-    {
-        $this->extension = self::getExtension();
+    private const string FALLBACK_FORMAT = 'webp';
+
+    /** A 1x1 PNG, encoded to verify that a format the driver claims to support really works. */
+    private const string PROBE_IMAGE = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    /** @var array<string, string> */
+    private static array $supportedFormatsByDriver = [];
+
+    private readonly string $format;
+
+    private readonly ?ImageManagerInterface $fastAvifManager;
+
+    public function __construct(
+        private readonly SafeHttp $http,
+        #[Config('images.default')]
+        private readonly string $driver = 'gd',
+    ) {
+        self::$supportedFormatsByDriver[$driver] ??= self::findSupportedFormat($driver);
+        $this->format = self::$supportedFormatsByDriver[$driver];
+
+        $this->fastAvifManager = $this->format === 'avif'
+            ? match ($driver) {
+                'gd' => ImageManager::usingDriver(GdDriver::class),
+                'imagick' => ImageManager::usingDriver(ImagickDriver::class),
+                default => null,
+            }
+            : null;
     }
 
-    private static function getExtension(): FileExtension
+    public function format(): string
     {
-        /** @var ImageManagerInterface $manager */
-        $manager = Image::getFacadeRoot();
+        return $this->format;
+    }
 
-        // Prioritize AVIF over WEBP over JPEG.
-        foreach ([FileExtension::AVIF, FileExtension::WEBP, FileExtension::JPEG] as $extension) {
-            if ($manager->driver()->supports($extension)) {
-                return $extension;
+    /**
+     * Some builds advertise a format their encoder can't actually produce, yielding empty
+     * output instead of failing, so the format is confirmed against a real encode.
+     */
+    private static function canActuallyEncode(string $driver, string $format): bool
+    {
+        return (bool) rescue(
+            static fn (): bool => (
+                Image::fromBase64(self::PROBE_IMAGE)->using($driver)->optimize($format)->toBytes() !== ''
+            ),
+            false,
+            report: false,
+        );
+    }
+
+    private static function findSupportedFormat(string $driver): string
+    {
+        $imageDriver = match ($driver) {
+            'gd' => new GdDriver(),
+            'imagick' => new ImagickDriver(),
+            // A custom driver can't be introspected, so assume only the format every driver encodes.
+            default => null,
+        };
+
+        if (!$imageDriver) {
+            return self::FALLBACK_FORMAT;
+        }
+
+        foreach (self::FORMATS as $format) {
+            if ($imageDriver->supports($format) && self::canActuallyEncode($driver, $format)) {
+                return $format;
             }
         }
 
-        throw new RuntimeException('No supported image extension found.');
+        throw new RuntimeException('No supported image format found.');
     }
 
     public function write(string $destination, mixed $source, ?ImageWritingConfig $config = null): void
     {
-        if (Str::isUrl($source)) {
-            try {
-                $source = Http::withUserAgent(http_user_agent())
-                    ->get($source)
-                    ->throwIfClientError()
-                    ->throwIfServerError()
-                    ->body();
-            } catch (Throwable $e) {
-                throw new RuntimeException('Failed to fetch image from URL: ' . $source, previous: $e);
-            }
-        }
+        $bytes = $this->encode($source, $config);
 
-        $img = Image::read($source);
+        throw_if(File::put($destination, $bytes) === false, RuntimeException::class, "Failed to write $destination");
+    }
 
-        if ($config instanceof ImageWritingConfig !== true) {
-            $this->saveOriginalImage($destination, $img);
-        }
-
+    public function encode(mixed $source, ?ImageWritingConfig $config = null): string
+    {
         $config ??= ImageWritingConfig::default();
 
-        $img->scaleDown(width: $config->maxWidth);
+        $bytes = $this->fastAvifManager
+            ? $this->encodeAvifFast($this->fastAvifManager, $source, $config)
+            : $this
+                ->read($source)
+                ->scale(width: $config->maxWidth)
+                ->when($config->blur, static fn (ProcessableImage $image) => $image->blur($config->blur))
+                ->optimize($this->format, $config->quality)
+                ->toBytes();
+
+        throw_if($bytes === '', RuntimeException::class, 'Encoding produced an empty image');
+
+        return $bytes;
+    }
+
+    private function read(mixed $source): ProcessableImage
+    {
+        return Image::fromBytes($this->readBytes($source));
+    }
+
+    private function encodeAvifFast(ImageManagerInterface $manager, mixed $source, ImageWritingConfig $config): string
+    {
+        $encoder = $this->driver === 'gd'
+            ? new FastGdAvifEncoder($config->quality)
+            : new FastImagickAvifEncoder($config->quality);
+
+        $image = $manager->decodeBinary($this->readBytes($source))->scaleDown(width: $config->maxWidth);
 
         if ($config->blur) {
-            $img->blur($config->blur);
+            $image->blur($config->blur);
         }
 
-        $img->save($destination, $config->quality, $this->extension);
+        return $image->encode($encoder)->toString();
     }
 
     /**
-     * Very hacky. But with this version I do not have to change a lot of existing code,
-     * so future merges with origin will be easier.
-     * Save the original version of the image for future updates in the highes possible
-     * resolution. Still re-encode for security
+     * @param mixed $source A data URI, a base64-encoded image, a URL, a local file path, or raw image bytes.
      */
-    private function saveOriginalImage(string $destination, ImageInterface $img): void
+    private function readBytes(mixed $source): string
     {
-        $origin = $img->origin();
-
-        $originalExtension = $origin->fileExtension() ? FileExtension::tryCreate($origin->fileExtension()) : null;
-
-        if ($originalExtension === null) {
-            $originalExtension = FileExtension::tryCreate($origin->mediaType());
+        if (Str::startsWith($source, 'data:')) {
+            return base64_decode(Str::after($source, 'base64,'), true) ?: '';
         }
 
-        $fileExtension = $originalExtension->value ?? $this->extension->value;
+        if (Str::isUrl($source)) {
+            return $this->fetch($source);
+        }
 
-        $originalImagePath = image_storage_path(sprintf(
-            '%s_org.%s',
-            Str::beforeLast(basename($destination), '.'),
-            $fileExtension,
-        ));
+        return self::isLocalFile($source) ? File::get($source) : $source;
+    }
 
-        if (File::exists($originalImagePath) !== true) {
-            $img->save($originalImagePath, quality: 90);
+    private static function isLocalFile(string $source): bool
+    {
+        return strlen($source) < PHP_MAXPATHLEN && is_file($source);
+    }
+
+    private function fetch(string $url): string
+    {
+        try {
+            $response = $this->http->get($url, ['User-Agent' => http_user_agent()]);
+
+            // Some hosts serve images only to browsers, while others, like Wikimedia, refuse clients posing as one.
+            if ($response->clientError()) {
+                $response = $this->http->get($url, ['User-Agent' => koel_user_agent()]);
+            }
+
+            return $response->throwIfClientError()->throwIfServerError()->body();
+        } catch (Throwable $e) {
+            throw new RuntimeException(
+                sprintf('Failed to fetch image from URL: %s (%s)', $url, $e->getMessage()),
+                previous: $e,
+            );
         }
     }
 }

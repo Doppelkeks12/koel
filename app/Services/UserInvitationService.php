@@ -33,6 +33,7 @@ class UserInvitationService
     {
         return User::query()
             ->where('invitation_token', $token)
+            ->where('invited_at', '>=', now()->subDays(User::INVITATION_LIFETIME_DAYS))
             ->firstOr(static function (): never {
                 throw new InvitationNotFoundException();
             });
@@ -74,7 +75,7 @@ class UserInvitationService
         string $token,
         string $name,
         #[SensitiveParameter]
-        string $password,
+        ?string $password,
     ): User {
         $user = $this->getUserProspectByToken($token);
 

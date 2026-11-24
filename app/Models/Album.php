@@ -4,14 +4,14 @@ namespace App\Models;
 
 use App\Builders\AlbumBuilder;
 use App\Models\Concerns\Albums\HasAlbumAttributes;
-use App\Models\Concerns\MorphsToEmbeds;
+use App\Models\Concerns\HasMbid;
 use App\Models\Concerns\MorphsToFavorites;
 use App\Models\Concerns\MorphsToRatings;
 use App\Models\Concerns\SupportsDeleteWhereValueNotIn;
-use App\Models\Contracts\Embeddable;
 use App\Models\Contracts\Favoriteable;
 use App\Models\Contracts\Rateable;
 use App\Observers\AlbumObserver;
+use App\Services\Image\ImageStorage;
 use Carbon\Carbon;
 use Database\Factories\AlbumFactory;
 use Illuminate\Database\Eloquent\Attributes\Appends;
@@ -26,7 +26,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Laravel\Scout\Searchable;
 use OwenIt\Auditing\Auditable;
@@ -37,6 +36,7 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property ?Carbon $favorited_at When the scoped user favorited the album, if at all
  * @property ?Carbon $last_played_at When the scoped user last played the album, if at all
  * @property ?int $year
+ * @property ?string $description Description written by the user, as sanitized HTML
  * @property ?string $thumbnail The album's thumbnail file name
  * @property ?string $full_screen_cover The album's full_screen_cover file name
  * @property ?string $full_screen_cover_name The file name of the album's full screen cover image
@@ -45,11 +45,15 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
  * @property Collection<array-key, Song> $songs
  * @property User $user
  * @property bool $is_unknown If the album is the Unknown Album
+ * @property bool $is_standard If the album is not the Unknown Album
+ * @property bool $is_identifiable If both the album and its artist are known, so online sources can look it up
  * @property int $user_id
  * @property string $artist_id
  * @property string $artist_name
  * @property string $cover The album cover's file name
+ * @property ?string $small_cover The file name of a sharp, downsized copy of the cover, for small renders
  * @property string $id
+ * @property ?string $mbid The MusicBrainz release ID
  * @property string $name Name of the album
  *
  * @method static AlbumFactory factory(...$parameters)
@@ -59,13 +63,13 @@ use OwenIt\Auditing\Contracts\Auditable as AuditableContract;
 #[Guarded(['id'])]
 #[Hidden(['updated_at'])]
 #[Appends(['is_compilation'])]
-class Album extends Model implements AuditableContract, Embeddable, Favoriteable, Rateable
+class Album extends Model implements AuditableContract, Favoriteable, Rateable
 {
     use Auditable;
     use HasAlbumAttributes;
+    use HasMbid;
     use HasFactory;
     use HasUlids;
-    use MorphsToEmbeds;
     use MorphsToFavorites;
     use MorphsToRatings;
     use Searchable;
@@ -134,8 +138,13 @@ class Album extends Model implements AuditableContract, Embeddable, Favoriteable
                 return null;
             }
 
-            return sprintf('%s_fullscreen.%s', Str::beforeLast($this->cover, '.'), Str::afterLast($this->cover, '.'));
+            return self::makeFullScreenCoverName($this->cover);
         })->shouldCache();
+    }
+
+    public static function makeFullScreenCoverName(string $cover): string
+    {
+        return sprintf('%s_fullscreen.%s', Str::beforeLast($cover, '.'), Str::afterLast($cover, '.'));
     }
 
     protected function fullScreenCover(): Attribute
@@ -145,7 +154,7 @@ class Album extends Model implements AuditableContract, Embeddable, Favoriteable
                 return null;
             }
 
-            if (File::exists(image_storage_path($this->full_screen_cover_name)) !== true) {
+            if (!ImageStorage::disk()->exists($this->full_screen_cover_name)) {
                 return null;
             }
 
@@ -171,5 +180,19 @@ class Album extends Model implements AuditableContract, Embeddable, Favoriteable
         }
 
         return $array;
+    }
+
+    public function setYearIfMissing(?int $year): void
+    {
+        if (!$year || $this->year) {
+            return;
+        }
+
+        $stored = static::query()->whereKey($this->getKey())->whereNull('year')->update(['year' => $year]) > 0;
+
+        if ($stored) {
+            $this->year = $year;
+            $this->syncOriginalAttribute('year');
+        }
     }
 }

@@ -5,16 +5,22 @@ declare module '*.svg'
 
 declare type Closure<T = unknown | any> = (...args: Array<unknown | any>) => T
 
-declare module 'sketch-js' {
-  function create(config: Record<string, any>): any
-}
-
 declare module 'youtube-player' {
   import type { YouTubePlayer } from 'youtube-player/dist/types'
 
   function createYouTubePlayer(name: string, options: Record<string, any>): YouTubePlayer
 
   export default createYouTubePlayer
+}
+
+declare module 'node:crypto' {
+  export const webcrypto: Crypto
+}
+
+declare module 'node:stream/web' {
+  export const ReadableStream: typeof globalThis.ReadableStream
+  export const TransformStream: typeof globalThis.TransformStream
+  export const WritableStream: typeof globalThis.WritableStream
 }
 
 declare module 'ismobilejs' {
@@ -56,18 +62,69 @@ interface TwoFactorChallengeRequired {
   login_token: string
 }
 
+interface ListeningSummary {
+  plays: number
+  listening_time: number
+  song_count: number
+  artist_count: number
+}
+
+interface ListeningStatistics {
+  summary: ListeningSummary
+  top_songs: { plays: number; song: Song }[]
+  top_artists: { listening_time: number; artist: Artist; album_cover: string | null }[]
+  top_albums: { listening_time: number; album: Album }[]
+  top_genres: { listening_time: number; id: Genre['id']; name: string }[]
+  hourly_listening: { hour: string; plays: number; listening_time: number }[]
+  previous_summary: ListeningSummary | null
+  discoveries: { song_count: number; artist_count: number } | null
+  streak: { current_days: number; longest_days: number }
+}
+
+interface LibraryStatistic {
+  key: string
+  label: string
+  value: number
+  unit: 'count' | 'bytes'
+  used: number | null
+  limit: number | null
+}
+
+interface Passkey {
+  type: 'passkeys'
+  id: number
+  name: string
+  authenticator: string | null
+  last_used_at: string | null
+  created_at: string
+}
+
 type LoginResponse = CompositeToken | TwoFactorChallengeRequired
 
 type SSOProvider = 'Google' | 'OpenID Connect' | 'Reverse Proxy'
 
+interface ReverbServer {
+  readonly app_key: string
+  readonly host: string
+  readonly port: number
+  readonly tls: boolean
+}
+
 interface KoelGlobals {
   base_url: string
+  clean_urls?: boolean
+  build: string | null
   is_demo: boolean
   pusher: {
     readonly app_key: string
     readonly app_cluster: string
   }
+  reverb: ReverbServer | null
   branding: Branding
+  gravatar: {
+    readonly url: string
+    readonly default: string
+  }
   mailer_configured: boolean
   sso_providers: SSOProvider[]
   sso_oidc_label?: string
@@ -77,6 +134,12 @@ interface KoelGlobals {
     password: string
   }
   auth_token?: CompositeToken | null
+  two_factor_login_token?: string
+}
+
+interface HTMLMediaElement {
+  webkitShowPlaybackTargetPicker?: () => void
+  readonly webkitCurrentPlaybackTargetIsWireless?: boolean
 }
 
 interface Window {
@@ -87,7 +150,11 @@ interface Window {
   readonly MediaMetadata: Constructable<Record<string, any>>
   createLemonSqueezy?: () => Closure
 
-  LemonSqueezy: {
+  documentPictureInPicture?: {
+    requestWindow: (options?: { width?: number; height?: number }) => Promise<Window>
+  }
+
+  LemonSqueezy?: {
     Url: {
       Open: (url: string) => void
     }
@@ -106,6 +173,12 @@ interface Branding {
 
 type EncyclopediaDisplayMode = 'aside' | 'full'
 type ScreenHeaderLayout = 'expanded' | 'collapsed'
+
+interface ContextMenuAction {
+  id: string
+  label: () => string
+  action: () => void
+}
 
 interface AlbumTrack {
   readonly title: string
@@ -136,7 +209,10 @@ interface Artist {
   readonly id: string
   name: string
   image: string // empty string = no image
+  album_cover: string | null
+  description?: string | null
   created_at: string
+  mbid?: string | null
   is_external: boolean
   favorite: boolean
   rating: number
@@ -152,9 +228,12 @@ interface Album {
   artist_name: Artist['name']
   name: string
   cover: string // empty string = no cover
+  small_cover: string | null
   thumbnail?: string | null
   created_at: string
+  mbid?: string | null
   year: number | null
+  description?: string | null
   length: number
   is_external: boolean
   favorite: boolean
@@ -178,6 +257,7 @@ interface BasePlayable extends IStreamable {
   title: string
   readonly length: number
   play_count_registered?: boolean
+  scrobble_registered?: boolean
   play_count: number
   rating: number // 0-5, current user's rating; 0 = unrated
   play_start_time?: number
@@ -193,6 +273,7 @@ interface Song extends BasePlayable {
   album_id: Album['id']
   album_name: Album['name']
   album_cover: Album['cover']
+  album_small_cover: Album['small_cover']
   artist_id: Artist['id']
   artist_name: Artist['name']
   album_artist_id: Artist['id']
@@ -200,11 +281,17 @@ interface Song extends BasePlayable {
   full_screen_cover: Album['full_screen_cover']
   genre: string
   track: number | null
+  track_label: string | null
   disc: number
   year: number | null
   lyrics: string
   is_public: boolean
   is_external: boolean
+  mbid?: string | null
+  loudness?: number | null
+  true_peak?: number | null
+  hidden?: boolean
+  file_size?: number | null
   basename?: string
   deleted?: boolean
   collaboration?: {
@@ -239,15 +326,17 @@ interface RadioStation extends IStreamable {
 }
 
 type Playable = Song | Episode
+
 type Streamable = Playable | RadioStation
-type Embeddable = Playable | Playlist | Artist | Album
+type Embeddable = Playable | Playlist | Artist | Album | UserFavorites
+type Rateable = Song | Album | Artist | Podcast
 
 interface Embed {
   type: 'embeds'
   id: string
   user_id: User['id']
-  embeddable_id: Embeddable['id']
-  embeddable_type: 'playable' | 'playlist' | 'artist' | 'album'
+  embeddable_id: Exclude<Embeddable, UserFavorites>['id'] | null
+  embeddable_type: 'playable' | 'playlist' | 'artist' | 'album' | 'favorites'
 }
 
 type WidgetReadyEmbed = Embed & {
@@ -318,6 +407,11 @@ interface SerializedSmartPlaylistRule {
 }
 
 type SmartPlaylistInputTypes = Record<SmartPlaylistModel['type'], SmartPlaylistOperator[]>
+
+interface UserFavorites {
+  type: 'favorites'
+  owner_name: User['name']
+}
 
 interface FavoriteList {
   name: 'Favorites'
@@ -423,6 +517,7 @@ interface UserPreferences extends Record<string, any> {
   radio_stations_favorites_only: boolean
   transcode_on_mobile: boolean
   transcode_quality: number
+  stream_lossless_when_supported: boolean
   support_bar_no_bugging: boolean
   show_album_art_overlay: boolean
   lyrics_zoom_level: number | null
@@ -433,7 +528,12 @@ interface UserPreferences extends Record<string, any> {
   detect_duplicate_uploads: boolean
   include_public_media: boolean
   crossfade_duration: number
+  music_playback_speed: number
+  podcast_playback_speed: number
+  normalize_volume: boolean
+  show_waveform: boolean
   lastfm_session_key?: string
+  listenbrainz_token?: string
   home_blocks_order: string[]
 }
 
@@ -465,6 +565,7 @@ interface User {
    */
   subsonic_api_key?: string
   two_factor?: boolean
+  has_password?: boolean
   /**
    * What the *current user* (the one making the request) is permitted to do
    * *to this user* — the result of running UserPolicy from their perspective.
@@ -482,10 +583,25 @@ type CurrentUser = User & {
   abilities: Ability[]
   subsonic_api_key: string
   two_factor: boolean
+  has_password: boolean
+}
+
+type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'groq' | 'mistral' | 'openrouter' | 'xai'
+
+interface AiSettings {
+  enabled: boolean
+  provider: AiProvider | null
+  has_api_key: boolean
+}
+
+interface YouTubeSettings {
+  has_api_key: boolean
 }
 
 interface Settings {
   media_path?: string
+  ai?: AiSettings
+  youtube?: YouTubeSettings
 }
 
 interface Interaction {
@@ -533,40 +649,58 @@ interface EqualizerPreset {
 }
 
 declare type PlaybackState = 'Stopped' | 'Playing' | 'Paused'
-declare type ScreenName =
-  | '404'
-  | 'AI'
-  | 'Album'
-  | 'Albums'
-  | 'Artist'
-  | 'Artists'
-  | 'Default'
-  | 'Embed'
-  | 'Episode'
-  | 'Favorites'
-  | 'Genre'
-  | 'Genres'
-  | 'Home'
-  | 'Invitation.Accept'
-  | 'MediaBrowser'
-  | 'OfflineSongs'
-  | 'Password.Reset'
-  | 'Playlist'
-  | 'Playlist.Collaborate'
-  | 'Podcast'
-  | 'Podcasts'
-  | 'Profile'
-  | 'Queue'
-  | 'Radio.Stations'
-  | 'RecentlyPlayed'
-  | 'Search.Excerpt'
-  | 'Search.Playables'
-  | 'Settings'
-  | 'Songs'
-  | 'Upload'
-  | 'Users'
-  | 'Visualizer'
-  | 'YouTube'
+/** Keyed by screen name; add a screen by merging a key into this interface from another declaration file. */
+interface ScreenNames {
+  '404': true
+  AI: true
+  Album: true
+  Albums: true
+  Artist: true
+  Artists: true
+  Default: true
+  'EmailChange.Confirm': true
+  Embed: true
+  Episode: true
+  Favorites: true
+  Genre: true
+  Genres: true
+  Home: true
+  'Invitation.Accept': true
+  MediaBrowser: true
+  OfflineSongs: true
+  'Password.Reset': true
+  Playlist: true
+  'Playlist.Collaborate': true
+  Podcast: true
+  Podcasts: true
+  Queue: true
+  'Radio.Stations': true
+  RecentlyPlayed: true
+  Statistics: true
+  'Search.Excerpt': true
+  'Search.Playables': true
+  Settings: true
+  Songs: true
+  Upload: true
+  Visualizer: true
+  YouTube: true
+}
+
+declare type ScreenName = keyof ScreenNames
+
+interface HookSlotNames {
+  'app.top': true
+  'sidebar.footer': true
+  'screen.header': true
+  'accept-invitation-form.footer': true
+  'login-form.footer': true
+  'profile-tab.footer': true
+}
+
+declare type HookSlotName = keyof HookSlotNames
+
+/** Route names added outside the built-in route table; add one by merging a key into this interface from another declaration file. */
+interface RouteNames {}
 
 declare type CardLayout = 'full' | 'compact'
 
@@ -614,6 +748,7 @@ interface PlayableListConfig {
   collaborative: boolean
   hasCustomOrderSort: boolean
   hasHeader: boolean
+  sortedOnServer: boolean
 }
 
 interface PlayableListContext {
@@ -715,11 +850,37 @@ interface CursorPaginatorResource<T> {
 
 type EditSongFormTabName = 'details' | 'lyrics' | 'visibility'
 
+type ToastType = 'info' | 'success' | 'warning' | 'danger' | 'loading'
+
+interface ToastAction {
+  label: string
+  handler: Closure
+  primary?: boolean
+}
+
 interface ToastMessage {
   id: string
-  type: 'info' | 'success' | 'warning' | 'danger'
+  type: ToastType
   content: string
+  icon?: import('vue').Component
+  iconProps?: Record<string, unknown>
+  component?: import('vue').Component
+  props?: Record<string, unknown>
+  actions?: ToastAction[]
+  persistent?: boolean
   timeout: number // seconds
+  onDismiss?: Closure
+}
+
+type ToastDetails = string | (Pick<ToastMessage, 'content'> & Partial<Omit<ToastMessage, 'id' | 'type' | 'content'>>)
+
+type ToastOutcome<T> = ToastDetails | ((value: T) => ToastDetails)
+
+interface ToastPromiseMessages<T> {
+  loading: ToastDetails
+  success: ToastOutcome<T>
+  error: ToastOutcome<unknown>
+  warning?: (value: T) => ToastDetails | undefined
 }
 
 interface Genre {
@@ -736,6 +897,7 @@ interface Visualizer {
   init: (container: HTMLElement) => Promise<Closure>
   id: string
   name: string
+  importsMilkdropPresets?: boolean
   credits?: {
     author: string
     url: string
@@ -790,6 +952,7 @@ interface LiveEvent {
     name: string
     url: string
     city: string
+    country: string
   }
 }
 
@@ -824,6 +987,8 @@ interface AiResponse {
     | 'create_smart_playlist'
     | 'add_radio_station'
     | 'play_radio_station'
+    | 'add_podcast'
+    | 'play_episode'
     | 'add_to_favorites'
     | 'remove_from_favorites'
     | 'add_to_playlist'
@@ -844,6 +1009,9 @@ interface AiResponse {
     podcasts?: Podcast[]
     playlist?: Playlist
     station?: RadioStation
+    podcast?: Podcast
+    episode?: Episode
+    position?: number
     song?: Song
     album?: Album
     artist?: Artist

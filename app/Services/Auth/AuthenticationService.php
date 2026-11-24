@@ -7,7 +7,9 @@ use App\Exceptions\InvalidLoginTokenException;
 use App\Exceptions\RequiresTwoFactorException;
 use App\Models\User;
 use App\Repositories\UserRepository;
+use App\Services\SecurityNoticeService;
 use App\Values\CompositeToken;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Passwords\PasswordBroker;
 use Illuminate\Support\Facades\Cache;
@@ -24,6 +26,7 @@ class AuthenticationService
         private readonly TokenManager $tokenManager,
         private readonly PasswordBroker $passwordBroker,
         private readonly TwoFactorAuthenticator $twoFactorAuth,
+        private readonly SecurityNoticeService $securityNoticeService,
     ) {}
 
     public function authenticate(string $email, #[SensitiveParameter] string $password): User
@@ -71,14 +74,33 @@ class AuthenticationService
         return $this->logUserIn($user);
     }
 
+    /**
+     * @return array{two_factor: true, login_token: string}|array{token: string, audio-token: string}
+     */
+    public function logUserInOrStartTwoFactorChallenge(User $user): array
+    {
+        if ($user->hasTwoFactorEnabled()) {
+            return ['two_factor' => true, 'login_token' => $this->generateTwoFactorLoginToken($user)];
+        }
+
+        return $this->logUserIn($user)->toArray();
+    }
+
     public function logUserIn(User $user): CompositeToken
     {
+        throw_if($user->isPendingDeletion(), AuthenticationException::class);
+
         return $this->tokenManager->createCompositeToken($user);
     }
 
     public function logoutViaBearerToken(#[SensitiveParameter] string $token): void
     {
         $this->tokenManager->deleteCompositionToken($token);
+    }
+
+    public function logOutOtherSessions(User $user, #[SensitiveParameter] string $currentToken): void
+    {
+        $this->tokenManager->destroyOtherSessions($user, $currentToken);
     }
 
     public function trySendResetPasswordLink(string $email): bool
@@ -100,14 +122,22 @@ class AuthenticationService
             'token' => $token,
         ];
 
-        $status = $this->passwordBroker->reset($credentials, static function (
+        $status = $this->passwordBroker->reset($credentials, function (
             User $user,
             #[SensitiveParameter]
             string $password,
         ): void {
             $user->password = $password;
+
+            if ($user->is_prospect) {
+                $user->invitation_token = null;
+                $user->invitation_accepted_at = now();
+            }
+
             $user->save();
+            $this->tokenManager->destroyTokens($user);
             event(new PasswordReset($user));
+            $this->securityNoticeService->notifyPasswordChanged($user);
         });
 
         return $status === Password::PASSWORD_RESET;

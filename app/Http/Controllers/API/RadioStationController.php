@@ -31,6 +31,8 @@ class RadioStationController extends Controller
     #[DisabledInDemo]
     public function store(RadioStationStoreRequest $request)
     {
+        $this->authorize('create', RadioStation::class);
+
         $station = $this->radioService->createRadioStation($request->toDto(), $this->user);
 
         return RadioStationResource::make($station)->response()->setStatusCode(Response::HTTP_CREATED);
@@ -49,7 +51,7 @@ class RadioStationController extends Controller
     {
         $this->authorize('delete', $station);
 
-        $station->delete();
+        $this->radioService->deleteRadioStation($station);
 
         return response()->noContent();
     }

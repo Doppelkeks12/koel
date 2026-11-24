@@ -2,6 +2,7 @@
 
 namespace Tests\Integration\Services\License;
 
+use App\Enums\LicenseStatus as Status;
 use App\Exceptions\FailedToActivateLicenseException;
 use App\Http\Integrations\LemonSqueezy\Requests\ActivateLicenseRequest;
 use App\Http\Integrations\LemonSqueezy\Requests\DeactivateLicenseRequest;
@@ -11,7 +12,9 @@ use App\Services\License\LicenseService;
 use App\Values\License\LicenseStatus;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Saloon\Http\Faking\MockResponse;
 use Saloon\Laravel\Facades\Saloon;
@@ -223,5 +226,105 @@ class LicenseServiceTest extends TestCase
 
         self::assertFalse($this->service->getStatus()->isValid());
         self::assertTrue(Cache::has('license_status'));
+    }
+
+    #[Test]
+    #[DataProvider('provideInconclusiveResponseStatuses')]
+    public function getLicenseStatusIsUnknownWhenValidationCannotConclude(int $responseStatus): void
+    {
+        $license = License::factory()->createOne();
+
+        Saloon::fake([ValidateLicenseRequest::class => MockResponse::make(status: $responseStatus)]);
+
+        $status = $this->service->getStatus();
+
+        self::assertSame(Status::UNKNOWN, $status->status);
+        self::assertTrue($status->license->is($license));
+    }
+
+    #[Test]
+    public function getLicenseStatusCachesAnUnknownStatusOnlyBriefly(): void
+    {
+        License::factory()->createOne();
+
+        Saloon::fake([
+            ValidateLicenseRequest::class => MockResponse::make(status: Response::HTTP_SERVICE_UNAVAILABLE),
+        ]);
+
+        $this->service->getStatus();
+        $this->service->getStatus();
+
+        Saloon::assertSentCount(1);
+
+        $this->travel(16)->minutes();
+        app(LicenseService::class)->getStatus();
+
+        Saloon::assertSentCount(2);
+    }
+
+    #[Test]
+    public function getLicenseStatusResolvesOnlyOnce(): void
+    {
+        $this->service->getStatus();
+
+        DB::enableQueryLog();
+        $this->service->getStatus();
+
+        self::assertEmpty(DB::getQueryLog());
+    }
+
+    #[Test]
+    public function activatingRefreshesTheResolvedStatus(): void
+    {
+        config(['lemonsqueezy.store_id' => 42]);
+
+        Saloon::fake([
+            ActivateLicenseRequest::class => MockResponse::make(body: File::get(test_path(
+                'fixtures/lemonsqueezy/license-activated-successful.json',
+            ))),
+        ]);
+
+        self::assertFalse($this->service->isPlus());
+
+        $this->service->activate('38b1460a-5104-4067-a91d-77b872934d51');
+
+        self::assertTrue($this->service->isPlus());
+    }
+
+    #[Test]
+    public function deactivatingRefreshesTheResolvedStatus(): void
+    {
+        $license = License::factory()->createOne();
+        Cache::put('license_status', LicenseStatus::valid($license));
+        Saloon::fake([DeactivateLicenseRequest::class => MockResponse::make(status: Response::HTTP_NOT_FOUND)]);
+
+        self::assertTrue($this->service->isPlus());
+
+        $this->service->deactivate($license);
+
+        self::assertFalse($this->service->isPlus());
+    }
+
+    #[Test]
+    public function getLicenseStatusDoesNotCacheAFailureThatIsNotTheValidationService(): void
+    {
+        License::factory()->createOne();
+
+        Saloon::fake([ValidateLicenseRequest::class => MockResponse::make(body: '{"not":"a license"}')]);
+
+        self::assertSame(Status::UNKNOWN, $this->service->getStatus()->status);
+        self::assertFalse(Cache::has('license_status'));
+    }
+
+    /** @return array<array{int}> */
+    public static function provideInconclusiveResponseStatuses(): array
+    {
+        return [
+            [Response::HTTP_TOO_MANY_REQUESTS],
+            [Response::HTTP_INTERNAL_SERVER_ERROR],
+            [Response::HTTP_BAD_GATEWAY],
+            [Response::HTTP_SERVICE_UNAVAILABLE],
+            [Response::HTTP_GATEWAY_TIMEOUT],
+        ];
     }
 }

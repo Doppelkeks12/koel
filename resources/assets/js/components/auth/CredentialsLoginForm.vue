@@ -1,27 +1,38 @@
 <template>
   <AuthFormCard :failed data-testid="login-form" @submit="handleSubmit">
     <FormRow>
-      <TextInput v-model="data.email" autofocus :placeholder="emailPlaceholder" required type="email" />
+      <TextInput v-model="data.email" :autofocus="!loginHint" :placeholder="emailPlaceholder" required type="email" />
     </FormRow>
 
     <FormRow>
-      <PasswordField v-model="data.password" :placeholder="passwordPlaceholder" required />
+      <PasswordField
+        v-model="data.password"
+        :autofocus="Boolean(loginHint)"
+        :placeholder="passwordPlaceholder"
+        required
+      />
     </FormRow>
 
     <FormRow>
-      <Btn class="w-full" data-testid="submit" type="submit">Log In</Btn>
+      <Btn class="w-full" data-testid="submit" :disabled="loading" type="submit">Log In</Btn>
     </FormRow>
 
-    <FormRow v-if="canResetPassword">
-      <a class="text-right text-[.95rem] text-k-fg-70" role="button" @click.prevent="$emit('forgotPassword')">
+    <div v-if="forgotPasswordUrl">
+      <a :href="forgotPasswordHref" class="text-right text-[.95rem] text-k-fg-70">Forgot password?</a>
+    </div>
+
+    <div v-else-if="canResetPassword">
+      <button class="text-right text-[.95rem] text-k-fg-70" type="button" @click.prevent="$emit('forgotPassword')">
         Forgot password?
-      </a>
-    </FormRow>
+      </button>
+    </div>
   </AuthFormCard>
 </template>
 
 <script lang="ts" setup>
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { Filter } from '@/config/hooks'
+import { applyFilters } from '@/hooks'
 import { authService } from '@/services/authService'
 import { logger } from '@/utils/logger'
 import { useForm } from '@/composables/useForm'
@@ -47,6 +58,21 @@ const failed = ref(false)
 const canResetPassword = window.KOEL.mailer_configured && !window.KOEL.is_demo
 const emailPlaceholder = window.KOEL.is_demo ? demoAccount.email : 'Your email address'
 const passwordPlaceholder = window.KOEL.is_demo ? demoAccount.password : 'Your password'
+const forgotPasswordUrl = applyFilters<string | null>(Filter.FORGOT_PASSWORD_URL, null)
+
+const takeLoginHint = () => {
+  const url = new URL(window.location.href)
+  const hint = url.searchParams.get('login_hint') ?? ''
+
+  if (url.searchParams.has('login_hint')) {
+    url.searchParams.delete('login_hint')
+    window.history.replaceState(window.history.state, '', url)
+  }
+
+  return hint
+}
+
+const loginHint = takeLoginHint()
 
 let errorResetTimer: number | null = null
 
@@ -57,13 +83,16 @@ const clearErrorResetTimer = () => {
   }
 }
 
-const { data, handleSubmit } = useForm<{ email: string; password: string }>({
+const { data, loading, handleSubmit } = useForm<{ email: string; password: string }>({
   initialValues: window.KOEL.is_demo
     ? demoAccount
     : {
-        email: '',
+        email: loginHint,
         password: '',
       },
+  toast: {
+    loading: 'Logging in…',
+  },
   onSubmit: async ({ email, password }) => await authService.login(email, password),
   onSuccess: challenge => {
     failed.value = false
@@ -85,6 +114,20 @@ const { data, handleSubmit } = useForm<{ email: string; password: string }>({
       errorResetTimer = null
     }, 2000)
   },
+})
+
+const forgotPasswordHref = computed(() => {
+  if (!forgotPasswordUrl) {
+    return undefined
+  }
+
+  const url = new URL(forgotPasswordUrl, window.location.href)
+
+  if (data.email) {
+    url.searchParams.set('email', data.email)
+  }
+
+  return url.toString()
 })
 
 onBeforeUnmount(clearErrorResetTimer)

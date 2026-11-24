@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Facades\License;
 use App\Models\Song;
 use App\Models\User;
+use App\Services\Integrations\MusicBrainzService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\URL;
@@ -25,16 +26,19 @@ class SongResource extends JsonResource
         'album_artist_name',
         'album_cover',
         'full_screen_cover',
+        'album_small_cover',
         'length',
         'liked',
         'rating',
         'play_count',
         'track',
+        'track_label',
         'genre',
         'year',
         'disc',
         'is_public',
         'created_at',
+        'mbid',
     ];
 
     public const array PAGINATION_JSON_STRUCTURE = [
@@ -94,6 +98,16 @@ class SongResource extends JsonResource
         return $this;
     }
 
+    /** @return array<string, mixed> */
+    private function resolvePlusAttributes(bool $embedding): array
+    {
+        return [
+            'loudness' => $this->song->analysis?->loudness,
+            'true_peak' => $this->song->analysis?->true_peak,
+            'hidden' => $this->unless($embedding, (bool) $this->song->hidden),
+        ];
+    }
+
     /** @inheritDoc */
     public function toArray(Request $request): array
     {
@@ -101,6 +115,7 @@ class SongResource extends JsonResource
         $isPlus = once(static fn () => License::isPlus());
         $user = $this->user ?? once(static fn () => auth()->user());
         $embedding = $request->routeIs('embeds.payload');
+        $musicBrainzEnabled = MusicBrainzService::enabled();
 
         $data = [
             'type' => Str::plural($this->song->type->value),
@@ -115,26 +130,22 @@ class SongResource extends JsonResource
             'album_artist_name' => $this->unless($embedding, $this->song->album_artist?->name),
             'album_cover' => image_storage_url($this->song->album?->cover),
             'full_screen_cover' => image_storage_url($this->song->album?->full_screen_cover),
+            'album_small_cover' => image_storage_url($this->song->album?->small_cover ?: $this->song->album?->cover),
             'length' => $this->song->length,
             'liked' => $this->unless($embedding, $this->song->favorite), // backwards compatibility
             'favorite' => $this->unless($embedding, $this->song->favorite),
             'rating' => $this->unless($embedding, fn () => (int) ($this->song->rating ?? 0)),
             'play_count' => $this->unless($embedding, (int) $this->song->play_count),
             'track' => $this->song->track,
+            'track_label' => $this->song->track_label,
             'disc' => $this->unless($embedding, $this->song->disc),
             'genre' => $this->unless($embedding, $this->song->genre),
             'year' => $this->unless($embedding, $this->song->year),
             'is_public' => $this->unless($embedding, $this->song->is_public),
             'created_at' => $this->unless($embedding, $this->song->created_at),
-            'embed_stream_url' => $this->when($embedding, fn () => URL::temporarySignedRoute(
-                'embeds.stream',
-                now()->addDay(),
-                [
-                    'song' => $this->song->id,
-                    'embed' => $request->route('embed')->id, // @phpstan-ignore-line
-                    'options' => $request->route('options'),
-                ],
-            )),
+            'mbid' => $this->when($musicBrainzEnabled && !$embedding, $this->song->mbid),
+            $this->mergeWhen($isPlus, fn (): array => $this->resolvePlusAttributes($embedding)),
+            $this->mergeWhen($embedding, fn (): array => $this->resolveEmbedPlaybackAttributes($request)),
         ];
 
         if ($this->song->isEpisode()) {
@@ -149,10 +160,23 @@ class SongResource extends JsonResource
         } else {
             $data += [
                 'owner_id' => $this->unless($embedding, $this->song->owner->public_id),
+                'file_size' => $this->unless($embedding, $this->song->file_size),
                 'is_external' => $this->unless($embedding, fn () => $isPlus && !$this->song->ownedBy($user)),
             ];
         }
 
         return $data;
+    }
+
+    /** @return array<string, mixed> */
+    private function resolveEmbedPlaybackAttributes(Request $request): array
+    {
+        return [
+            'embed_stream_url' => URL::temporarySignedRoute('embeds.stream', now()->addDay(), [
+                'song' => $this->song->id,
+                'embed' => $request->route('embed')->id, // @phpstan-ignore-line
+                'options' => $request->route('options'),
+            ]),
+        ];
     }
 }

@@ -2,7 +2,9 @@
 
 namespace Tests\Integration\Services\Auth;
 
+use App\Models\User;
 use App\Services\Auth\AuthenticationService;
+use App\Services\Auth\TokenManager;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
@@ -41,6 +43,18 @@ class AuthenticationServiceTest extends TestCase
     }
 
     #[Test]
+    public function tryResetPasswordUsingBrokerRevokesAllTokens(): void
+    {
+        $user = create_user();
+        app(TokenManager::class)->createCompositeToken($user);
+        app(TokenManager::class)->createCompositeToken($user);
+
+        $this->service->tryResetPasswordUsingBroker($user->email, 'new-password', Password::createToken($user));
+
+        self::assertSame(0, $user->tokens()->count());
+    }
+
+    #[Test]
     public function tryResetPasswordUsingBrokerWithInvalidToken(): void
     {
         Event::fake();
@@ -49,5 +63,23 @@ class AuthenticationServiceTest extends TestCase
         self::assertFalse($this->service->tryResetPasswordUsingBroker($user->email, 'new-password', 'invalid-token'));
         self::assertTrue(Hash::check('old-password', $user->fresh()->password));
         Event::assertNotDispatched(PasswordReset::class);
+    }
+
+    #[Test]
+    public function resettingPasswordAcceptsPendingInvitation(): void
+    {
+        Event::fake();
+        $prospect = User::factory()->prospect()->createOne();
+
+        self::assertTrue($this->service->tryResetPasswordUsingBroker(
+            $prospect->email,
+            'new-password',
+            Password::createToken($prospect),
+        ));
+
+        $prospect->refresh();
+
+        self::assertFalse($prospect->is_prospect);
+        self::assertNotNull($prospect->invitation_accepted_at);
     }
 }

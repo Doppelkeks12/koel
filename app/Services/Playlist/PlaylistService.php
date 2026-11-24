@@ -9,8 +9,10 @@ use App\Models\Playlist;
 use App\Models\PlaylistFolder;
 use App\Models\Song as Playable;
 use App\Models\User;
+use App\Repositories\PlaylistRepository;
 use App\Repositories\SongRepository;
 use App\Services\Image\ImageStorage;
+use App\Services\LibrarySummaryService;
 use App\Values\Playlist\PlaylistCreateData;
 use App\Values\Playlist\PlaylistUpdateData;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,15 +26,15 @@ class PlaylistService
     public function __construct(
         private readonly ImageStorage $imageStorage,
         private readonly SongRepository $songRepository,
+        private readonly PlaylistRepository $playlistRepository,
+        private readonly PlaylistPlayableMover $playableMover,
         private readonly PlaylistFolderService $folderService,
+        private readonly LibrarySummaryService $librarySummaryService,
     ) {}
 
     public function createPlaylist(PlaylistCreateData $data, User $user): Playlist
     {
-        // cover is optional and not critical, so no transaction is needed
-        $cover = rescue_if($data->cover, function () use ($data) {
-            return $this->imageStorage->storeImage($data->cover);
-        });
+        $cover = $this->imageStorage->storeOptionalImage($data->cover)->fileName;
 
         return DB::transaction(function () use ($data, $cover, $user): Playlist {
             /** @var Playlist $playlist */
@@ -73,15 +75,11 @@ class PlaylistService
 
     public function updatePlaylist(Playlist $playlist, PlaylistUpdateData $dto): Playlist
     {
-        $data = [
+        $data = $this->imageStorage->storeOptionalImage($dto->cover)->applyToAttributes([
             'name' => $dto->name,
             'description' => $dto->description,
             'rules' => $dto->ruleGroups,
-        ];
-
-        if (is_string($dto->cover)) {
-            $data['cover'] = rescue_if($dto->cover, fn () => $this->imageStorage->storeImage($dto->cover), '');
-        }
+        ], 'cover');
 
         $playlist->update($data);
 
@@ -130,22 +128,41 @@ class PlaylistService
     ): EloquentCollection {
         return DB::transaction(function () use ($playlist, $playables, $user) {
             $playables = Collection::wrap($playables);
+            $playableIds = $playables->pluck('id')->all();
 
-            $playlist->addPlayables(
-                $playables->filter(static fn ($song): bool => !$playlist->playables->contains($song)),
-                $user,
-            );
+            $existingIds = $this->playlistRepository
+                ->getPlayablePositionsInPlaylist($playlist, $playableIds)
+                ->keys()
+                ->all();
+
+            $playlist->addPlayables(array_values(array_diff($playableIds, $existingIds)), $user);
 
             // if the playlist is collaborative, make the songs public
             if ($this->isPlaylistCollaborative($playlist)) {
-                $this->makePlaylistContentPublic($playlist);
+                $this->makePlaylistContentPublic($playlist, $user);
             }
 
             // we want a fresh copy of the songs with the possibly updated visibility
             return $this->songRepository->getManyInCollaborativeContext(
-                ids: $playables->pluck('id')->all(),
+                playlist: $playlist,
+                ids: $playableIds,
                 scopedUser: $user,
             );
+        });
+    }
+
+    /**
+     * @param array<string> $playableIds
+     */
+    public function replacePlayablesInPlaylist(Playlist $playlist, array $playableIds, User $user): void
+    {
+        DB::transaction(function () use ($playlist, $playableIds, $user): void {
+            $playlist->playables()->detach();
+            $playlist->addPlayables(array_values(array_unique($playableIds)), $user);
+
+            if ($this->isPlaylistCollaborative($playlist)) {
+                $this->makePlaylistContentPublic($playlist, $user);
+            }
         });
     }
 
@@ -154,9 +171,15 @@ class PlaylistService
         $playlist->removePlayables($playables);
     }
 
-    public function makePlaylistContentPublic(Playlist $playlist): void
+    public function makePlaylistContentPublic(Playlist $playlist, User $songOwner): void
     {
-        $playlist->playables()->where('is_public', false)->update(['is_public' => true]);
+        $playlist
+            ->playables()
+            ->whereBelongsTo($songOwner, 'owner')
+            ->where('is_public', false)
+            ->update(['is_public' => true]);
+
+        $this->librarySummaryService->markLibraryChanged();
     }
 
     /** @param array<string> $movingIds */
@@ -168,26 +191,7 @@ class PlaylistService
     ): void {
         throw_if($playlist->is_smart, OperationNotApplicableForSmartPlaylistException::class);
 
-        DB::transaction(static function () use ($playlist, $movingIds, $target, $placement): void {
-            $targetPosition = $playlist->playables()->wherePivot('song_id', $target)->value('position');
-            $insertPosition = $placement === Placement::BEFORE ? $targetPosition : $targetPosition + 1;
-
-            // create a "gap" for the moving songs by incrementing the position of the songs after the target
-            $playlist
-                ->playables()
-                ->newPivotQuery()
-                ->where('position', $placement === Placement::BEFORE ? '>=' : '>', $targetPosition)
-                ->whereNotIn('song_id', $movingIds)
-                ->increment('position', count($movingIds));
-
-            $values = [];
-
-            foreach ($movingIds as $id) {
-                $values[$id] = ['position' => $insertPosition++];
-            }
-
-            $playlist->playables()->syncWithoutDetaching($values);
-        });
+        $this->playableMover->movePlayables($playlist, $movingIds, $target, $placement);
     }
 
     public function isPlaylistCollaborative(Playlist $playlist): bool
@@ -195,5 +199,17 @@ class PlaylistService
         return once(
             static fn () => !$playlist->is_smart && LicenseFacade::isPlus() && $playlist->collaborators->isNotEmpty(),
         );
+    }
+
+    public function deletePlaylist(Playlist $playlist): void
+    {
+        $playlist->delete();
+    }
+
+    public function deletePlaylistsByUser(User $user): void
+    {
+        $user
+            ->loadMissing('ownedPlaylists')
+            ->ownedPlaylists->each(static fn (Playlist $playlist) => $playlist->delete());
     }
 }
